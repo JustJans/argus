@@ -48,8 +48,16 @@ not returned an estimated one, so you are unlikely to ever see it.
 **Required:** Node.js 18 or newer (the code uses the built-in `fetch`) and a
 Telegram bot token. That is all the job search itself needs.
 
-**On Windows, do all of this inside WSL.** The bot is plain Node and runs
-anywhere Node does, but `setup.sh` and the scheduling are Unix-shaped.
+**You do not need a server.** The engine is plain Node and runs natively on
+Windows, macOS and Linux — a laptop is fine. What it does need is to be awake
+when a scan is due: on an always-on machine it works round the clock, and on a
+laptop you close at night it simply searches when the laptop is open. Nothing
+breaks either way.
+
+**On Windows**, run `setup.sh` from Git Bash (it ships with Git for Windows) or
+from WSL, since it is a shell script. Scheduling is the one genuinely Unix-shaped
+part: use Task Scheduler for the four jobs below, or run the whole thing inside
+WSL and use cron there.
 
 **Optional extras**, each one only unlocks its own feature and nothing breaks
 without it:
@@ -76,9 +84,7 @@ node server-bot/notify.mjs --setup
 Next, run it on a schedule (the bot does not schedule itself). Do this **before**
 the step below: the listener line is the one that receives your Telegram
 commands, so until it is running the bot cannot answer, not even `/start`.
-`setup.sh` offers to install all four for you; if you skipped it, or you are on
-Windows outside WSL (four Task Scheduler entries, same commands and intervals),
-here they are:
+`setup.sh` offers to install all four for you. If you skipped it, here they are:
 
 ```cron
 *    * * * * cd /path/to/argus && /usr/bin/flock -n /tmp/argus-listener.lock /usr/bin/node server-bot/telegram-listener.mjs >> server-bot/listener.log 2>&1
@@ -86,6 +92,19 @@ here they are:
 30 7  * * * cd /path/to/argus && /usr/bin/node server-bot/housekeep.mjs --liveness-only >> server-bot/scan.log 2>&1
 0 9   * * 0 cd /path/to/argus && /usr/bin/node server-bot/housekeep.mjs >> server-bot/scan.log 2>&1
 ```
+
+On **Windows**, the same four go into Task Scheduler. `setup.sh` prints them
+filled in with your own paths; the shape is:
+
+```powershell
+schtasks /create /tn "Argus listener" /sc minute /mo 1 /tr '"C:\Program Files\nodejs\node.exe" "C:\path\to\argus\server-bot\telegram-listener.mjs"'
+schtasks /create /tn "Argus scan"     /sc hourly /mo 2 /tr '"C:\Program Files\nodejs\node.exe" "C:\path\to\argus\server-bot\scan.mjs"'
+schtasks /create /tn "Argus links"    /sc daily /st 07:30 /tr '"C:\Program Files\nodejs\node.exe" "C:\path\to\argus\server-bot\housekeep.mjs" --liveness-only'
+schtasks /create /tn "Argus cleanup"  /sc weekly /d SUN /st 09:00 /tr '"C:\Program Files\nodejs\node.exe" "C:\path\to\argus\server-bot\housekeep.mjs"'
+```
+
+No administrator rights needed. Windows only runs them while the machine is
+awake, which is fine — a laptop you close simply searches when you open it.
 
 Finally, build your profile: **send `/start` to the bot.** It walks you through a
 short questionnaire (CV + a few questions, some with buttons) and writes

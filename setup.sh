@@ -127,8 +127,29 @@ CRON_LINES="\
 if crontab -l 2>/dev/null | grep -qF "cd $ROOT &&"; then
   ok "This copy of Argus is already in your crontab — leaving it alone"
 elif ! command -v crontab >/dev/null 2>&1; then
-  warn "No crontab on this machine. Schedule these yourself:"
-  echo "$CRON_LINES"
+  # ➤ Windows has no cron, and printing the lines above would be worse than
+  # ➤ printing nothing: they carry /c/... paths and flock, neither of which
+  # ➤ exists here. Task Scheduler is the equivalent, so give the four commands
+  # ➤ that actually work, with Windows paths.
+  case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*)
+      WROOT="$(cygpath -w "$ROOT" 2>/dev/null || echo "$ROOT")"
+      WNODE="$(cygpath -w "$(command -v node)" 2>/dev/null || command -v node)"
+      warn "Windows has no cron. Paste these four into PowerShell (no admin needed):"
+      echo
+      echo "  schtasks /create /tn \"Argus listener\" /sc minute /mo 1 /tr '\"$WNODE\" \"$WROOT\\server-bot\\telegram-listener.mjs\"'"
+      echo "  schtasks /create /tn \"Argus scan\"     /sc hourly /mo 2 /tr '\"$WNODE\" \"$WROOT\\server-bot\\scan.mjs\"'"
+      echo "  schtasks /create /tn \"Argus links\"    /sc daily /st 07:30 /tr '\"$WNODE\" \"$WROOT\\server-bot\\housekeep.mjs\" --liveness-only'"
+      echo "  schtasks /create /tn \"Argus cleanup\"  /sc weekly /d SUN /st 09:00 /tr '\"$WNODE\" \"$WROOT\\server-bot\\housekeep.mjs\"'"
+      echo
+      echo "  The machine only runs them while it is awake, which is fine: a laptop"
+      echo "  you close simply searches when you open it again."
+      ;;
+    *)
+      warn "No crontab on this machine. Schedule these yourself:"
+      echo "$CRON_LINES"
+      ;;
+  esac
 else
   echo "  Argus needs to run on a schedule. The listener (every minute) is what"
   echo "  receives your Telegram commands — without it the bot cannot answer, not"
