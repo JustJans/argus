@@ -15,7 +15,7 @@ Two subsystems go past filtering and ask whether the filtering itself is right:
 **[the Council](#the-council--three-judges-and-why-they-still-do-not-vote)**,
 three LLM judges that review offers in shadow and were measured rather than
 trusted, and
-**[argus-discover](#argus-discover--auditing-the-search-not-the-offer)**, which
+**[Discover](#discover--auditing-the-search-not-the-offer)**, which
 audits the search against your CV, the EU occupation taxonomy, the live market
 and its own discards.
 
@@ -166,7 +166,7 @@ four times in five and still throws away more than half of what mattered is not
 ready to decide, so it does not. `reconcile.mjs` keeps filling in what you
 really did, so the number stays checkable instead of becoming a claim.
 
-### Argus-discover — auditing the search, not the offer
+### Discover — auditing the search, not the offer
 
 `server-bot/argus-discover/` · [its README](server-bot/argus-discover/README.md)
 
@@ -220,7 +220,7 @@ The engine lives in `server-bot/`:
   [Beyond the filters](#the-council--three-judges-and-why-they-still-do-not-vote);
   their prompts can be overridden per user via `search.judge_prompts`.
 - `argus-discover/` — the four tools that audit the search itself. See
-  [Beyond the filters](#argus-discover--auditing-the-search-not-the-offer).
+  [Beyond the filters](#discover--auditing-the-search-not-the-offer).
 
 ## When something doesn't work
 

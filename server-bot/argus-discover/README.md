@@ -1,4 +1,4 @@
-# Argus-discover — is the SEARCH right?
+# Discover — is the SEARCH right?
 
 Every other part of Argus judges an offer. These four tools judge the **search**:
 whether you are looking for the right things, in the right words, in the first
