@@ -246,7 +246,7 @@ The engine lives in `server-bot/`:
 Every part can be run by hand, and each one prints why it failed:
 
 ```bash
-npm test                                    # 776 tests; run this first
+npm test                                    # 829 tests; run this first
 node server-bot/scan.mjs --dry-run          # scan without writing or notifying
 node server-bot/scan.mjs --explain          # why each offer was dropped → data/scan-explain.txt
 node server-bot/telegram-listener.mjs       # process pending commands once

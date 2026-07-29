@@ -12,11 +12,11 @@
 import { claudeErrorKind, claudeErrorMessage } from './claude-cli.mjs';
 import { parseVerdict } from './argus-council/judges.mjs';
 import { parseLetter, coverFileBase, resolveCoverBase } from './cover-letter.mjs';
-import { writeFileAtomic } from './fs-atomic.mjs';
+import { writeFileAtomic, tempNameFor } from './fs-atomic.mjs';
 import { classifyLiveness } from './liveness-core.mjs';
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync, copyFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { pathToFileURL } from 'url';
 import yaml from 'js-yaml';
 import { buildProfileYaml } from './onboarding.mjs';
@@ -125,6 +125,28 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   const leftovers = readdirSync(dir).filter(f => f.includes('.tmp'));
   eq(leftovers, [], 'no .tmp leftovers after an atomic write');
   ok(!existsSync(`${file}.tmp`), 'the temp name is NOT the fixed "<file>.tmp" any more');
+
+  // ➤ The checks above pass for a plain writeFileSync too, so on their own they
+  // ➤ do not defend the reason this module exists. These watch the MECHANISM.
+  const calls = [];
+  const spy = {
+    writeFileSync: (p, d) => calls.push(['write', p, d]),
+    renameSync: (from, to) => calls.push(['rename', from, to]),
+  };
+  writeFileAtomic(file, 'content C', 'utf-8', spy);
+  eq(calls.length, 2, 'a write and a rename, never a single direct write');
+  eq(calls[0][0], 'write', 'it writes first');
+  ok(calls[0][1] !== file, 'and it writes SOMEWHERE ELSE, never over the target');
+  eq(calls[1][0], 'rename', 'then renames');
+  eq(calls[1][2], file, 'the rename lands on the target');
+  eq(calls[1][1], calls[0][1], 'and it renames the very file it just wrote');
+
+  // ➤ Two writes to the SAME path must not pick the same scratch name, or the
+  // ➤ 07:30 cleanup and a "seen" from Telegram can rename a mixture into place.
+  ok(tempNameFor(file) !== tempNameFor(file), 'the temp name is different every time');
+  // ➤ And it must sit next to the target: a rename is only atomic within one
+  // ➤ filesystem, so a scratch file elsewhere would degrade into a copy.
+  eq(dirname(tempNameFor(file)), dirname(file), 'the temp file sits next to its target');
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -462,6 +484,30 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(topRecurring(once).length, 0, 'blind: a title seen once is not reported');
   eq(topRecurring(st).length, 1, 'blind: a title seen twice is');
 
+  // ➤ The cap. A scan every two hours would otherwise grow this file for ever;
+  // ➤ the live record already holds ~2,800 titles. What a cull must keep is the
+  // ➤ RECURRING ones, since a title seen once was never going to be reported.
+  {
+    const many = Array.from({ length: 40 }, (_, i) => ({ title: `Filler ${i}`, why: noField }));
+    const big = mergeDrops({ titles: {} }, many, { today: 'd1', cap: 10 });
+    eq(Object.keys(big.titles).length, 10, 'blind: the record is capped');
+
+    // ➤ The DEFAULT cap has to be finite too, not just one passed in by a test.
+    const flood = Array.from({ length: 4100 }, (_, i) => ({ title: `Flood ${i}`, why: noField }));
+    const defaulted = mergeDrops({ titles: {} }, flood, { today: 'd1' });
+    ok(Object.keys(defaulted.titles).length < flood.length, 'blind: the default cap is finite');
+
+    // ➤ A title seen many times must survive a cull, EVEN when every one-off
+    // ➤ around it is more recent. Culling by date alone would lose exactly the
+    // ➤ titles the record exists to surface.
+    let keep = mergeDrops({ titles: {} }, [{ title: 'Asset Integrity Engineer', why: noField }], { today: 'd1', cap: 10 });
+    keep = mergeDrops(keep, [{ title: 'Asset Integrity Engineer', why: noField }], { today: 'd1', cap: 10 });
+    keep = mergeDrops(keep, [{ title: 'Asset Integrity Engineer', why: noField }], { today: 'd1', cap: 10 });
+    keep = mergeDrops(keep, many, { today: 'd9', cap: 10 });
+    ok(Object.keys(keep.titles).some(k => /asset integrity/i.test(k)), 'blind: the recurring title survives a cull full of newer one-offs');
+    eq(Object.keys(keep.titles).length, 10, 'blind: and the cap still holds after the cull');
+  }
+
   // ➤ The caller's bucket WINS over the reason text. scan.mjs decides it by
   // ➤ re-testing without the field list; reading the text instead put 1,234
   // ➤ titles in the blind-spot bucket where the truth is 345, because
@@ -487,6 +533,101 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   // ➤ a cull is what recurs, which is exactly what is being looked for.
   const many = Array.from({ length: 50 }, (_, i) => ({ title: `Role ${i}`, why: noField }));
   eq(Object.keys(mergeDrops({ titles: {} }, many, { today: 'd1', cap: 10 }).titles).length, 10, 'blind: the record is capped');
+}
+
+// ── 19) "seen": marking the RIGHT line, and marking it as YOUR decision ────
+// ➤ This writes to the only copy of the pending list. Until now none of it was
+// ➤ covered: the wrong line could be marked, or the "| visto" tag dropped, and
+// ➤ the suite stayed green. The tag is the whole difference between "I decided
+// ➤ against this" (never comes back) and "the bot hid it" (may come back).
+{
+  const { markSeenInLines, indexPending, parseIds } = await import('./seen.mjs');
+  const base = [
+    '# Pipeline', '', '## Pending', '',
+    '- [ ] https://a/1 | ACME | Mooring Engineer | Spain | #678',
+    '- [ ] https://a/2 | BETA | Survey Engineer | France | #679',
+    '- [ ] https://a/3 | GAMMA | Offshore Engineer | Norway | #680',
+    '', '## Processed', '',
+    '- [x] https://a/0 | OLD | Something | Spain | #677 | visto',
+    // ➤ An offer the BOT removed carries no tag, so its #id sits at the end of
+    // ➤ the line exactly like a pending one. Only the section it lives in tells
+    // ➤ them apart, which is why the index has to respect the headings.
+    '- [x] https://a/9 | BOT | Hidden By Cleanup | Spain | #676',
+  ];
+
+  const r = markSeenInLines(base, [679]);
+  eq(r.lines[5], '- [x] https://a/2 | BETA | Survey Engineer | France | #679 | visto', 'seen: marks the line whose #id was asked for');
+  eq(r.lines[4], base[4], 'seen: and leaves the line above untouched');
+  eq(r.lines[6], base[6], 'seen: and the line below');
+  ok(/\|\s*visto\s*$/.test(r.lines[5]), 'seen: the decision tag is appended, so it can never come back');
+  eq(r.missing, [], 'seen: nothing reported missing');
+
+  // ➤ An id that is not pending must be reported, not silently ignored, and
+  // ➤ must not mark anything else by accident.
+  const gone = markSeenInLines(base, [999]);
+  eq(gone.missing, [999], 'seen: an unknown id is reported');
+  eq(gone.marked, [], 'seen: and nothing is marked');
+  eq(gone.lines.join('\n'), base.join('\n'), 'seen: the list comes back untouched');
+
+  // ➤ Only the Pending section counts: an id living under Processed must not
+  // ➤ be re-marked (it would get a second "| visto" and break the line shape).
+  eq(markSeenInLines(base, [677]).missing, [677], 'seen: an id under Processed is not pending');
+  // ➤ The one that actually looks pending. Marking it would tag an offer you
+  // ➤ never decided on as YOUR decision, so it could never come back.
+  const processed = markSeenInLines(base, [676]);
+  eq(processed.missing, [676], 'seen: a bot-hidden id under Processed is not pending either');
+  eq(processed.lines.join('\n'), base.join('\n'), 'seen: and that section is left alone');
+
+  // ➤ Several at once, and the ids are the FIXED numbers, not positions.
+  const two = markSeenInLines(base, [678, 680]);
+  ok(/visto$/.test(two.lines[4]) && /visto$/.test(two.lines[6]), 'seen: marks each id asked for');
+  eq(two.lines[5], base[5], 'seen: and only those');
+
+  // ➤ "seen 701 701" used to append the tag twice and break the "#id at the
+  // ➤ end" shape that the id counter and every parser rely on.
+  eq(parseIds(['701', '701', '#701']), [701], 'seen: repeated ids collapse to one');
+  eq(parseIds(['0', '-3', 'abc', '']), [], 'seen: junk ids are dropped');
+  eq(parseIds(['#412']), [412], 'seen: the hash is optional');
+
+  eq([...indexPending(base).keys()].sort((a, b) => a - b), [678, 679, 680], 'seen: only pending, unchecked lines are indexed');
+
+  // ➤ Belt AND braces: the index needs the line to be unchecked *and* to sit
+  // ➤ under Pending. Either guard alone looks redundant until the file is
+  // ➤ malformed, and real pipeline files do pick up stray lines.
+  const malformed = [
+    '# Pipeline', '', '## Pending', '',
+    '- [ ] https://a/1 | ACME | Mooring Engineer | Spain | #678',
+    '', '## Processed', '',
+    '- [ ] https://a/8 | STRAY | Left Unchecked By Mistake | Spain | #675',
+  ];
+  eq([...indexPending(malformed).keys()], [678], 'seen: an unchecked line under Processed is still out of reach');
+  eq(markSeenInLines(malformed, [675]).missing, [675], 'seen: and cannot be marked');
+}
+
+// ── 20) The URL gate ──────────────────────────────────────────────────────
+// ➤ Every other field is cleaned before being written, but the URL is written
+// ➤ raw because it is the key and must stay clickable. This function is the
+// ➤ only thing stopping a crafted link from injecting a whole fake line into
+// ➤ pipeline.md or scan-history.tsv. It had no test at all.
+{
+  const { isSafeUrl } = await import('./scan.mjs');
+
+  ok(isSafeUrl('https://www.adzuna.nl/details/5808162054'), 'url: a normal posting link passes');
+  ok(isSafeUrl('https://careers.acme.com/job/123?src=feed&x=1#top'), 'url: query and fragment are fine');
+
+  // ➤ The separator of pipeline.md. A URL carrying it would split one offer
+  // ➤ into two fields and corrupt every parser downstream.
+  ok(!isSafeUrl('https://x.com/a|b'), 'url: a pipe is refused');
+  // ➤ A newline would inject an entire extra line — a fake offer, or a fake
+  // ➤ "| visto" decision that hides a real one.
+  ok(!isSafeUrl('https://x.com/a\nb'), 'url: a newline is refused');
+  ok(!isSafeUrl('https://x.com/a\r\n- [ ] https://evil | X | Y | #1'), 'url: a full injected line is refused');
+  ok(!isSafeUrl('https://x.com/a\tb'), 'url: a tab is refused (the TSV separator)');
+  ok(!isSafeUrl('https://x.com/a b'), 'url: a raw space is refused');
+  ok(!isSafeUrl('https://x.com/a\u0000b'), 'url: a NUL is refused');
+  ok(!isSafeUrl('https://x.com/a\u007fb'), 'url: DEL is refused');
+  ok(!isSafeUrl(''), 'url: empty is refused');
+  ok(!isSafeUrl(null), 'url: null is refused');
 }
 
 if (fail) { console.log(`\n${fail}/${pass + fail} robustness tests FAILED.`); process.exit(1); }
