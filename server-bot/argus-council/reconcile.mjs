@@ -1,0 +1,124 @@
+// ➤ ═══════════════════════════════════════════════════════════════════════
+// ➤ WHAT IT IS: the "reality judge". Weeks later, it fills in the
+// ➤ userDecision field of each line in data/judge-shadow.jsonl by cross-checking
+// ➤ it against what the user ACTUALLY decided. This lets us measure, two weeks on,
+// ➤ whether the Council would have got it right. It is the step that turns the
+// ➤ shadow log into a grade.
+// ➤ WHAT IT DOES, start to finish:
+// ➤   1. Gathers the user's real decisions per offer:
+// ➤        · data/applications.jsonl  → 'show'  (application sent, "applied N")
+// ➤        · server-bot/feedback.jsonl→ 'hide'  (rejected with a reason, "no N ...")
+// ➤        · "| visto" marks in pipeline.md → 'seen' (the user looked at it and passed)
+// ➤   2. Walks through judge-shadow.jsonl and, for each line whose userDecision
+// ➤      is still empty, matches it by URL (preferred) or by id. Precedence:
+// ➤      applied(show) > rejected(hide) > seen(seen).
+// ➤   3. Rewrites the file with the userDecision fields filled in.
+// ➤ WHEN IT RUNS: by hand (or on an occasional cron) when it is time to review
+// ➤ the Council-vs-user agreement. It does NOT call the AI or the network.
+// ➤ WHAT IT USES (read-only except its own journal): applications.jsonl,
+// ➤ feedback.jsonl, pipeline.md. It only writes data/judge-shadow.jsonl.
+// ➤ ═══════════════════════════════════════════════════════════════════════
+
+import { readFileSync, existsSync, writeFileSync } from 'fs';
+// ➤ Atomic overwrite so a crash mid-write can't truncate the judges' journal.
+import { writeFileAtomic } from '../fs-atomic.mjs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const SERVERBOT = dirname(SCRIPT_DIR);
+const ROOT = dirname(SERVERBOT);
+const JOURNAL_PATH = join(ROOT, 'data', 'judge-shadow.jsonl');
+const APPLIED_PATH = join(ROOT, 'data', 'applications.jsonl');
+const FEEDBACK_PATH = join(SERVERBOT, 'feedback.jsonl');
+const PIPELINE_PATH = join(ROOT, 'data', 'pipeline.md');
+
+// ➤ Reads a .jsonl file and returns the list of valid objects (skips empty or
+// ➤ corrupt lines without breaking).
+function readJsonl(path) {
+  if (!existsSync(path)) return [];
+  const out = [];
+  for (const line of readFileSync(path, 'utf-8').split('\n')) {
+    const s = line.trim();
+    if (!s) continue;
+    try { out.push(JSON.parse(s)); } catch { /* corrupt line: ignored */ }
+  }
+  return out;
+}
+
+// ➤ Builds the "user's real decision" map per offer. Returns two indexes:
+// ➤ one by URL and one by id (both point to 'show' | 'hide' | 'seen').
+// ➤ Precedence when building: applied(show) overrides rejected(hide) overrides
+// ➤ seen(seen) — a submitted application wins over any other mark.
+export function buildUserDecisions({ applied = [], feedback = [], pipelineText = '' } = {}) {
+  const byUrl = new Map();
+  const byId = new Map();
+  // ➤ Applied from LOWEST to HIGHEST precedence, so the last write
+  // ➤ (the strongest one) wins.
+  const put = (rec, decision) => {
+    if (rec?.url) byUrl.set(rec.url, decision);
+    if (rec?.id != null) byId.set(String(rec.id), decision);
+  };
+  // ➤ 1) seen: the "| visto" lines from pipeline.md. They carry a "#id" and a URL.
+  for (const line of String(pipelineText).split('\n')) {
+    if (!/\|\s*visto\s*$/.test(line)) continue;
+    const idm = line.match(/#(\d+)/);
+    const urlm = line.match(/https?:\/\/\S+/);
+    if (idm) byId.set(idm[1], 'seen');
+    if (urlm) byUrl.set(urlm[0], 'seen');
+  }
+  // ➤ 2) rejected (hide): overrides the seen ones.
+  for (const r of feedback) put(r, 'hide');
+  // ➤ 3) applied (show): overrides everything.
+  // ➤ EXCEPT a longshot: "longshot N" means it was sent while knowing the
+  // ➤ requirements fall short, so it is NOT evidence the offer suited the user
+  // ➤ and must not grade the Council as right. It stays out of the ground truth
+  // ➤ entirely — 'seen' from the pipeline still applies if it was looked at.
+  for (const r of applied) if (!r.longshot) put(r, 'show');
+  return { byUrl, byId };
+}
+
+// ➤ Given a journal line and the indexes, decides what the user put (or null if
+// ➤ they have not decided it yet). The URL wins over the id.
+export function decideFor(rec, { byUrl, byId }) {
+  if (rec?.url && byUrl.has(rec.url)) return byUrl.get(rec.url);
+  if (rec?.id != null && byId.has(String(rec.id))) return byId.get(String(rec.id));
+  return null;
+}
+
+function main() {
+  if (!existsSync(JOURNAL_PATH)) {
+    console.log('data/judge-shadow.jsonl does not exist yet. Nothing to reconcile.');
+    return;
+  }
+  const idx = buildUserDecisions({
+    applied: readJsonl(APPLIED_PATH),
+    feedback: readJsonl(FEEDBACK_PATH),
+    pipelineText: existsSync(PIPELINE_PATH) ? readFileSync(PIPELINE_PATH, 'utf-8') : '',
+  });
+
+  const records = readJsonl(JOURNAL_PATH);
+  let filled = 0;
+  for (const rec of records) {
+    // ➤ Only the ones without a decision yet are filled (already-set values are not overwritten).
+    if (rec.userDecision) continue;
+    const d = decideFor(rec, idx);
+    if (d) { rec.userDecision = d; filled++; }
+  }
+  // ➤ SAFETY 2026-07-25 (audit): this rewrites the WHOLE journal from the lines
+  // ➤ it managed to parse, so any line it could not read was silently deleted.
+  // ➤ A journal is history: we refuse to shrink it.
+  const onDisk = readFileSync(JOURNAL_PATH, 'utf-8').split('\n').filter(l => l.trim()).length;
+  if (records.length < onDisk) {
+    console.error(`Refusing to rewrite the journal: ${onDisk} lines on disk but only ${records.length} readable. Nothing was changed.`);
+    return;
+  }
+  writeFileAtomic(JOURNAL_PATH, records.map(r => JSON.stringify(r)).join('\n') + (records.length ? '\n' : ''));
+  console.log(`Reconciled ${filled} offer(s) with the user's real decision (out of ${records.length} in the log).`);
+}
+
+// ➤ Guard anchored to the filename: run main() ONLY when launched directly, not
+// ➤ when imported from the tests. (If it is renamed, update this regex.)
+if (process.argv[1] && /(^|[\\/])reconcile\.mjs$/.test(process.argv[1])) {
+  main();
+}

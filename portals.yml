@@ -1,0 +1,1539 @@
+# ➤ ═══════════════════════════════════════════════════════════════════
+# ➤ WHAT THIS FILE IS: the HEART of your job-search rules.
+# ➤ This decides WHICH offers reach you and which don't. Sections:
+# ➤   1. location_filter        → allowed and blocked locations
+# ➤   2. adzuna                 → the portal aggregator (Indeed and others)
+# ➤   3. linkedin               → LinkedIn search (minimal volume)
+# ➤   4. title_language_filter  → accepted title languages (EN/ES/CA)
+# ➤   5. experience_filter      → experience-years threshold (2)
+# ➤   6. workday_search_terms   → words searched on Workday
+# ➤   7. title_filter           → words that ADMIT or DISCARD a title
+# ➤   8. company_filter         → company blacklist
+# ➤   9. tracked_companies      → the companies scanned one by one
+# ➤  10. council                → The Council (judges, shadow, off)
+# ➤ After ANY change here: node server-bot/test-filter.mjs
+# ➤ ═══════════════════════════════════════════════════════════════════
+# Portal Scanner Configuration
+# Marine / Offshore Energy sector — Junior/Graduate roles
+
+# -- Location filter --
+# Target: Spain, Netherlands, Belgium, Norway, and remote EU
+# Blocked: UK, Portugal, and non-EU countries
+
+# ➤ ── SECTION 1: LOCATIONS ──────────────────────────────────────────
+# ➤ "allow" = whitelist (if the offer carries a location, it must sound like
+# ➤ one of these). "block" = ABSOLUTE blacklist (United Kingdom, Portugal,
+# ➤ the Americas, Asia...): if it appears, the offer is dropped even if the rest fits.
+# ➤ The day-to-day per-country toggles live in server-bot/countries.yml.
+location_filter:
+  # Every country with a toggle in server-bot/countries.yml MUST be allowed
+  # here, or the toggle is meaningless (FR/DE were silently blocked for days).
+  allow:
+    - "Remote"
+    - "Spain"
+    - "España"
+    - "Espana"
+    - "Barcelona"
+    - "Madrid"
+    - "Netherlands"
+    - "Nederland"
+    - "Belgium"
+    - "België"
+    - "Belgie"
+    - "Belgique"
+    - "France"
+    - "Mónaco"
+    - "Monaco"
+    - "Monte Carlo"
+    - "Monte-Carlo"
+    - "Germany"
+    - "Deutschland"
+    - "Norway"
+    - "Norge"
+    - "Noruega"
+    - "Denmark"
+    - "Danmark"
+    - "Italy"
+    - "Italia"
+    - "Ireland"
+    - "Dublin"
+    # ➤ Switzerland and Austria added 2026-07-11: with their local names and
+    # ➤ big cities, because offers don't always name the country.
+    - "Switzerland"
+    - "Schweiz"
+    - "Suisse"
+    - "Svizzera"
+    - "Zurich"
+    - "Zürich"
+    - "Geneva"
+    - "Genève"
+    - "Geneve"
+    - "Basel"
+    - "Bern"
+    - "Lausanne"
+    - "Austria"
+    - "Österreich"
+    - "Osterreich"
+    - "Vienna"
+    - "Wien"
+    - "Graz"
+    - "Linz"
+    - "Europe"
+    - "EMEA"
+    - "Hybrid"
+    # ➤ CITIES without a country (over-block hunt 2026-07-18): many offers carry
+    # ➤ the location as a bare city ("Hamburg", "Rotterdam") and the list
+    # ➤ only knew the countries → they were dropped silently. Real case: the
+    # ➤ Shell Graduate Programme Germany fell because it came as "Hamburg, Cologne".
+    # ➤ Here go the relevant cities of the already-allowed countries, including
+    # ➤ the HQs of the tracked companies (Van Oord=Rotterdam, Fugro=
+    # ➤ Leidschendam, Bilbao=Iberdrola/Sener...). Add the ones you need.
+    # Spain (beyond Barcelona/Madrid)
+    - "Bilbao"
+    - "Valencia"
+    - "Cádiz"
+    - "Cadiz"
+    - "Vigo"
+    - "Ferrol"
+    - "Santander"
+    - "Gijón"
+    - "Gijon"
+    - "Cartagena"
+    - "Tarragona"
+    - "Sevilla"
+    - "Zaragoza"
+    - "A Coruña"
+    - "A Coruna"
+    # Netherlands
+    - "Rotterdam"
+    - "Amsterdam"
+    - "Den Haag"
+    - "The Hague"
+    - "Utrecht"
+    - "Delft"
+    - "Leiden"
+    - "Leidschendam"
+    - "Papendrecht"
+    - "Zwijndrecht"
+    - "Gorinchem"
+    - "Schiedam"
+    - "IJmuiden"
+    - "Vlissingen"
+    - "Eindhoven"
+    - "Groningen"
+    # Belgium
+    - "Brussel"
+    - "Brussels"
+    - "Bruxelles"
+    - "Bruselas"
+    - "Antwerp"
+    - "Antwerpen"
+    - "Amberes"
+    - "Gent"
+    - "Ghent"
+    - "Gante"
+    - "Brugge"
+    - "Bruges"
+    - "Zeebrugge"
+    - "Oostende"
+    - "Leuven"
+    - "Hasselt"
+    - "Mechelen"
+    - "Kortrijk"
+    # Germany
+    - "Hamburg"
+    - "Bremen"
+    - "Bremerhaven"
+    - "Kiel"
+    - "Rostock"
+    - "Cuxhaven"
+    - "Wilhelmshaven"
+    - "Emden"
+    - "Berlin"
+    - "München"
+    - "Munchen"
+    - "Munich"
+    - "Köln"
+    - "Koln"
+    - "Cologne"
+    - "Frankfurt"
+    - "Stuttgart"
+    - "Düsseldorf"
+    - "Dusseldorf"
+    - "Hannover"
+    # France
+    - "Paris"
+    - "Marseille"
+    - "Brest"
+    - "Nantes"
+    - "Saint-Nazaire"
+    - "Cherbourg"
+    - "Toulon"
+    - "Le Havre"
+    - "Bordeaux"
+    - "Lyon"
+    - "Lorient"
+    - "Dunkerque"
+    # Norway / Denmark
+    - "Oslo"
+    - "Stavanger"
+    - "Bergen"
+    - "Trondheim"
+    - "Copenhagen"
+    - "København"
+    - "Esbjerg"
+    - "Aarhus"
+    # Italy / Ireland
+    - "Genova"
+    - "Genoa"
+    - "Trieste"
+    - "La Spezia"
+    - "Milano"
+    - "Milan"
+    - "Ravenna"
+    - "Cork"
+    - "Galway"
+  block:
+    # UK (all variants — "Aberdeen, Scotland" carries no "UK" string)
+    - "United Kingdom"
+    - "UK"
+    - "London"
+    - "Aberdeen"
+    - "Scotland"
+    - "England"
+    - "Wales"
+    # Portugal
+    - "Portugal"
+    - "Lisboa"
+    - "Lisbon"
+    # Americas
+    - "United States"
+    - "USA"
+    - "U.S."
+    - "Houston"
+    - "Canada"
+    - "Mexico"
+    - "Brazil"
+    - "Brasil"
+    - "Argentina"
+    - "Chile"
+    - "Colombia"
+    - "Peru"
+    - "Trinidad"
+    - "Guyana"
+    - "Suriname"
+    # Asia-Pacific
+    - "Australia"
+    - "Singapore"
+    - "India"
+    - "Bengaluru"
+    - "Malaysia"
+    - "Indonesia"
+    - "Philippines"
+    - "Vietnam"
+    - "Thailand"
+    - "China"
+    - "Japan"
+    - "Korea"
+    - "Taiwan"
+    # Middle East / Africa / Caspian (offshore hubs the user can't work from)
+    - "Dubai"
+    - "Abu Dhabi"
+    - "UAE"
+    - "Qatar"
+    - "Saudi"
+    - "Kuwait"
+    - "Oman"
+    - "Egypt"
+    - "Nigeria"
+    - "Angola"
+    - "Ghana"
+    - "Azerbaijan"
+    - "Kazakhstan"
+
+# -- Adzuna aggregator --
+# Free job API that indexes Indeed + many EU boards by country + keyword.
+# Get app_id + app_key (free) at https://developer.adzuna.com/ and put them in
+# server-bot/adzuna-key.json. Frugal by design: 1 request per country × keyword.
+# Adzuna does NOT cover Norway or Denmark — those stay on Workday (Equinor etc).
+# A country turned OFF in server-bot/countries.yml is skipped here too.
+
+# ➤ ── SECTION 2: ADZUNA ───────────────────────────────────────────────
+# ➤ Adzuna is an "aggregator": a search engine that already indexes Indeed and
+# ➤ dozens of European portals. We ask it by country (ES/NL/BE/DE/FR) with
+# ➤ the words in "queries". It's the source that brings the most offers.
+adzuna:
+  enabled: true
+  max_days_old: 21          # only offers posted in the last N days
+  results_per_page: 50
+  sort_by: date             # newest first — pairs with frequent incremental scans
+  countries:                # name must match countries.yml for the toggle to work
+    - { name: Spain, code: es }
+    - { name: Netherlands, code: nl }
+    - { name: Belgium, code: be }
+    - { name: Germany, code: de }
+    - { name: France, code: fr }
+    # ➤ Added 2026-07-11: Switzerland and Austria (Adzuna covers them and they
+    # ➤ pay well). Monaco has no Adzuna of its own: its offers arrive via Adzuna
+    # ➤ France, LinkedIn and the tracked companies (SBM is headquartered there).
+    - { name: Switzerland, code: ch }
+    - { name: Austria, code: at }
+  # queries: what = exact phrase (AND of words), what_or = match ANY word.
+  # Broad on purpose — the title_filter below does the precision filtering.
+  # One call per query per country, per scan. Adding either multiplies the
+  # calls, so keep an eye on the free tier.
+  queries:
+    # ➤ "orcaflex" added (2026-07-11): Adzuna searches ALL of the offer's
+    # ➤ text, so this catches mentions of OrcaFlex in the body.
+    - what_or: "offshore marine subsea mooring maritime naval orcaflex"
+    # ➤ "survey geomatics bathymetric" added 2026-07-18 (the owner's literal BSc).
+    # ➜ "landmeter" added 2026-07-28 (argus-discover / ESCO). Land surveying is
+    # ➜ the one adjacency the taxonomy proposed that the market actually
+    # ➜ advertises, and no other query asks for it. It is a TRIAL: if it never
+    # ➜ produces an application, take this word and its two positives out.
+    - what_or: "automation instrumentation robotics mechatronics GIS metocean oceanography hydrographic survey geomatics bathymetric landmeter"
+    - what_or: "wind renewable hydrogen tidal"
+
+# -- LinkedIn jobs-guest (adopted from MadsLorentzen/ai-job-search, MIT) --
+# Public endpoints LinkedIn serves to logged-OUT visitors: no account, no
+# cookies, works for any country. ToS caveat: LinkedIn disallows automated
+# access — volume is kept MINIMAL (few queries, 1 page each, at most every
+# `every_hours`, 24h self-cooldown on 429). Risk = home-IP rate-limit only;
+# no account can be banned. Set enabled: false to switch off.
+
+# ➤ ── SECTION 3: LINKEDIN ─────────────────────────────────────────────
+# ➤ LinkedIn search WITHOUT an account (public pages). Deliberately at
+# ➤ minimal volume: few queries, at most every 6 hours, and if
+# ➤ LinkedIn complains (error 429), the bot stops itself for 24h.
+linkedin:
+  enabled: true
+  every_hours: 6        # at most one LinkedIn pass every N hours
+  max_age_days: 7       # only postings from the last N days
+  queries:              # 1 request each, 10 results per query
+    - { keywords: "offshore engineer", location: "Spain" }
+    - { keywords: "marine engineer", location: "Netherlands" }
+    - { keywords: "offshore wind engineer", location: "Belgium" }
+    - { keywords: "automation engineer junior", location: "Barcelona, Spain" }
+    # ➤ Added 2026-07-11: Monaco (they pay well; SBM is there) and
+    # ➤ OrcaFlex across all of Europe (LinkedIn also searches in the body).
+    - { keywords: "offshore engineer", location: "Monaco" }
+    - { keywords: "OrcaFlex", location: "European Union" }
+    - { keywords: "instrumentation engineer", location: "Spain" }
+    - { keywords: "mooring engineer", location: "Netherlands" }
+
+# -- Title language filter --
+# The user's rule: a MANDATORY language they do not speak = discard; "nice to
+# have" = fine. The scanner can't read JD bodies, but the TITLE language is
+# a reliable proxy for the working language: German-titled postings require
+# German. English-titled jobs in DE/FR/NL pass — those are the "can fit even
+# if posted abroad" cases. Detection via the free translate endpoint; on
+# detection failure the offer is kept.
+# ➤ ── SECTION 4: TITLE LANGUAGE ────────────────────────────────────
+# ➤ If the offer's title is in a language you don't speak (German,
+# ➤ French...), out. English, Spanish and Catalan are accepted. The language
+# ➤ of the offer's BODY is checked separately, inside the scan.
+title_language_filter:
+  enabled: true
+  allow: [en, es, ca]
+
+# -- Experience-years screen --
+# Titles never carry the years required, so for every ADMITTED offer the
+# scanner fetches the body and reads the demanded years of experience
+# (extractRequiredYears, EN/ES/CA/FR/DE/NL — a number counts ONLY when an
+# "experience" word is right next to it; company boasts like "20 years of
+# combined experience" are guarded out). Offers requiring MORE than
+# max_years are dropped before they reach the Telegram list. The user has < 2
+# years of real experience; max_years: 2 (lowered from 3 on 2026-07-10, the owner's
+# call after rejecting several 3-year asks) keeps 0-2-year offers and drops
+# 3+. Offers whose body doesn't state a clear requirement are KEPT (never
+# lose an offer to a parse miss). Disable: enabled: false or --no-expcheck.
+# ➤ ── SECTION 5: EXPERIENCE YEARS ──────────────────────────────────
+# ➤ The bot READS the whole offer and extracts how many years it asks for. With max_years: 2,
+# ➤ anything asking for 3 or more years is discarded. If the offer doesn't state years,
+# ➤ it's kept (better to show you one too many than lose a good one).
+experience_filter:
+  enabled: true
+  max_years: 2
+
+# -- Workday search terms --
+# For Workday-based companies, the scanner queries each of these terms
+# server-side (then applies the title_filter below locally). Keeps requests
+# targeted instead of pulling thousands of unrelated jobs.
+
+# ➤ ── SECTION 6: WORDS FOR WORKDAY ────────────────────────────────
+# ➤ Workday is the job portal used by Shell, Equinor, Fugro, etc.
+# ➤ These words are searched at each company so as not to download thousands of
+# ➤ irrelevant offers (only what sounds like your field).
+workday_search_terms:
+  - "offshore"
+  - "marine"
+  - "mooring"
+  - "subsea"
+  - "naval"
+  - "wind"
+  - "renewable"
+  - "graduate"
+  - "ocean"
+  - "floating"
+  - "automation"
+  - "instrumentation"
+  - "survey"
+  # ➤ Workday searches the FULL TEXT of the offer, not just the title —
+  # ➤ so "orcaflex" catches offers that ask for it in the body (2026-07-11).
+  - "orcaflex"
+
+# -- Title filter --
+# Marine / Offshore / Ocean / Coastal / Aquaculture keywords
+
+# ➤ ── SECTION 7: THE TITLE FILTER (the most important) ─────────────
+# ➤ It works in two steps:
+# ➤   1st the title must contain some POSITIVE word (if not, out)
+# ➤   2nd if it contains any NEGATIVE one, out even if it had a positive
+# ➤ Your rules embodied here: out degrees you don't have (electrical,
+# ➤ mechanical, civil...), out robotics/software/non-marine consultants,
+# ➤ out senior and trade roles. Each term carries its reason beside it.
+title_filter:
+  # ➤ WORDS THAT ADMIT an offer (one is enough): your real field.
+  positive:
+    # -- Core offshore/marine roles --
+    - "Mooring"
+    - "Offshore"
+    - "Marine"
+    - "Naval"
+    - "Ocean"
+    - "Coastal"
+    - "Subsea"
+    - "Floating"
+    - "FPSO"
+    - "FLNG"
+    - "Riser"
+    - "Umbilical"
+    - "Seabed"
+    - "Nearshore"
+    # -- Offshore energy --
+    # (no bare "Energy": it matched policy/strategy/support roles in production)
+    - "Offshore Wind"
+    - "Wind Energy"
+    - "Renewable Energy"
+    - "Energy Systems"
+    # ➤ ("Energy Engineer" removed from positives on 2026-07-13: #49 —
+    # ➤ "it's a specific degree" the owner does not have; now it's NEGATIVE, see below.)
+    - "Offshore Energy"
+    - "Tidal"
+    - "Wave Energy"
+    - "Hydrogen"
+    # ➤ OrcaFlex (2026-07-11): the mooring-engineering software the owner
+    # ➤ masters — "hardly anyone knows it"; if a title mentions it, in.
+    - "OrcaFlex"
+    # Offshore wind cable engineering (export/array/submarine cables)
+    - "Export Cable"
+    - "Array Cable"
+    - "Submarine Cable"
+    # -- Engineering roles --
+    - "Structural Engineer"
+    - "Project Engineer"
+    - "Design Engineer"
+    - "Simulation Engineer"
+    - "Analysis Engineer"
+    - "Field Engineer"
+    - "Installation Engineer"
+    - "Commissioning Engineer"
+    # -- Data/GIS/modelling --
+    - "GIS"
+    - "Oceanograph"
+    - "Oceanograf"
+    - "Environmental Engineer"
+    - "Hydrograph"
+    - "Marine Scientist"
+    - "Metocean"
+    - "Met-Ocean"
+    # ➤ Survey (2026-07-18, approved exploration): the user's literal degree!
+    # ➤ "Survey Engineer" was being blocked for not having a word from the owner's field, even
+    # ➤ though Fugro's note flags it as a direct match for a marine-survey background.
+    # ➤ Verified without noise: Quantity/Land Surveyor and Employee Survey remain
+    # ➤ blocked (they don't contain "survey engineer" and the negatives act).
+    - "Survey Engineer"
+    - "Geomatics"
+    - "Bathymetric"
+    # ("Data Analyst" removed 2026-07-10: 8 rejections "I'm not and don't want to be" —
+    #  GIS/marine-data roles still enter via GIS/Marine/Oceanograph positives)
+    # -- Automation / instrumentation (broadened spectrum: the user has Python,
+    #    Arduino, RasPi, instrumentation coursework and interviewed for
+    #    automation engineer roles). "Robotic" removed 2026-07-10 (11 rejections
+    #    "I know nothing about robotics") and blocked below. --
+    - "Automation"
+    - "Automatización"
+    - "Automatizacion"
+    - "Instrumentation"
+    - "Instrumentación"
+    - "Instrumentacion"
+    # ➤ ("Mechatronic" removed from positives 2026-07-16: the user rejected it ×2
+    # ➤ (#43/#253) and now it's NEGATIVE as a discipline with a degree the owner does not have.)
+    - "PLC"
+    - "SCADA"
+    - "Control Systems"
+    # ➤ "AI Engineer" was a positive from 2026-07-11 to 2026-07-18, then
+    # ➤ revoked after five AI roles were rejected in a single day: the field
+    # ➤ turned out to be a settled no, not a case-by-case call. AI is now
+    # ➤ BANNED by title — see the negative list.
+    # -- Aquaculture --
+    - "Aquaculture"
+    - "Fish Farming"
+    - "Blue Economy"
+    # -- Junior/graduate specific --
+    # (bare "Junior"/"Graduate" flooded the net with junior accountants and
+    #  policy analysts once the Adzuna queries went broad — use phrases)
+    - "Graduate Programme"
+    - "Graduate Program"
+    - "Graduate Scheme"
+    - "Graduate Engineer"
+    - "Junior Engineer"
+    - "Wind Farm"
+    # ➤ ══════ MULTILINGUAL POSITIVES 2026-07-24 ══════
+    # ➤ FOUND while adding the negative translations: the positives were
+    # ➤ ENGLISH-ONLY, so an offer squarely in your field written in German,
+    # ➤ French, Dutch, Italian or Catalan had NO word from "your field" and was
+    # ➤ dropped before anything else could judge it. These are the same concepts
+    # ➤ you already accept in English (automation · instrumentation · control ·
+    # ➤ PLC · offshore wind · subsea · maritime · survey/GIS), in the languages
+    # ➤ your search actually covers. Negatives still win over positives, so this
+    # ➤ does not open the door to trades or senior roles.
+    # -- German --
+    - "Automatisierung"          # automation
+    - "Automatisierungstechnik"  # automation engineering
+    - "Leittechnik"              # control systems
+    - "Regelungstechnik"         # control engineering
+    - "SPS"                      # the German "PLC"
+    - "MSR"                      # instrumentation & control (Mess-Steuer-Regeltechnik)
+    - "Instrumentierung"
+    - "Windenergie"
+    - "Windpark"
+    - "Meerestechnik"            # marine technology
+    - "Offshore-Wind"
+    # -- French --
+    - "Automatisme"              # automation (the usual FR job word)
+    - "Automatismes"
+    - "Contrôle-Commande"        # control systems
+    - "Controle-Commande"
+    - "Sous-Marin"               # subsea
+    - "Sous-Marins"
+    - "Éolien"                   # wind
+    - "Eolien"
+    - "Hydrolien"                # tidal
+    - "Génie Maritime"
+    - "Genie Maritime"
+    # -- Dutch / Flemish --
+    - "Automatisering"
+    - "Instrumentatie"
+    - "Regeltechniek"            # control engineering
+    - "Besturingstechniek"
+    - "Maritiem"
+    - "Waterbouw"                # hydraulic/coastal engineering
+    - "Geo-informatie"           # the Dutch GIS
+    # -- Italian --
+    - "Automazione"
+    - "Strumentazione"           # instrumentation
+    - "Sottomarino"              # subsea
+    - "Eolico"
+    - "Eolica"
+    - "Marittimo"
+    # -- Spanish / Catalan --
+    - "Submarino"                # as in "cables submarinos"
+    - "Submarina"
+    - "Submarí"
+    - "Submari"
+    - "Eólica"
+    - "Eólico"
+    - "Eòlica"                   # Catalan
+    - "Marítimo"
+    - "Maritimo"
+    - "Marítim"
+    - "Maritim"
+    - "Amarre"                   # mooring
+    - "Amarrament"
+    - "Automatització"           # Catalan automation
+    - "Automatitzacio"
+    - "Instrumentació"
+    - "Instrumentacio"
+    # -- English gaps --
+    - "Maritime"                 # "Marine" was there, "Maritime" was not
+    - "Offshore Structures"
+    # ➜ 2026-07-28 (argus-discover / ESCO): land surveying. Fetching the offers
+    # ➜ is not enough — "Landmeter" carries no other word of the field, so
+    # ➜ without these the new query's offers would all be dropped at the title
+    # ➜ gate. Everything else still applies: Monteur, Technicus, Stagiair,
+    # ➜ Senior and Commercieel keep blocking exactly as before.
+    - "Landmeter"
+    - "Landmeetkundige"
+    # ➤ 2026-07-28: "Service Engineer" was briefly added HERE as a positive and
+    # ➤ removed the same day — a service role outside the profile's field is a
+    # ➤ flat no (medical devices, IT, elevators), and as a positive the phrase
+    # ➤ admitted on its own. Dropping it from the NEGATIVES was the right move on
+    # ➤ its own: the marine/offshore service titles come in on their existing
+    # ➤ keywords and nothing else does. Measured: identical either way.
+  # NOTE for scan.mjs: negatives match on WORD BOUNDARIES with
+  # optional plural ("Intern" blocks "Interns" but not "International").
+  # List explicit variants where the stem alone would miss them.
+  # ➤ WORDS THAT DISCARD an offer (one is enough), even if it has
+  # ➤ positives. The leading asterisk (*monteur) means "also as the
+  # ➤ end of a compound word" (Servicemonteur). The entries with
+  # ➤ "term/unless" only discard if NONE of the "unless" words
+  # ➤ appear (so "Consultant" falls, but "Offshore Wind Consultant" doesn't).
+  negative:
+    # Onboard / seafarer roles (no STCW)
+    - "Master Mariner"
+    - "Chief Officer"
+    - "STCW"
+    - "Seafarer"
+    - "Captain"
+    - "Deck Officer"
+    - "Engine Officer"
+    # ➤ Offshore crew / laborer (manual labor, not engineering). The user
+    # ➤ rejected these titles on 2026-07-22 (#656/#667 Operator, #657 Motorman,
+    # ➤ #658 Roustabout). "Operator" matches by whole word, so it does NOT
+    # ➤ affect "Operations Engineer" or "Operational". ("Crane" was already there.)
+    - "Operator"
+    - "Motorman"
+    - "Roustabout"
+    - "Roughneck"
+    - "Deckhand"
+    # Too senior — the user is junior. Only junior or unspecified-level roles.
+    - "Senior"
+    - "Sr."
+    - "Snr"
+    - "Lead"
+    - "Principal"
+    - "Manager"
+    - "*manager"
+    - "Director"
+    - "Directeur"
+    - "Responsable"
+    - "VP"
+    - "Head of"
+    - "Chief"
+    - "Superintendent"
+    - "Superintendant"
+    # ➤ Leadership (2026-07-13: "I don't want and can't apply to leadership
+    # ➤ roles" #573, and coordinator likewise #222):
+    - "Leader"
+    - "Líder"
+    - "Lider"
+    - "Coordinator"
+    - "Coordinador"
+    - "Coordinateur"
+    - "Expert"
+    # ➤ "Expert" (English) doesn't catch the German "Experte/Experten" nor the Spanish
+    # ➤ "Experto/Experta": the -e/-o ending dodges the variants that the
+    # ➤ negative recognizes. The user rejected "GIS - Experte" on 2026-07-22 (#672).
+    - "Experte"
+    - "Experten"
+    - "Experto"
+    - "Experta"
+    - "15+ years"
+    - "10+ years"
+    - "5+ years"
+    # Internships / student / trainee / academia — the user wants an employed engineer role
+    - "Intern"
+    - "Internship"
+    - "Student Worker"
+    - "Working Student"
+    - "Werkstudent"
+    # ➤ German for intern/internship — "Intern" doesn't catch them. The user
+    # ➤ rejected "Praktikant Network Eng..." on 2026-07-23 (#680).
+    - "Praktikant"
+    - "Praktikum"
+    # ➤ GUARD 2026-07-25 (audit): the FR/NL word for internship also matched English "Stage 2" / "Multi-Stage".
+    - term: "Stage"
+      unless: ["multistage", "multi-stage", "offshore", "marine", "subsea", "wind", "pump"]
+    - "Stagiair"
+    - "Trainee"
+    - "Traineeship"
+    - "Postdoc"
+    - "Postdoctoral"
+    - "Post-doc"
+    - "Doctorat"
+    - "PhD"
+    - "Professor"
+    - "Lecturer"
+    # Wrong function (the user is an engineer, not a technician/back-office).
+    # Leading * = suffix match in scan.mjs (Dutch compounds:
+    # "Servicemonteur", "Elektromonteur", "Servicetechnicus"...).
+    - "Technician"
+    - "*technicus"
+    - "*technici"
+    - "*technieker"
+    - "*techniker"
+    - "*meister"
+    - "*monteur"
+    - "Técnico"
+    - "Tecnico"
+    - "Mecánico"
+    - "Mecanico"
+    - "Cerrajero"
+    - "Calderero"
+    - "Soldador"
+    - "Stratifieur"
+    # ➤ French trades caught on 2026-07-13 (#283/#289/#488):
+    - "Tôlier"
+    - "Tolier"
+    - "Couturier"
+    - "Caréneur"
+    - "Careneur"
+    - "Marinero"
+    - "Storekeeper"
+    - "Inspector"
+    - "Comptable"
+    - "Chargé"
+    - "Charge"
+    - "Pricing"
+    - "Finance"
+    - "Helpdesk"
+    - "Sales"
+    - "Comercial"
+    - "Administrativo"
+    - "Administrativa"
+    - "Accountant"
+    - "Customer Care"
+    - "Customer Service"
+    - "COO"
+    - "Beca"
+    - "Becario"
+    - "Scholarship"
+    - "Logistic"
+    - "Logistics"
+    - "Logistiek"
+    - "Crane"
+    # ➤ "Service Engineer" left this list on 2026-07-28 and is now a POSITIVE
+    # ➤ (see the note up there). "Service Technician" STAYS: a technician is a
+    # ➤ different role and was rejected by hand precisely for being one.
+    - "Service Technician"
+    - "Procurement"
+    - "Export Agent"
+    - "Recruiter"
+    - "Recruitment"
+    - "Recruiting"
+    - "Project Controller"
+    - "Financial Controller"
+    - "Marketing"
+    - "Freelance"
+    # Odd-job platform noise seen in production (gardening/carpentry/childcare
+    # ads matching "Marine(s)" or "naval" by accident)
+    - "Babysit"
+    - "Carpintero"
+    - "Podador"
+    # Unrelated industry / field with no marine-offshore-energy-automation angle
+    - "Animal Nutrition"
+    - "Pet Food"
+    - "ILS"
+    # ➤ Unrelated sectors/roles caught on 2026-07-16 (same batch of 40 rejections):
+    # ➤ GUARD 2026-07-25 (audit): the positive "Marine Scientist" was dead config.
+    - term: "Scientist"
+      unless: ["marine", "ocean", "oceanograph", "metocean", "coastal", "hydrograph", "aquacult"]
+    - "Laboratory"
+    - "Lab Automation"
+    - "Life Sciences"
+    - "Pharma"
+    - "Telecommunication"
+    - "Telecom"
+    - "HR"
+    - "Risk Management"
+    - "Data Center"
+    - "Datacenter"
+    - "Datacentre"
+    - "Substation"
+    - "Carpenter"
+    - "Quotation"
+    - "Programador"
+    # ➤ ENGINEERING DISCIPLINES with a degree the user does NOT have. LESSON 2026-07-16
+    # ➤ ("you repeat the same mistakes"): do NOT list every combination ("Electrical
+    # ➤ Design", then "Mechanical Design", then "Product Engineer"...). The
+    # ➤ DISCIPLINE is blocked as a word and ALL its variants fall at once:
+    # ➤ "Electrical/Electronics/Mechanical/Mechatronics/Product [Design/Project]
+    # ➤ Engineer", "Engineer Electrical and Instrumentation"... The user is marine/
+    # ➤ offshore + automation/instrumentation/controls, NOT these disciplines.
+    - "Civil"
+    - "Electrical"
+    - "Eléctrico"
+    - "Electrico"
+    - "Eléctrica"
+    - "Electrica"
+    - "Electronic"
+    - "Electrónico"
+    - "Electronico"
+    - "Electrónica"
+    - "Electronica"
+    - "Mechanical"
+    - "Mechanism"
+    - "Mechatronic"
+    - "Mecatróno"
+    - "Mecatrono"
+    - "Mecatróna"
+    - "Mecatrona"
+    - "Product Engineer"
+    - "Product Design"
+    - "High Voltage"
+    - "Aerospace"
+    - "Aeronautical"
+    - "Chemical Engineer"
+    # ➤ GUARD 2026-07-25 (audit): it was killing four of its OWN positives.
+    - term: "Energy Engineer"
+      unless: ["offshore", "wind", "renewable", "marine", "tidal", "wave", "hydrogen", "subsea", "ocean"]
+    - "Naval Architect"
+    - "Naval Architecture"
+    - "Arquitecto Naval"
+    # ➤ "Architect" on its own (2026-07-11, after a "Solution Architect" got through): every
+    # ➤ title with Architect is either naval (already out) or IT/buildings
+    # ➤ (Solution/Cloud/Software Architect) — none of them fits.
+    - "Architect"
+    - "Arquitecto"
+    # Electrician / electronics trades (#471/#480/#56, 2026-07-10)
+    - "Electrician"
+    - "Elektriker"
+    - "Electricista"
+    - "Électricien"
+    - "Electricien"
+    - "Electronicien"
+    # ➤ The noun too, which reached the list inside a naval-electricity title:
+    - "Electricidad"
+    - "Electricity"
+    # ➤ Healthcare professions slipping in via "Naval" (#532: a dentist!)
+    - "Dentist"
+    - "Dentista"
+    - "Dental"
+    # Robotics — 11 rejections 2026-07-10 ("I know nothing about robotics")
+    - "Robotic"
+    # ➤ Review batch 2026-07-18 (review of the whole list that night):
+    # ➤ · Officer — a shipboard rank, not an engineering role
+    # ➤ · Lab and its de/nl/es variants — bench work, not field engineering
+    # ➤ · HVAC — air-conditioning installation, an unrelated trade
+    # ➤ · *leiter — lead roles in German compounds (Segmentleiter,
+    # ➤   Projektleiter, Teamleiterin...)
+    - "Officer"
+    - "Lab"
+    - "*labor"
+    - "Laborant"
+    - "Laboratorium"
+    - "Laboratorio"
+    - "HVAC"
+    - "*leiter"
+    # ➤ Review batch 2026-07-19:
+    # ➤ · Tekla — asks for mastery of a structural package outside the profile
+    # ➤ · Chef — a cruise sous chef slipping in via the "Ocean" positive;
+    # ➤   the French "Chef de projet" is spared (project manager, not cooking)
+    - "Tekla"
+    - term: "Chef"
+      unless: ["projet", "project", "projekt"]
+    # Unrelated engineering (software automation ≠ industrial automation)
+    - "Software"
+    - "Data Scientist"
+    # ➤ AI BANNED (2026-07-18, after five AI roles were rejected in a single
+    # ➤ day: the field is a settled no, not a case-by-case call).
+    # ➤ Revokes the "AI Engineer" positive the owner had asked for on 2026-07-11.
+    # ➤ GUARD 2026-07-25 (audit): the plural tail made "AI" match the marine acronym AIS.
+    - term: "AI"
+      unless: ["ais"]
+    - "IA"
+    - "Artificial Intelligence"
+    - "DevOps"
+    - "Test Automation"
+    - "Automation Test"
+    - "Infrastructure Automation"
+    - "RPA"
+    - "QA"
+    - "Quality Automation"
+    - "Content Automation"
+    # IT infrastructure riding "Automation"/"Engineer" (2026-07-10)
+    - "Cloud Engineer"
+    - "Cloud Platform"
+    - "Azure"
+    - "Telco"
+    - "IT Administrator"
+    - "IT Operations"
+    - "Service Desk"
+    - "CRM"
+    - "OT"
+    # Cybersecurity riding the "Automation" keyword (user feedback 2026-07-06 ×3)
+    - "Security"
+    - "Cybersecurity"
+    - "Ciberseguridad"
+    - "SOC"
+    - "Threat"
+    # More user-feedback exclusions 2026-07-06
+    - "TPM"
+    - "Turbomachinery"
+    - "Process Optimization"
+    - "Java"
+    - ".NET"
+    - "Frontend"
+    - "Backend"
+    - "Full Stack"
+    - "Full-Stack"
+    - "Fullstack"
+    - "Developer"
+    - "Développeur"
+    - "Developpeur"
+    - "Entwickler"
+    # Requires a professional qualification the user doesn't have — a junior can't
+    # be "trained into" these, so hard block regardless of experience (rule of
+    # 2026-07-08). This is ONLY for qualification-gated fields — merely
+    # UNFAMILIAR technical areas (mechanical design, HV, data-center controls,
+    # building automation) stay IN, because a junior gets trained when the role
+    # doesn't demand years of specific experience.
+    - "Legal"
+    - "Counsel"
+    - "Abogado"
+    - "Avocat"
+    - "Docente"
+    - "Profesor"
+    # Consultancy is out UNLESS the title is in the user's offshore/marine field
+    # (2026-07-10: "Consultant that gets blocked unless it's offshore
+    # wind or related"). Object form = conditional negative: the term only
+    # blocks when NONE of the `unless` words appear in the title.
+    - term: "Consultant"
+      unless: ["offshore", "wind", "marine", "mooring", "subsea", "naval", "metocean", "coastal", "ocean"]
+    - term: "Consultor"
+      unless: ["offshore", "wind", "marine", "mooring", "subsea", "naval", "metocean", "coastal", "ocean"]
+    # ➤ User feedback 2026-07-18 (#615 Airbus, #592 Capitole and the refloated
+    # ➤ list): Analista/Analyst OUT unless a GIS/marine angle ("we already
+    # ➤ said analyst no"); Specialist OUT unless a marine angle (the
+    # ➤ "specialist" ones want specialists, not juniors); Structural OUT unless
+    # ➤ offshore/naval ("structural design engineer, which I'm not" — the
+    # ➤ building structural does not fit; the offshore one does, it's the owner's
+    # ➤ Mooring/Structural Offshore archetype).
+    - term: "Analyst"
+      unless: ["gis", "marine", "mooring", "ocean", "metocean", "offshore", "hydrograph", "survey"]
+    - term: "Analista"
+      unless: ["gis", "marino", "marina", "mooring", "ocean", "metocean", "offshore", "hidrograf", "survey"]
+    - term: "Specialist"
+      unless: ["marine", "offshore", "gis", "survey", "metocean", "hydrograph", "mooring", "subsea", "geo-informatie", "geodata"]
+    - term: "Especialista"
+      unless: ["marino", "marina", "offshore", "gis", "survey", "metocean", "hidrograf", "mooring"]
+    - term: "Structural"
+      unless: ["offshore", "marine", "naval", "wind", "subsea", "mooring", "floating", "fpso"]
+    # ➤ Childcare (#593: "babysitter ... in Marines" — the TOWN in
+    # ➤ Valencia was triggering the "Marine" positive!). "babysit" was already banned.
+    - "Canguro"
+    - "Niñera"
+    - "Ninera"
+    - "*niños"
+    - "*ninos"
+
+    # ➤ ══════ MULTILINGUAL SWEEP 2026-07-24 (deliberate sweep) ══════
+    # ➤ WHY: concepts already blocked in English/Spanish were slipping through in the
+    # ➤ other languages of the search. The trigger was "Praktikant" (German for intern,
+    # ➤ #680): the CONCEPT was blocked, the German WORD was not. This sweep goes concept
+    # ➤ by concept (seniority · internship · trades · sales/admin · software/IT ·
+    # ➤ academia/legal · degrees the owner lacks · manual jobs) across EN/DE/FR/NL/IT/ES-CA.
+    # ➤ Each term was screened against the marine/offshore/automation POSITIVES; where a
+    # ➤ real title of HIS field would have been caught, the term carries an "unless" guard
+    # ➤ (e.g. "Maschinenbau" blocks, but NOT "Maschinenbau Offshore-Windenergie").
+    # ➤ The generic word for "engineer" (Ingenieur/Ingénieur/Ingegnere...) is NEVER blocked.
+    # ── ENGLISH — variants that were missing (27) ─────────────────────────
+    # ➤ 2026-07-27 (audit): TRAINING sold as a vacancy — a course, an academy or
+    # ➤ a teaching post is not a job. Same family as the "Trainee"/"Praktikant"
+    # ➤ block above, which already covers internships. Keep this veto NARROW:
+    # ➤ "Graduate Programme" is usually wanted, so never veto "Programme" alone.
+    - term: "Academy"
+      unless: ["ingeniero", "ingeniera", "engineer", "ingénieur", "ingenieur"]
+    - "Accelerator Programme"
+    - "Accelerator Program"
+    - "Administrative"
+    - "Apprentice"
+    - "Apprenticeship"
+    - "Automotive"
+    - "Boilermaker"
+    - "Business Development"
+    - "Buyer"
+    - "Cadet"
+    - "Cleaner"
+    - term: "Cook"
+      unless: ["islands"]
+    - term: "Data Engineer"
+      unless: ["GIS", "survey", "marine", "ocean", "metocean", "hydrograph"]
+    - "Document Controller"
+    - term: "Driver"
+      unless: ["pile"]
+    - "Foreman"
+    # ➤ 2026-07-27 (audit): teaching the trade, not doing it.
+    - "Instructor"
+    - "Lawyer"
+    - "Machinist"
+    - "Medic"
+    - "Nurse"
+    - term: "Placement"
+      unless: ["cable", "rock", "offshore", "subsea", "survey"]
+    - "Plumber"
+    - term: "Process Engineer"
+      unless: ["offshore", "FPSO", "topside", "subsea", "marine", "wind"]
+    - term: "Programmer"
+      unless: ["PLC", "SCADA", "automation", "instrumentation", "control"]
+    - "Purchasing"
+    - term: "Rigger"
+      unless: ["engineer", "offshore", "subsea", "marine"]
+    - "Teacher"
+    - "Warehouse"
+    - "Welder"
+    # ── GERMAN (DE/AT/CH) — the Praktikant lesson, applied to every concept (30) ─────────────────────────
+    - "*arzt"
+    - "*berater"
+    - "*buchhalter"
+    - term: "*entwickler"
+      unless: ["sps", "steuerung", "steuerungstechnik", "automatisierung", "regelung", "leittechnik", "msr", "instrumentierung"]
+    - "*fahrer"
+    - "*informatiker"
+    - "*kaufmann"
+    - term: "*leitung"
+      unless: ["Rohrleitung", "Freileitung", "Stromleitung", "Gasleitung", "Fernleitung"]
+    - "*mechaniker"
+    - term: "*programmierer"
+      unless: ["SPS", "PLC", "SCADA", "Roboter"]
+    - "*sachbearbeiter"
+    - "*schlosser"
+    - term: "Ausbildung"
+      unless: ["Offshore", "Marine", "Subsea", "Naval", "Ocean", "Windenergie", "Wind", "Ingenieur", "Ingenieurin", "Engineer", "Automation", "Automatisierung", "Instrumentation", "Instrumentierung", "SCADA", "PLC", "Survey", "Metocean", "Hydrograph", "Geomatics", "Inbetriebnahme", "Commissioning"]
+    - "Auszubildende"
+    - term: "Bauingenieur"
+      unless: ["Offshore", "Marine", "Naval", "Ocean", "Coastal", "Subsea", "Wind", "Wave", "Tidal", "Renewable", "Hydrogen", "Metocean", "Survey", "Geomatics", "Automation", "Instrumentation"]
+    - "Doktorand"
+    - "Duales Studium"
+    - "Einkauf"
+    - term: "Elektroingenieur"
+      unless: ["Offshore", "Marine", "Subsea", "Nearshore", "Naval", "Mooring", "FPSO", "Riser", "Umbilical", "Seabed", "Floating", "Wind", "Windpark", "Windenergie", "Renewable", "Tidal", "Hydrogen", "Automation", "Automatisierung", "Automatisierungstechnik", "Leittechnik", "Regelungstechnik", "Regeltechnik", "Instrumentation", "Instrumentierung", "SCADA", "PLC", "SPS", "MSR"]
+    - term: "Elektroniker"
+      unless: ["Automatisierung", "Automatisierungstechnik", "Automation", "SCADA", "PLC", "Leittechnik", "Prozessleittechnik"]
+    - term: "Elektrotechnik"
+      unless: ["Automatisierung", "Automatisierungstechnik", "Leittechnik", "Regelungstechnik", "MSR", "SPS", "Mechatronik", "Instrumentierung"]
+    - "Jurist"
+    - "Koch"
+    - term: "Maschinenbau"
+      unless: ["Offshore", "Marine", "Naval", "Subsea", "Ocean", "Wind", "Windenergie", "Windpark", "Meerestechnik", "Renewable", "erneuerbare", "Tidal", "Wave", "Hydrogen", "Wasserstoff", "FPSO", "Aquaculture", "Automatisierung"]
+    - "Mechatroniker"
+    - "Schweisser"
+    - "Schweißer"
+    # ➤ GUARD 2026-07-25 (audit): its English twin "Process Engineer" is guarded,
+    # ➤ so the German one blocked offshore process roles the English one let through.
+    - term: "Verfahrenstechnik"
+      unless: ["offshore", "marine", "subsea", "fpso", "topside", "wind"]
+    - "Vertrieb"
+    - "Vertriebsingenieur"
+    # ── FRENCH (FR/BE/CH/MC) (30) ─────────────────────────
+    - term: "*technicien"
+      unless: ["polytechnicien"]
+    - "Acheteur"
+    - "Administratif"
+    - "Aéronautique"
+    - "Aeronautique"
+    - "Agent d'entretien"
+    - "Agent de sécurité"
+    - "Agent de securite"
+    # ➤ 2026-07-27 (#710): customs/freight forwarding. It rides in on the word
+    # ➤ "maritime" in the title, but the job is transport paperwork.
+    - "Agent de transit"
+    - "Transitaire"
+    - "Transitario"
+    - "Freight Forward"
+    # ➤ 2026-07-27: general labourer on a naval base. The full phrase is used on
+    # ➤ purpose — a bare "Agent" would also hit the maritime freight agents just
+    # ➤ above, which are blocked by their own rule for another reason.
+    - "Agent polyvalent"
+    - "Alternance"
+    - "Alternant"
+    - "Apprenti"
+    - term: "Architecte"
+      unless: ["SIG", "géomatique", "automatisme", "contrôle-commande", "supervision", "offshore", "naval"]
+    # ➤ 2026-07-27: "calorifugeur" is the insulation-fitting TRADE. Third wave of
+    # ➤ the same family after Détoureur/Électromécanicien and Mécanicien/Tubero:
+    # ➤ they all ride in on "naval", which is a POSITIVE, so the veto goes on the
+    # ➤ trade itself, never on the sector.
+    - "Calorifugeur"
+    - "Calorifuge"
+    - "Chaudronnier"
+    - "Chauffeur"
+    # ➤ GUARD 2026-07-25 (audit): it also blocked English "Commercial Vessels / Commercial Marine".
+    - term: "Commercial"
+      unless: ["marine", "offshore", "vessel", "naval", "subsea", "ship", "port", "harbour"]
+    - "Cuisinier"
+    - "Cybersécurité"
+    - "Cybersecurite"
+    # ➤ 2026-07-27: French naval trades. "NAVAL" is one of the POSITIVES, so the
+    # ➤ veto has to sit on the trade, never on the sector (cases #715 and #717).
+    - "Détoureur"
+    - "Detoureur"
+    - "Doctorant"
+    - term: "Électromécanicien"
+      unless: ["ingénieur", "ingenieur"]
+    - term: "Electromecanicien"
+      unless: ["ingénieur", "ingenieur"]
+    - term: "Électrotechnique"
+      unless: ["offshore", "marin", "marine", "éolien", "eolien", "hydrolien", "houlomoteur", "renouvelable", "naval", "subsea", "fpso", "hydrogène"]
+    - term: "Electrotechnique"
+      unless: ["offshore", "marin", "marine", "éolien", "eolien", "hydrolien", "houlomoteur", "renouvelable", "naval", "subsea", "fpso", "hydrogène"]
+    - "Génie électrique"
+    - "Genie electrique"
+    - "Génie mécanique"
+    - "Genie mecanique"
+    - "Juriste"
+    - "Logiciel"
+    - "Magasinier"
+    - term: "Mécanicien"
+      unless: ["ingénieur", "ingenieur"]
+    - term: "Mecanicien"
+      unless: ["ingénieur", "ingenieur"]
+    - term: "Mécatronique"
+      unless: ["Offshore", "Marine", "Naval", "Navale", "Subsea", "Sous-marin", "Sous-marins", "Marin", "Ocean", "Océan", "Éolien", "Wind", "Renouvelable", "Renewable", "Énergie", "Energy", "Automatisme", "Automatisation", "Automation", "Instrumentation", "SCADA", "PLC", "ROV", "AUV", "Hydrogène", "Hydrogen", "Aquaculture", "FPSO"]
+    - term: "Mecatronique"
+      unless: ["Offshore", "Marine", "Naval", "Navale", "Subsea", "Sous-marin", "Sous-marins", "Marin", "Ocean", "Océan", "Éolien", "Wind", "Renouvelable", "Renewable", "Énergie", "Energy", "Automatisme", "Automatisation", "Automation", "Instrumentation", "SCADA", "PLC", "ROV", "AUV", "Hydrogène", "Hydrogen", "Aquaculture", "FPSO"]
+    - "Opérateur"
+    - "Operateur"
+    - term: "Procédés"
+      unless: ["Automatisme", "Automatismes", "Automatisation", "Automation", "Instrumentation", "PLC", "SCADA", "Régulation", "Contrôle-Commande", "Supervision"]
+    - term: "Procedes"
+      unless: ["Automatisme", "Automatismes", "Automatisation", "Automation", "Instrumentation", "PLC", "SCADA", "Régulation", "Contrôle-Commande", "Supervision"]
+    - "Soudeur"
+    - "Stagiaire"
+    - "Superviseur"
+    - "Tuyauteur"
+    # ── DUTCH / FLEMISH (NL/BE) (28) ─────────────────────────
+    - term: "*beheerder"
+      unless: ["scada", "plc", "instrumentat", "automatis", "windpark"]
+    - "*chauffeur"
+    - "*fitter"
+    - "*hoofd"
+    - "*inkoper"
+    - "*lasser"
+    - "*leider"
+    - term: "*ontwikkelaar"
+      unless: ["regeltechniek", "besturingstechniek", "instrumentatie", "offshore", "subsea", "maritiem", "wind"]
+    - term: "*stage"
+      unless: ["multistage", "multi-stage", "offshore", "marine", "subsea", "wind", "pump"]
+    - "*verantwoordelijke"
+    - "*verkoper"
+    - "Administratief"
+    - "Afstudeeropdracht"
+    - term: "Analist"
+      unless: ["geo", "geodata", "geografisch", "geo-informatie"]
+    - "Bouwkunde"
+    - term: "Civiele"
+      unless: ["waterkering", "zeewering", "baggerwerk"]
+    - "Commercieel"
+    - "Coördinator"
+    - "Docent"
+    - term: "Elektrotechniek"
+      unless: ["Engineer", "Ingenieur", "Offshore", "Marine", "Maritiem", "Subsea", "Naval", "Ocean", "Wind", "Windpark", "Renewable", "Automatisering", "Automation", "Instrumentatie", "Instrumentation", "PLC", "SCADA", "Energie", "Energy", "Survey", "GIS", "Aquacultuur"]
+    - "Installateur"
+    - "Jobstudent"
+    - term: "Leerling"
+      unless: ["offshore", "subsea", "marine", "marien", "maritiem", "naval", "ocean", "coastal", "nearshore", "floating", "seabed", "mooring", "riser", "umbilical", "fpso", "flng", "dredg", "wind", "tidal", "wave", "renewable", "hydrogen", "hydrograph", "bathym", "metocean", "survey", "geomati", "oceanograph", "aquacult", "automat", "instrument", "scada", "plc", "gis"]
+    - term: "Mechatronica"
+      unless: ["engineer", "ingenieur", "offshore", "marine", "maritime", "maritiem", "subsea", "automation", "automatisering", "instrumentation", "instrumentatie", "PLC", "SCADA", "control", "mooring", "wind", "energy"]
+    - term: "Programmeur"
+      unless: ["PLC", "SCADA", "automatisering", "automation", "instrumentatie", "besturing", "control", "control systems"]
+    - "Scheepsbouwkunde"
+    # ➜ 2026-07-28: the Praktikant lesson again. Sales was already blocked in
+    # ➜ four languages — Sales, Vertrieb, Ventas and the Dutch ADJECTIVE
+    # ➜ Commercieel — but not the Dutch NOUN, so "Landmeter Verkoop" walked in.
+    - "Verkoop"
+    - term: "Werktuigbouwkunde"
+      unless: ["Offshore", "Marine", "Maritiem", "Subsea", "Naval", "Mooring", "Wind", "Renewable", "Tidal", "Wave", "FPSO", "FLNG", "Riser", "Umbilical", "Cable", "Ocean", "Coastal", "Aquaculture", "Waterbouw"]
+    - term: "Werktuigbouwkundige"
+      unless: ["offshore", "marine", "maritiem", "subsea", "naval", "scheepsbouw", "wind", "windenergie", "energie", "waterstof", "getijden", "automatisering", "automation", "instrumentatie", "instrumentation"]
+    # ── ITALIAN (IT/CH) (29) ─────────────────────────
+    - term: "*meccanica"
+      unless: ["elettromeccanica", "idromeccanica", "geomeccanica", "eolico", "eolica", "navale", "marino", "marina", "offshore", "subsea"]
+    - term: "*meccanico"
+      unless: ["navale", "marino", "marina", "marittimo", "subacqueo"]
+    - "Amministrativo"
+    - term: "Apprendista"
+      unless: ["ingegnere", "navale", "marine", "offshore", "subsea", "automazione", "strumentazione", "idrografia", "oceanografia", "geomatica", "GIS", "survey"]
+    - "Avvocato"
+    - "Carpentiere"
+    - term: "Civile"
+      unless: ["ambientale", "marittim", "costier", "offshore", "idraulic"]
+    - "Commerciale"
+    - "Contabile"
+    - "Coordinatore"
+    - "Direttore"
+    - "Dirigente"
+    - term: "Disegnatore"
+      unless: ["Navale", "Marino", "Marina"]
+    - term: "Elettrica"
+      unless: ["offshore", "subsea", "navale", "marina", "marino", "eolic", "rinnovabil", "oceanic", "costier", "idrogeno", "fpso"]
+    - term: "Elettricista"
+      unless: ["Ingegnere"]
+    - term: "Elettrico"
+      unless: ["plc", "scada", "automation", "automazione", "control", "controllo", "instrumentation", "strumentazione", "strumentale", "offshore", "marine", "navale", "subsea"]
+    - term: "Elettronica"
+      unless: ["navale", "bordo", "marittima", "nautica", "marina", "offshore", "subacquea", "navigazione"]
+    - term: "Elettronico"
+      unless: ["navale", "marittimo", "bordo", "subacqueo", "nautico", "piattaforma"]
+    - "Manutentore"
+    - "Meccatronica"
+    - "Meccatronico"
+    - "Montatore"
+    - "Motorista"
+    - "Operaio"
+    - term: "Responsabile"
+      unless: ["junior", "neolaureato", "neolaureata", "stage", "tirocinio", "tirocinante", "apprendista", "graduate"]
+    - "Saldatore"
+    - "Supervisore"
+    - "Tirocinante"
+    - "Ufficiale"
+    # ── SPANISH + CATALAN (ES) (27) ─────────────────────────
+    - "Aeroespacial"
+    - "Aeronáutico"
+    - "Aeronautico"
+    - "Becari"
+    - term: "Caminos"
+      unless: ["Marítim", "Portuari", "Offshore", "Costa", "Litoral", "Marina", "Dique", "Dársena"]
+    - "Compras"
+    - term: "Desarrollador"
+      unless: ["PLC", "SCADA", "Automatización", "Control", "Instrumentación"]
+    - "Elèctric"
+    - "Electric"
+    - term: "Electromecánico"
+      unless: ["Ingeniero", "Ingeniería", "Ingeniera", "Enginyer", "Enginyeria", "Engineer", "Offshore", "Naval", "Marino", "Eólico"]
+    - term: "Electromecanico"
+      unless: ["Ingeniero", "Ingeniería", "Ingeniera", "Enginyer", "Enginyeria", "Engineer", "Offshore", "Naval", "Marino", "Eólico"]
+    - "Encargado"
+    - "Encarregat"
+    - "Estudiante"
+    - "Gerente"
+    - term: "Informático"
+      unless: ["Industrial", "Automática", "Automàtica", "Control"]
+    - term: "Informatico"
+      unless: ["Industrial", "Automática", "Automàtica", "Control"]
+    - term: "Instalador"
+      unless: ["Ingeniero", "Offshore", "Instrumentación", "Automatización"]
+    - term: "Investigador"
+      unless: ["acuicult", "aqüicult", "piscicult", "batimetr", "geomàt", "geomát", "automat", "automatitz", "instrumentaci", "scada", "plc"]
+    - "Jefe"
+    - term: "Mecànic"
+      unless: ["Naval", "Offshore", "Marí", "Marina", "Marítim", "Eòlic", "Eòlica", "Renovable", "Subsea", "Submarí", "FPSO", "FLNG", "Amarrament", "Automatització", "Instrumentació", "Costaner", "Oceà"]
+    - term: "Mecanic"
+      unless: ["Naval", "Offshore", "Marí", "Marina", "Marítim", "Eòlic", "Eòlica", "Renovable", "Subsea", "Submarí", "FPSO", "FLNG", "Amarrament", "Automatització", "Instrumentació", "Costaner", "Oceà"]
+    - term: "Mecatrónico"
+      unless: ["Offshore", "Marine", "Marina", "Marino", "Naval", "Subsea", "Automatización", "Automation", "Instrumentación", "Instrumentation", "PLC", "SCADA", "Control"]
+    - term: "Mecatronico"
+      unless: ["Offshore", "Marine", "Marina", "Marino", "Naval", "Subsea", "Automatización", "Automation", "Instrumentación", "Instrumentation", "PLC", "SCADA", "Control"]
+    - term: "Prácticas"
+      unless: ["Offshore", "Marine", "Marina", "Naval", "Ocean", "Oceanográf", "Subsea", "Submarina", "Costa", "Coastal", "Nearshore", "Mooring", "Fondeo", "Seabed", "Riser", "Umbilical", "FPSO", "FLNG", "Eólica", "Eólico", "Wind", "Renovable", "Renewable", "Tidal", "Wave", "Hidrógeno", "Hydrogen", "OrcaFlex", "Automatización", "Automation", "Instrumentación", "Instrumentation", "SCADA", "PLC", "GIS", "Hidrográf", "Batimétr", "Bathymetric", "Geomática", "Geomatics", "Metocean", "Survey", "Acuicultura", "Aquaculture"]
+    - term: "Practicas"
+      unless: ["Offshore", "Marine", "Marina", "Naval", "Ocean", "Oceanográf", "Subsea", "Submarina", "Costa", "Coastal", "Nearshore", "Mooring", "Fondeo", "Seabed", "Riser", "Umbilical", "FPSO", "FLNG", "Eólica", "Eólico", "Wind", "Renovable", "Renewable", "Tidal", "Wave", "Hidrógeno", "Hydrogen", "OrcaFlex", "Automatización", "Automation", "Instrumentación", "Instrumentation", "SCADA", "PLC", "GIS", "Hidrográf", "Batimétr", "Bathymetric", "Geomática", "Geomatics", "Metocean", "Survey", "Acuicultura", "Aquaculture"]
+    - term: "Pràctiques"
+      unless: ["Naval", "Marine", "Marina", "Marítim", "Offshore", "Ocean", "Subsea", "Eòlica", "Renovable", "Enginyer", "Enginyeria", "Engineer", "Ingeniero", "Ingeniería", "Ingénieur", "Ingegnere", "Ingenieur", "GIS", "Survey", "Hidrograf", "Automatització", "Instrumentació", "Aqüicultura", "Hydrogen"]
+    - term: "Practiques"
+      unless: ["Naval", "Marine", "Marina", "Marítim", "Offshore", "Ocean", "Subsea", "Eòlica", "Renovable", "Enginyer", "Enginyeria", "Engineer", "Ingeniero", "Ingeniería", "Ingénieur", "Ingegnere", "Ingenieur", "GIS", "Survey", "Hidrograf", "Automatització", "Instrumentació", "Aqüicultura", "Hydrogen"]
+    - "Preventa"
+    - term: "Químic"
+      unless: ["marí", "marina", "oceanògraf", "oceanografia", "oceà", "metocean", "offshore", "subsea", "submarí", "automatització", "instrumentació", "SCADA", "PLC"]
+    - term: "Quimic"
+      unless: ["marí", "marina", "oceanògraf", "oceanografia", "oceà", "metocean", "offshore", "subsea", "submarí", "automatització", "instrumentació", "SCADA", "PLC"]
+    - term: "Química"
+      unless: ["marina", "marino", "oceanografía", "oceanografia", "oceanográfica", "oceanogràfica"]
+    - term: "Quimica"
+      unless: ["marina", "marino", "oceanografía", "oceanografia", "oceanográfica", "oceanogràfica"]
+    - term: "Químico"
+      unless: ["Marino", "Marina", "Oceanógrafo", "Oceanógrafa", "Oceanografía", "Oceanográfico", "Marine", "Ocean", "Metocean"]
+    - term: "Quimico"
+      unless: ["Marino", "Marina", "Oceanógrafo", "Oceanógrafa", "Oceanografía", "Oceanográfico", "Marine", "Ocean", "Metocean"]
+    - "Supervisor"
+    - term: "Telecomunicaciones"
+      unless: ["submarino", "submarina", "marino", "marina", "offshore", "subsea", "naval"]
+    # ➤ 2026-07-27 (audit): "tubero" is the pipe-fitting TRADE. Same lesson as
+    # ➤ the French trades: "naval" is one of the POSITIVES, so the veto sits on
+    # ➤ the trade, never on the sector.
+    - "Tubero"
+    - "Tuberos"
+    - "Ventas"
+  # ➤ Words that ADD points when evaluating (junior, graduate...) — they
+  # ➤ don't filter, they just score better in the AI evaluations.
+  seniority_boost:
+    - "Graduate"
+    - "Junior"
+    - "Associate"
+    - "Entry"
+
+# ➤ ── BLOCKED COMPANIES (blacklist) ──────────────────────────────────
+# ➤ No offer from these companies enters your list, whatever the title
+# ➤ may be. It's compared as a whole word and case-insensitively
+# ➤ ("Amazon" also catches "Amazon Web Services", but not "Amazonia").
+# ➤ To block another company: add a line and that's it.
+company_filter:
+  blocked:
+    - "Amazon"          # ➤ 2026-07-18
+
+# ➤ ── SECTION 9: TRACKED COMPANIES ───────────────────────────────────
+# ➤ The list of companies the bot scans one by one. Those with a
+# ➤ "workday:" or "oracle:" block are scanned AUTOMATICALLY every 2h
+# ➤ (Equinor, Vestas, Shell, bp, Siemens Gamesa, Fugro, DNV). Those with
+# ➤ only a "scan_query" require a manual AI search.
+# ➤ To add a Workday company: copy Fugro's format.
+tracked_companies:
+
+  # -- Offshore wind developers (Spain) --
+
+  - name: Iberdrola
+    careers_url: https://www.iberdrola.com/about-us/work-with-us/jobs-offers
+    scan_method: websearch
+    scan_query: 'site:iberdrola.com/about-us/work-with-us "offshore" OR "marine" OR "eólico" engineer graduate OR junior'
+    notes: "Bilbao. Major offshore wind developer. Spain's largest renewables company."
+    enabled: true
+
+  - name: Repsol
+    careers_url: https://www.repsol.com/en/careers
+    scan_method: websearch
+    scan_query: 'site:repsol.com/en/careers "offshore" OR "marine" OR "renewable" engineer graduate'
+    notes: "Madrid. Oil & gas to renewables transition. Offshore projects."
+    enabled: true
+
+  - name: Acciona Energía
+    careers_url: https://jobs.acciona.com
+    scan_method: websearch
+    scan_query: 'site:jobs.acciona.com "offshore" OR "eólico marino" OR "marine" engineer graduate OR junior'
+    notes: "Madrid. Offshore wind developer in Spain."
+    enabled: true
+
+  # -- Offshore wind developers (Europe) --
+
+  - name: Ørsted
+    careers_url: https://orsted.com/en/careers/vacancies-list
+    notes: "Denmark. World's largest offshore wind developer. No direct API possible: old Greenhouse slug 404s and orsted.com is bot-protected (Akamai 403, ATS unknown — verified 2026-06-12). Their NL/DE/ES postings reach us via Adzuna; DK-only roles are the blind spot. Re-check if they ever expose a public board."
+    enabled: false
+
+  - name: Vestas
+    careers_url: https://careers.vestas.com
+    workday:
+      tenant: talentmanagementsolution
+      dc: wd3
+      site: VestaEurope
+    notes: "Denmark/NL. Wind turbine manufacturer and developer. Workday API (zero-token)."
+    enabled: true
+
+  - name: Siemens Gamesa
+    careers_url: https://www.siemensgamesa.com/en-int/careers
+    workday:
+      tenant: siemensgamesa
+      dc: wd3
+      site: SGRE
+    notes: "Bilbao HQ. Major offshore wind OEM. Spain-friendly. Workday API (zero-token)."
+    enabled: true
+
+  - name: RWE Renewables
+    careers_url: https://jobs.rwe.com
+    scan_method: websearch
+    scan_query: 'site:jobs.rwe.com "offshore wind" OR "offshore" engineer graduate OR junior'
+    notes: "Germany/UK. Large offshore wind developer."
+    enabled: true
+
+  - name: bp (offshore energy)
+    careers_url: https://careers.bp.com
+    workday:
+      tenant: bpinternational
+      dc: wd3
+      site: bpCareers
+    notes: "UK HQ but global. Major offshore operator transitioning to renewables. Workday API (zero-token)."
+    enabled: true
+
+  - name: Shell
+    careers_url: https://careers.shell.com
+    workday:
+      tenant: shell
+      dc: wd3
+      site: ShellCareers
+    notes: "Netherlands. Major offshore operator. Graduate schemes. Workday API (zero-token)."
+    enabled: true
+
+  - name: TotalEnergies
+    careers_url: https://jobs.totalenergies.com
+    scan_method: websearch
+    scan_query: 'site:jobs.totalenergies.com "offshore" OR "marine" OR "mooring" engineer graduate OR junior'
+    notes: "France. Offshore and renewables. Europe hiring."
+    enabled: true
+
+  - name: Equinor
+    careers_url: https://www.equinor.com/careers
+    workday:
+      tenant: equinor
+      dc: wd3
+      site: EQNR
+    notes: "Norway. Major offshore operator. Strong graduate programme. Workday API (zero-token)."
+    enabled: true
+
+  # -- Offshore EPCI / marine contractors --
+
+  - name: DEME Offshore
+    careers_url: https://www.deme-group.com/careers
+    scan_method: websearch
+    scan_query: 'site:deme-group.com/careers "offshore" OR "marine" OR "mooring" engineer graduate OR junior'
+    notes: "Belgium (Zwijndrecht). Major offshore installation contractor. BE proximity relevant."
+    enabled: true
+
+  - name: Van Oord
+    careers_url: https://www.vanoord.com/careers
+    scan_method: websearch
+    scan_query: 'site:vanoord.com/careers "offshore" OR "marine" OR "engineering" graduate OR junior'
+    notes: "Rotterdam NL. Dredging and offshore installation contractor."
+    enabled: true
+
+  - name: Boskalis
+    careers_url: https://www.boskalis.com/careers
+    scan_method: websearch
+    scan_query: 'site:boskalis.com/careers "offshore" OR "marine" OR "engineering" graduate OR junior'
+    notes: "Papendrecht NL. Marine contractor. Graduate programme available."
+    enabled: true
+
+  - name: Heerema Marine Contractors
+    careers_url: https://www.heerema.com/careers
+    scan_method: websearch
+    scan_query: 'site:heerema.com "offshore" OR "marine" OR "engineering" graduate OR junior'
+    notes: "Leiden NL. Heavy lift and offshore installation. Graduate roles."
+    enabled: true
+
+  - name: Subsea 7
+    careers_url: https://careers.subsea7.com
+    scan_method: websearch
+    scan_query: 'site:careers.subsea7.com "offshore" OR "mooring" OR "marine" OR "subsea" engineer graduate'
+    notes: "Luxembourg/UK. Offshore and subsea contractor."
+    enabled: true
+
+  - name: Technip Energies
+    careers_url: https://careers.technipenergies.com
+    scan_method: websearch
+    scan_query: 'site:careers.technipenergies.com "offshore" OR "mooring" OR "marine" engineer graduate OR junior'
+    notes: "France/Netherlands. Offshore energy and LNG contractor."
+    enabled: true
+
+  - name: SBM Offshore
+    careers_url: https://www.sbmoffshore.com/careers
+    scan_method: websearch
+    scan_query: 'site:sbmoffshore.com "mooring" OR "offshore" OR "marine" engineer graduate'
+    notes: "Amsterdam NL. FPSO and mooring systems specialist. Direct OrcaFlex relevance."
+    enabled: true
+
+  - name: BW Offshore
+    careers_url: https://www.bw-offshore.com/careers
+    scan_method: websearch
+    scan_query: 'site:bw-offshore.com "mooring" OR "offshore" OR "marine" engineer graduate OR junior'
+    notes: "Norway/Singapore. FPSO operator. Mooring relevance."
+    enabled: true
+
+  # -- Classification societies / engineering consultancies --
+
+  - name: DNV
+    careers_url: https://jobs.dnv.com/
+    oracle:
+      host: ecyq.fa.em2.oraclecloud.com
+      site: CX_1
+    notes: "Norway/NL/ES. Classification & advisory. Oracle Cloud API (zero-token)."
+    enabled: true
+
+  - name: Fugro
+    careers_url: https://www.fugro.com/careers
+    workday:
+      tenant: fugro
+      dc: wd3
+      site: careers
+    notes: "NL HQ (Leidschendam) + ES offices. World leader in marine Geo-data: survey, metocean, geotechnics — direct match for a marine-survey/instrumentation background. Workday API (zero-token)."
+    enabled: true
+
+  - name: Bureau Veritas
+    careers_url: https://group.bureauveritas.com/careers
+    scan_method: websearch
+    scan_query: 'site:group.bureauveritas.com "offshore" OR "marine" OR "mooring" engineer graduate'
+    notes: "France. Classification society. BV standards experience."
+    enabled: true
+
+  - name: Lloyd's Register
+    careers_url: https://www.lr.org/en/careers
+    scan_method: websearch
+    scan_query: 'site:lr.org/en/careers "offshore" OR "marine" OR "structural" engineer graduate OR junior'
+    notes: "UK. Classification and engineering advisory."
+    enabled: true
+
+  - name: RINA
+    careers_url: https://www.rina.org/en/careers
+    scan_method: websearch
+    scan_query: 'site:rina.org "offshore" OR "marine" OR "structural" engineer graduate'
+    notes: "Italy. Classification and engineering advisory. Spain presence."
+    enabled: true
+
+  # -- Floating wind / emerging technology --
+
+  - name: Saitec Offshore
+    careers_url: https://www.saitec.es/en/careers
+    scan_method: websearch
+    scan_query: '"saitec" careers "offshore" OR "floating wind" OR "mooring" engineer'
+    notes: "Bilbao. Spanish floating offshore wind company."
+    enabled: true
+
+  # -- Spanish marine engineering sector --
+
+  - name: Navantia
+    careers_url: https://www.navantia.es/empleo
+    scan_method: websearch
+    scan_query: 'site:navantia.es "ingeniero" OR "engineer" "naval" OR "offshore" OR "marino" junior OR graduado'
+    notes: "Spain. State shipbuilding company. Naval and offshore projects."
+    enabled: true
+
+  - name: Indra
+    careers_url: https://www.indra.es/es/empleos-indra
+    scan_method: websearch
+    scan_query: 'site:indra.es "marine" OR "offshore" OR "oceanography" OR "GIS" engineer graduate'
+    notes: "Madrid. Defence and technology. Ocean/marine tech division."
+    enabled: true
+
+  - name: Idom
+    careers_url: https://www.idom.com/careers
+    scan_method: websearch
+    scan_query: 'site:idom.com "offshore" OR "marine" OR "eólico" OR "mooring" engineer graduate'
+    notes: "Bilbao. Engineering consultancy with offshore energy projects."
+    enabled: true
+
+  - name: Ineco
+    careers_url: https://www.ineco.com/webineco/empleo
+    scan_method: websearch
+    scan_query: 'site:ineco.com "marino" OR "offshore" OR "puertos" OR "coastal" engineer junior OR graduate'
+    notes: "Madrid. Transport and engineering consultancy. Coastal/port projects."
+    enabled: true
+
+  - name: Esteyco
+    careers_url: https://www.esteyco.com/en/careers/
+    scan_method: websearch
+    scan_query: 'site:esteyco.com "offshore" OR "floating wind" OR "mooring" OR "structural" engineer junior OR graduate'
+    notes: "Madrid/Barcelona. Floating offshore wind specialist (ELISA/TELWIND platforms). Direct fit for a mooring/offshore background."
+    enabled: true
+
+  - name: Sener
+    careers_url: https://www.engineeringandconstruction.sener/careers
+    scan_method: websearch
+    scan_query: 'site:sener.es OR site:engineeringandconstruction.sener "offshore" OR "marine" OR "eólico" engineer junior OR graduate'
+    notes: "Bilbao/Madrid. Engineering consultancy with offshore renewables division."
+    enabled: true
+
+  - name: Cobra IS (ACS)
+    careers_url: https://www.grupocobra.com/en/careers/
+    scan_method: websearch
+    scan_query: 'site:grupocobra.com "offshore wind" OR "marine" OR "installation" engineer junior OR graduate'
+    notes: "Madrid. ACS group offshore wind installation contractor."
+    enabled: true
+
+# ➤ ── SECTION 10: THE COUNCIL — SHADOW, OFF ────────────
+# ➤ WHAT IT IS: a layer ON TOP OF the funnel. Three AI judges (The Good defender,
+# ➤ The Bad prosecutor, The Ugly realist) rethink IN PROSE what Argus decided
+# ➤ and record their verdict (2 of 3) in their own log data/judge-shadow.jsonl.
+# ➤ It runs in SHADOW: it decides NOTHING, it touches neither this list nor the pipeline. It serves
+# ➤ to MEASURE, at 2 weeks, whether it would improve the deterministic filter.
+# ➤ HOW TO TURN IT ON: set enabled: true. While it's false (or this
+# ➤ block is missing), the harness server-bot/argus-council/judge-shadow.mjs does nothing.
+# ➤ PARAMETERS:
+# ➤   · model         → model for ALL judges (empty = each judge uses its
+# ➤                     own: The Good=haiku, The Bad/The Ugly=sonnet).
+# ➤   · sample_dropped → how many DISCARDED (by title) to sample from
+# ➤                      data/scan-explain.txt besides the presented ones.
+council:
+  # ➤ OFF by default: the Council is the only part that needs the Claude CLI
+  # ➤ installed and logged in on this machine. Searching, filtering and Telegram
+  # ➤ all work without it. Set to true once you have run: claude setup-token.
+  enabled: false            # ➤ true = shadow mode (judges each scan; decides nothing)
+  model: sonnet             # ➤ block's default model; empty = each judge's own
+  sample_dropped: 0         # ➤ number of discarded to review per scan (0 = only the presented ones)

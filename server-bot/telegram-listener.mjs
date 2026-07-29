@@ -1,0 +1,408 @@
+#!/usr/bin/env node
+
+// ➤ ═══════════════════════════════════════════════════════════════════════
+// ➤ WHAT IT IS: the Telegram "remote control" for your job search.
+// ➤ It reads the messages YOU send to the bot's chat and turns them into actions:
+// ➤ launch a search now (search), view the pending offers (list),
+// ➤ generate an offer's cover-letter PDF (cover N), or
+// ➤ remove offers from the list (seen, or "no" with a reason to improve the filter).
+// ➤ WHEN IT RUNS: the server launches it automatically every minute;
+// ➤ it processes whatever new has arrived, replies via Telegram and shuts down.
+// ➤ WHAT IT USES: telegram.json (bot keys), telegram-offset.json (remembers where
+// ➤ it was reading), notify.mjs (send messages/PDFs), list-offers.mjs
+// ➤ (pending offers), seen.mjs (mark as seen), scan.mjs (search),
+// ➤ cover-letter.mjs (cover letters), and writes to feedback.jsonl (your rejections).
+// ➤ ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * telegram-listener.mjs — Telegram as a remote control for argus.
+ *
+ * Runs every minute via cron (serialised with flock). Polls getUpdates,
+ * processes messages FROM THE USER'S CHAT ONLY, replies, and exits.
+ *
+ * Commands:
+ *   search                launch a full scan now (scan.mjs)
+ *   list                  send the current pending offers (grouped digest)
+ *   cover N               generate + send the cover-letter PDF for offer N
+ *   applied N             log a SENT application (data/applications.jsonl)
+ *   longshot N [reason]   same, but flagged: you know you fall short of it
+ *   blind                 titles the filter keeps discarding (your blind spots)
+ *   seen N [N...]         hide offer(s) from the pending list
+ *   no N [reason]         hide an offer AND record why to feedback.jsonl
+ *   anything else         help text
+ *
+ * State: telegram-offset.json (last processed update_id). Lock: flock in
+ * the cron line prevents overlapping runs while a scan is ongoing.
+ */
+
+import { readFileSync, writeFileSync } from 'fs';
+import { execFile } from 'child_process';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { sendTelegram, sendTelegramDocument } from './notify.mjs';
+import { pendingOffers } from './list-offers.mjs';
+// ➤ The "live list": deletes the previous list and re-sends the updated one to the
+// ➤ bottom of the chat every time it changes (after list/seen/no/applied).
+import { refreshList } from './live-list.mjs';
+// ➤ The PDF cover-letter generator (the "cover N" command).
+import { makeCoverLetter } from './cover-letter.mjs';
+// ➤ The one-time setup / settings flow (CV + profile questions, some with
+// ➤ buttons). It writes config/profile.yml + cv.md.
+import {
+  startOnboarding, startSettings, handleOnboardingText, handleOnboardingCallback, onboardingActive,
+} from './onboarding.mjs';
+
+// ➤ Paths and basic settings: where this script lives, the project's root
+// ➤ folder and the configuration files.
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const ROOT = dirname(SCRIPT_DIR);
+const CFG_PATH = join(SCRIPT_DIR, 'telegram.json');
+const OFFSET_PATH = join(SCRIPT_DIR, 'telegram-offset.json');
+
+// ➤ Reads a data file (JSON format); if it doesn't exist or is corrupt,
+// ➤ returns the fallback value instead of breaking the program.
+function loadJson(path, fallback) {
+  try { return JSON.parse(readFileSync(path, 'utf-8')); } catch { return fallback; }
+}
+
+// ➤ Runs another of the bot's scripts (for example seen.mjs, the one that marks
+// ➤ offers as seen) and collects everything it prints, to forward to you via Telegram.
+function runNode(script, args) {
+  return new Promise(resolve => {
+    execFile('node', [join(SCRIPT_DIR, script), ...args], { cwd: ROOT, timeout: 60_000 },
+      (err, stdout, stderr) => resolve((stdout || '') + (stderr || '') + (err && !stdout && !stderr ? String(err.message) : '')));
+  });
+}
+
+// ➤ Help text: it's what the bot replies to you when the message doesn't
+// ➤ match any known command.
+// ➤ Sent with HTML formatting (parse_mode HTML): <b> bold header, <code>
+// ➤ monospaced commands (they stand out and copy with one tap). No user data
+// ➤ goes in here, so the raw tags are safe.
+const HELP =
+  '<b>Argus — commands</b>\n' +
+  '<i>N = the number shown next to each offer, e.g. #675</i>\n' +
+  '\n' +
+  '<code>list</code> — show the pending offers\n' +
+  '<code>search</code> — search for new offers now\n' +
+  '<code>seen N</code> — remove offer(s) from the list\n' +
+  '<code>no N reason</code> — remove an offer and note why (improves the filter)\n' +
+  '<code>applied N</code> — mark as applied (removes it from the list)\n' +
+  '<code>longshot N reason</code> — applied, but you know you fall short\n' +
+  '<code>blind</code> — titles the filter keeps discarding (your blind spots)\n' +
+  '<code>cover N</code> — make the cover-letter PDF for offer N\n' +
+  '<code>settings</code> — edit your profile (CV, roles, countries...)\n' +
+  '<code>help</code> — show this list';
+
+// ➤ File where your rejections are recorded with their reason, one per line.
+const FEEDBACK_PATH = join(SCRIPT_DIR, 'feedback.jsonl');
+
+// ➤ The "no N reason" command ("no 3 needs 5 years of experience"): removes
+// ➤ offer 3 from pending AND records why it didn't fit in feedback.jsonl.
+// ➤ That file is your rejection history — read it before touching the filters,
+// ➤ so any change to them comes from your real criteria (and with tests).
+async function rejectWithReason(n, reason) {
+  // n is the STABLE offer id (#412 as shown on Telegram), never a position.
+  const offers = pendingOffers();
+  // ➤ Find the offer whose fixed number matches the one you typed.
+  const off = offers.find(o => o.id === n);
+  if (!off) {
+    await sendTelegram(`There's no pending offer with the number #${n} (did you already remove it?). The numbers appear on each offer in the list.`);
+    return;
+  }
+  // ➤ Build the rejection entry: date, offer data and your reason.
+  const rec = {
+    ts: new Date().toISOString(),
+    id: n, company: off.company, title: off.title, location: off.location, url: off.url,
+    reason: reason || '(no reason)',
+  };
+  writeFileSync(FEEDBACK_PATH, JSON.stringify(rec) + '\n', { flag: 'a' });
+  // ➤ Besides recording it, mark it as seen so it drops off the list.
+  const seenOut = await runNode('seen.mjs', [String(n)]);
+  console.log(`[${new Date().toISOString()}] no #${n} → ${off.title} — ${off.company} | seen: ${seenOut.trim().split('\n').pop()}`);
+  await sendTelegram(`Discarded #${n}: ${off.title} — ${off.company}.${rec.reason ? ` Reason: ${rec.reason}` : ''}`);
+  // ➤ The confirmation stays; the list refreshes without this offer.
+  await refreshList({ markSeen: true });
+}
+
+// ➤ Launches the full scanner (scan.mjs, the same one that runs on its own every 2h) and
+// ➤ WAITS for it to finish, returning everything it prints. Generous timeout
+// ➤ (10 min) because it queries many portals. It's a task separate from the bot.
+function runScan() {
+  return new Promise(resolve => {
+    execFile('node', [join(SCRIPT_DIR, 'scan.mjs')],
+      // ➤ ARGUS_SKIP_LIST_REFRESH: tells the scanner NOT to refresh the list
+      // ➤ itself; this listener refreshes it at the end of forceScan(), so that
+      // ➤ the list ends up BELOW the "Search finished" message (at the bottom of the chat).
+      { cwd: ROOT, timeout: 10 * 60 * 1000, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, ARGUS_SKIP_LIST_REFRESH: '1' } },
+      (err, stdout, stderr) => resolve((stdout || '') + (stderr || '')));
+  });
+}
+
+// ➤ The "cover N" command: generates the cover-letter PDF for offer
+// ➤ number N and sends it to you in this same chat. It notifies you when it starts (it takes a few
+// ➤ minutes: it has to download the offer, write the letter and assemble the PDF).
+async function coverCommand(n) {
+  // ➤ Find the offer by its fixed number (#N, the one shown in the list).
+  const off = pendingOffers().find(o => o.id === n);
+  if (!off) {
+    await sendTelegram(`There's no pending offer with the number #${n}. The numbers appear next to each offer in the list.`);
+    return;
+  }
+  await sendTelegram(`Generating the cover letter for #${n}: ${off.title} — ${off.company}. This may take a few minutes.`);
+  const res = await makeCoverLetter(off);
+  if (!res.ok) {
+    await sendTelegram(`Couldn't generate the cover letter: ${res.error}`);
+    return;
+  }
+  // ➤ Sends the PDF as an attachment; if the send fails, it tells you where it ended up.
+  // ➤ Warn if the portal gave no text: the letter is then written from the title
+  // ➤ and company alone, so it will be generic. Better you know before sending.
+  const caption = `Cover letter #${n}: ${off.title} — ${off.company}`
+    + (res.thin ? '\n⚠️ The portal gave no offer text, so this one is generic — worth a read before sending.' : '');
+  const sent = await sendTelegramDocument(res.pdfPath, caption);
+  if (!sent) await sendTelegram(`The cover letter was generated but couldn't be attached. File on the server: ${res.pdfPath}`);
+}
+
+// ➤ The "search" command: launches a job search RIGHT now (without waiting for the
+// ➤ automatic scan every 2h). It notifies you when it starts; the scanner itself
+// ➤ sends you the new offers if there are any; and when it finishes it confirms how many
+// ➤ came up. It may take a couple of minutes.
+async function forceScan() {
+  await sendTelegram('Searching for new offers. This may take a few minutes.');
+  const out = await runScan();
+  // ➤ The scanner prints "New offers added: N" — that's how I get how many there were.
+  const m = out.match(/New offers added:\s*(\d+)/);
+  if (!m) {
+    await sendTelegram('Search finished. Couldn\'t read the result; use "list" to see them.');
+  } else {
+    const n = parseInt(m[1], 10);
+    if (n === 0) await sendTelegram('Search finished. No new offers.');
+    else await sendTelegram(`Search finished. ${n} new offer(s), sent.`);
+  }
+  // ➤ And NOW yes, the list at the bottom: after the confirmation. (The scanner
+  // ➤ didn't refresh it because we launched it with ARGUS_SKIP_LIST_REFRESH.) That way the
+  // ➤ list stays as the last message, whether you triggered it (search) or there were no new ones.
+  await refreshList({ markSeen: true });
+}
+
+// ➤ Record of SENT applications (the "applied N" command): history in
+// ➤ data/applications.jsonl (the bot's own file; the applications.md from the
+// ➤ original system is left untouched — it's from another flow and has been idle since May).
+const APPLIED_PATH = join(ROOT, 'data', 'applications.jsonl');
+
+// ➤ The "applied N" command: records the application with date and data, and removes the
+// ➤ offer from pending (forever — a position already applied to must not
+// ➤ be proposed again even if the company reposts it).
+// ➤ "longshot": applying to something you KNOW you fall short of, on the off
+// ➤ chance. It is still a sent application — same file, same removal from the
+// ➤ list, same block on the offer coming back — but it carries longshot:true so
+// ➤ nothing downstream reads it as "the bot got this one right".
+// ➤ Why it matters: argus-council/reconcile.mjs treats applications.jsonl as the
+// ➤ ground truth for SHOW. Without the flag, an application sent in hope tells
+// ➤ it the opposite of the truth and grades the Council on a false positive.
+async function markApplied(n, { longshot = false, reason = '' } = {}) {
+  const off = pendingOffers().find(o => o.id === n);
+  if (!off) {
+    await sendTelegram(`There's no pending offer with the number #${n}. The numbers appear next to each offer in the list.`);
+    return;
+  }
+  const rec = { ts: new Date().toISOString(), id: n, company: off.company, title: off.title, location: off.location, url: off.url };
+  // ➤ The two extra fields only appear on longshots, so every line written
+  // ➤ before this existed keeps reading exactly as it did.
+  if (longshot) {
+    rec.longshot = true;
+    if (reason) rec.reason = reason;
+  }
+  writeFileSync(APPLIED_PATH, JSON.stringify(rec) + '\n', { flag: 'a' });
+  await runNode('seen.mjs', [String(n)]);
+  const tag = longshot ? 'longshot' : 'applied';
+  console.log(`[${new Date().toISOString()}] ${tag} #${n} → ${off.title} — ${off.company}${reason ? ` | ${reason}` : ''}`);
+  await sendTelegram(longshot
+    ? `Longshot recorded: #${n} ${off.title} — ${off.company}.${reason ? `\nShort on: ${reason}` : ''}\nCounted as sent, but not as proof the offer suited you.`
+    : `Application recorded: #${n} ${off.title} — ${off.company}.`);
+  // ➤ The confirmation stays; the list refreshes without this offer.
+  await refreshList({ markSeen: true });
+}
+
+// ➤ The listener's "brain": takes the text of one of your messages, works out which
+// ➤ command it corresponds to (trying patterns one by one, top to bottom) and
+// ➤ runs the matching action. If nothing fits, it sends the help text.
+async function handle(text) {
+  const t = text.trim();
+  console.log(`[${new Date().toISOString()}] cmd: ${t.slice(0, 100)}`);
+
+  // ➤ Every command is case-insensitive, and offer numbers are accepted with
+  // ➤ or without the hash ("#412" or "412").
+  // ➤ Is it "help" (or "/help")? → show the list of commands.
+  if (/^\/?help$/i.test(t)) {
+    await sendTelegram(HELP, { html: true });
+    return;
+  }
+  // ➤ "/start" → the one-time setup (CV + profile questions).
+  if (/^\/?start$/i.test(t)) {
+    await startOnboarding();
+    return;
+  }
+  // ➤ "settings" → edit any profile answer later (menu with buttons).
+  if (/^\/?settings$/i.test(t)) {
+    await startSettings();
+    return;
+  }
+  // ➤ Is the message "seen" followed by one or more numbers? → mark as seen.
+  if (/^seen(\s+#?\d+)+$/i.test(t)) {
+    const ids = t.split(/\s+/).slice(1).map(s => s.replace(/^#/, ''));
+    const out = await runNode('seen.mjs', ids);
+    // ➤ HONEST reply (audit 2026-07-25): it used to say "Marked as seen" even
+    // ➤ when the number did not exist (already handled, or removed by the 07:30
+    // ➤ cleanup), so you believed you had filed an offer that was never touched.
+    const missing = ids.filter(i => new RegExp(`#${i} is not in pending`).test(out));
+    const marked = ids.filter(i => !missing.includes(i));
+    const tag = list => list.map(i => `#${i}`).join(', ');
+    if (marked.length && missing.length) {
+      await sendTelegram(`Marked as seen: ${tag(marked)}. Not found (already gone): ${tag(missing)}.`);
+    } else if (marked.length) {
+      await sendTelegram(`Marked as seen: ${tag(marked)}.`);
+    } else {
+      await sendTelegram(`Nothing marked: ${tag(missing)} ${missing.length > 1 ? 'are' : 'is'} not in the pending list (already removed?).`);
+    }
+    // ➤ The confirmation above stays; only the list refreshes (the previous one is
+    // ➤ deleted and re-sent without those offers).
+    await refreshList({ markSeen: true });
+    return;
+  }
+  // ➤ Is it "search" (or "scan")? → launch a full scan right now.
+  if (/^(search|scan)$/i.test(t)) {
+    await forceScan();
+    return;
+  }
+  // ➤ Is it "cover 412" (or "cover #412")? → generate the cover-letter
+  // ➤ PDF for that offer and send it here.
+  if (/^cover\s*#?\d+$/i.test(t)) {
+    const n = parseInt(t.match(/(\d+)/)[1], 10);
+    await coverCommand(n);
+    return;
+  }
+  // ➤ Is it "list"? → send the pending offers grouped by country, as always
+  // ➤ (the buttons from 2026-07-18 were tried and the user removed them that same day:
+  // ➤ the owner prefers typing the commands — don't reintroduce them).
+  if (/^list$/i.test(t)) {
+    // ➤ "list" now refreshes the live list: deletes the previous one and re-sends the
+    // ➤ pending offers to the bottom of the chat (if there are none, it says "No pending offers").
+    await refreshList({ markSeen: true });
+    return;
+  }
+  // ➤ Is it "applied N"? → record that you SENT the application:
+  // ➤ it's logged in data/applications.jsonl (your history of sent applications) and
+  // ➤ the offer drops off pending (and won't come back even if reposted).
+  // ➤ (optional separator — "applied5" without a space is also valid, audit)
+  // ➤ "longshot 729 I don't have the 3 years" — checked BEFORE "applied" so the
+  // ➤ two never race, and the trailing text is kept as the requirement you fall
+  // ➤ short of (same shape as "no N reason").
+  // ➜ "blind": the titles the filter keeps throwing away. Not a list of
+  // ➜ mistakes — most of it is correctly discarded — but the only way a gap in
+  // ➜ the field list becomes visible instead of staying silent.
+  if (/^blind$/i.test(t)) {
+    const { loadStore, formatReport } = await import('./argus-discover/blind-spots.mjs');
+    const report = formatReport(loadStore(), { limit: 10 });
+    await sendTelegram(`<pre>${report.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</pre>`);
+    return;
+  }
+  if (/^longshot[\s,:]*#?\d+/i.test(t)) {
+    const m = t.match(/^longshot[\s,:]*#?(\d+)[\s,.:—-]*(.*)$/i);
+    await markApplied(parseInt(m[1], 10), { longshot: true, reason: m[2].trim() });
+    return;
+  }
+  if (/^applied[\s,:]*#?\d+/i.test(t)) {
+    const m = t.match(/^applied[\s,:]*#?(\d+)[\s,.:—-]*(.*)$/i);
+    const n = parseInt(m[1], 10);
+    await markApplied(n);
+    // ➤ "applied N" ignores anything typed after the number, and that silence
+    // ➤ once filed an application-sent-in-hope as a normal one. It still is a
+    // ➤ normal application — but say so, and point at the command that keeps
+    // ➤ the nuance.
+    if (m[2].trim()) {
+      await sendTelegram(`Note: "${m[2].trim()}" was not saved — <code>applied</code> only reads the number.\nIf you meant you fall short of it, use <code>longshot ${n} ${m[2].trim()}</code> instead.`);
+    }
+    return;
+  }
+  // ➤ Is it "no 3 reason..." (or stuck together "no3")? → reject the offer
+  // ➤ recording why. (Optional separator — audit 2026-07-18: "no5"
+  // ➤ typed quickly fell through to the help text.)
+  if (/^no[\s,:]*#?\d+/i.test(t)) {
+    // ➤ Split the offer number from the reason text.
+    const m = t.match(/^no[\s,:]*#?(\d+)[\s,.:—-]*(.*)$/i);
+    await rejectWithReason(parseInt(m[1], 10), m[2].trim());
+    return;
+  }
+  // ➤ Does it start with "no" but WITHOUT a number ("No, needs 5 years...")?
+  // ➤ → ask which one you mean, instead of dumping generic help.
+  if (/^no\b/i.test(t)) {
+    await sendTelegram('Which one do you mean? Tell me the number shown next to the offer, e.g.:\nno #412 needs 10 years of experience');
+    return;
+  }
+  // ➤ Nothing matched: send the help text with the available commands.
+  await sendTelegram(HELP, { html: true });
+}
+
+// ➤ Main routine: asks Telegram whether there are new messages since the
+// ➤ last time, processes them one by one ONLY those coming from your chat, and records
+// ➤ where the reading is up to so it doesn't repeat commands if something is cut off.
+async function main() {
+  const cfg = loadJson(CFG_PATH, null);
+  // ➤ Not configured yet: nothing to do. It says so only when a person ran it
+  // ➤ by hand — from cron, stdout is not a terminal and silence is correct, or
+  // ➤ the log would gain one identical line every minute for ever.
+  if (!cfg?.bot_token || !cfg?.chat_id) {
+    if (process.stdout.isTTY) {
+      console.log(!cfg?.bot_token
+        ? 'Not set up yet: server-bot/telegram.json is missing its bot_token. Run: bash setup.sh'
+        : 'Almost there: telegram.json has a token but no chat_id. Send your bot any message, then run: node server-bot/notify.mjs --setup');
+    }
+    return;
+  }
+
+  // ➤ Asks Telegram for the pending messages starting from the last one already read,
+  // ➤ with a maximum wait of 15 seconds so it doesn't hang.
+  const state = loadJson(OFFSET_PATH, { offset: 0 });
+  const res = await fetch(
+    `https://api.telegram.org/bot${cfg.bot_token}/getUpdates?offset=${state.offset}&timeout=0`,
+    { signal: AbortSignal.timeout(15_000) },
+  );
+  const j = await res.json().catch(() => null);
+  if (!j?.ok) return;
+
+  // ➤ Iterate over each new message, in order of arrival.
+  for (const u of j.result || []) {
+    // ➤ Save progress BEFORE running the command: if the program
+    // ➤ crashed midway, on restart it wouldn't repeat commands already done.
+    state.offset = u.update_id + 1;
+    writeFileSync(OFFSET_PATH, JSON.stringify(state), 'utf-8'); // persist BEFORE handling: a crash must not replay commands
+    // ➤ Button taps (onboarding / settings) arrive as callback_query, not as a
+    // ➤ message. Route them to the onboarding handler.
+    const cb = u.callback_query;
+    if (cb) {
+      if (String(cb.message?.chat?.id) !== String(cfg.chat_id)) continue; // your chat only
+      try { await handleOnboardingCallback(cb.data, cb.id); }
+      catch (e) { try { await sendTelegram(`Error: ${String(e.message).slice(0, 200)}`); } catch {} }
+      continue;
+    }
+    const msg = u.message;
+    if (!msg?.text) continue;
+    // ➤ Security: ignore any message that doesn't come from YOUR chat.
+    if (String(msg.chat?.id) !== String(cfg.chat_id)) continue; // the user's chat only
+    // ➤ If a command fails, you're notified via Telegram instead of dying silently.
+    try {
+      // ➤ While setup/settings is waiting for a typed answer, the text goes
+      // ➤ there; otherwise it's a normal command.
+      if (onboardingActive() && await handleOnboardingText(msg.text)) continue;
+      await handle(msg.text);
+    } catch (e) {
+      try { await sendTelegram(`Error: ${String(e.message).slice(0, 200)}`); } catch {}
+    }
+  }
+}
+
+// ➤ Startup: runs the main routine; if something blows up, the program exits
+// ➤ quietly (the scheduled task will launch it again the next minute).
+main().catch(() => process.exit(0));

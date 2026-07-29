@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# Argus — guided setup.
+# Run it once after cloning:   bash setup.sh
+# It only asks for what is REQUIRED (a Telegram bot token) and offers to write
+# the cron lines for you. Everything else is optional and can wait.
+# ─────────────────────────────────────────────────────────────────────────────
+set -u
+cd "$(dirname "$0")"
+ROOT="$(pwd)"
+
+say()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
+ok()   { printf '  ✓ %s\n' "$*"; }
+warn() { printf '  ! %s\n' "$*"; }
+
+say "Argus setup"
+
+# ── 1. Node ──────────────────────────────────────────────────────────────
+if ! command -v node >/dev/null 2>&1; then
+  warn "Node.js is not installed. Get it from https://nodejs.org (version 18 or newer) and run this again."
+  exit 1
+fi
+NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
+if [ "$NODE_MAJOR" -lt 18 ]; then
+  warn "Node $(node -v) is too old. Argus needs 18 or newer."
+  exit 1
+fi
+ok "Node $(node -v)"
+
+# ── 2. Dependencies ──────────────────────────────────────────────────────
+if [ ! -d node_modules ]; then
+  say "Installing dependencies (npm install)"
+  npm install --no-audit --no-fund || { warn "npm install failed"; exit 1; }
+fi
+ok "dependencies installed"
+
+# ── 3 + 4. Telegram bot: the token, then the chat ────────────────────────
+# ➤ These two are one step, not two, because they fail into each other. The
+# ➤ token is the only thing you type by hand in this whole setup, so a typo in
+# ➤ it is the likeliest way an install goes wrong — and Telegram reports it as
+# ➤ "Unauthorized", which reads like a problem with your chat. Asking again is
+# ➤ the fix; the earlier version saved the bad token and could never be talked
+# ➤ out of it, because on the next run it saw a token in the file and skipped
+# ➤ straight past the question.
+CFG="server-bot/telegram.json"
+
+ask_token() {
+  say "Telegram bot"
+  echo "  Open Telegram, talk to @BotFather, send /newbot and copy the token it gives you."
+  echo "  It looks like: 123456789:AAHk8s...  (numbers, a colon, then letters)"
+  printf '  Paste the token here: '
+  read -r TOKEN
+  if [ -z "${TOKEN:-}" ]; then return 1; fi
+  # ➤ Checked here, before spending a network round-trip and before asking you
+  # ➤ to go and message the bot: every BotFather token is digits, a colon, then
+  # ➤ a long tail. If that shape is missing, something else got pasted.
+  if ! printf '%s' "$TOKEN" | grep -qE '^[0-9]{6,}:[A-Za-z0-9_-]{30,}$'; then
+    warn "That does not look like a bot token (expected 123456789:AAHk8s...)."
+    warn "Copy the whole line @BotFather sent, with nothing before or after it."
+    return 2
+  fi
+  printf '{"bot_token": "%s", "chat_id": ""}\n' "$TOKEN" > "$CFG"
+  chmod 600 "$CFG" 2>/dev/null || true
+  ok "saved to $CFG"
+  return 0
+}
+
+TELEGRAM_READY=no
+if grep -q '"chat_id"[[:space:]]*:[[:space:]]*"[0-9-]\+"' "$CFG" 2>/dev/null; then
+  ok "Telegram already linked (token and chat id are in $CFG)"
+  TELEGRAM_READY=yes
+else
+  # ➤ Up to three goes at the token, then carry on regardless: the rest of the
+  # ➤ install is still worth finishing, and this step can be redone alone.
+  ATTEMPT=0
+  while [ "$TELEGRAM_READY" = no ] && [ "$ATTEMPT" -lt 3 ]; do
+    ATTEMPT=$((ATTEMPT + 1))
+    if [ ! -f "$CFG" ] || ! grep -q '"bot_token"[[:space:]]*:[[:space:]]*"[^"]\+"' "$CFG"; then
+      ask_token; RC=$?
+      # ➤ 2 = wrong shape, nothing was saved → go round and ask again.
+      # ➤ 1 = nothing typed at all → they do not have it to hand; stop asking.
+      [ "$RC" -eq 2 ] && continue
+      [ "$RC" -ne 0 ] && { warn "No token given."; break; }
+    else
+      ok "telegram.json already has a token"
+    fi
+
+    say "Linking your chat"
+    echo "  Send ANY message to your bot in Telegram now (say 'hi')."
+    printf '  Done? press Enter to continue '
+    read -r _
+
+    node server-bot/notify.mjs --setup
+    case $? in
+      0) TELEGRAM_READY=yes ;;
+      # ➤ 2 = Telegram rejected the token itself. Offer to type it again.
+      2) if [ "$ATTEMPT" -lt 3 ]; then
+           printf '  Paste the token again? [Y/n] '
+           read -r RETRY
+           case "${RETRY:-y}" in
+             [nN]*) break ;;
+             *) rm -f "$CFG" ;;
+           esac
+         fi ;;
+      # ➤ Anything else: the token is fine, something else is not (no message
+      # ➤ sent yet, no network). Re-typing the token would not help.
+      *) break ;;
+    esac
+  done
+fi
+
+if [ "$TELEGRAM_READY" = no ]; then
+  warn "Telegram is not linked yet. Everything else below still applies;"
+  warn "when you have it sorted, finish with:  node server-bot/notify.mjs --setup"
+fi
+
+# ── 5. Cron ──────────────────────────────────────────────────────────────
+say "Scheduling"
+CRON_LINES="\
+* * * * * cd $ROOT && /usr/bin/flock -n /tmp/argus-listener.lock $(command -v node) server-bot/telegram-listener.mjs >> $ROOT/server-bot/listener.log 2>&1
+0 */2 * * * cd $ROOT && /usr/bin/flock -n /tmp/argus-scan.lock $(command -v node) server-bot/scan.mjs >> $ROOT/server-bot/scan.log 2>&1
+30 7 * * * cd $ROOT && $(command -v node) server-bot/housekeep.mjs --liveness-only >> $ROOT/server-bot/scan.log 2>&1
+0 9 * * 0 cd $ROOT && $(command -v node) server-bot/housekeep.mjs >> $ROOT/server-bot/scan.log 2>&1"
+
+# ➤ Matched on THIS folder, not just on "scan.mjs": a second checkout would
+# ➤ otherwise see the first one's cron lines and skip scheduling itself.
+if crontab -l 2>/dev/null | grep -qF "cd $ROOT &&"; then
+  ok "This copy of Argus is already in your crontab — leaving it alone"
+elif ! command -v crontab >/dev/null 2>&1; then
+  warn "No crontab on this machine. Schedule these yourself:"
+  echo "$CRON_LINES"
+else
+  echo "  Argus needs to run on a schedule. The listener (every minute) is what"
+  echo "  receives your Telegram commands — without it the bot cannot answer, not"
+  echo "  even /start. The other three: a scan every 2h, and two cleanups."
+  printf '  Add these 4 lines to your crontab? [y/N] '
+  read -r ANS
+  case "${ANS:-n}" in
+    [yY]*) { crontab -l 2>/dev/null; echo "$CRON_LINES"; } | crontab - && ok "cron installed" ;;
+    *) warn "Skipped. Add them yourself when you are ready:"; echo "$CRON_LINES" ;;
+  esac
+fi
+
+# ── 6. The profile — do this NOW, before the first scan fires ────────────
+# ➤ Deliberately after cron and before the optional extras: the scan runs every
+# ➤ 2h from this moment on, and until the profile exists it uses the shipped
+# ➤ marine/offshore example. Saying so here is what stops the first list from
+# ➤ looking like the bot is broken.
+say "Your profile — do this next"
+echo "  Open Telegram and send /start to your bot. It asks a few questions and"
+echo "  writes config/profile.yml and cv.md for you ('settings' edits them later)."
+echo "  Until you do, Argus searches with the marine/offshore EXAMPLE profile, so"
+echo "  the first list it sends will not be yours. That is expected, not a fault."
+
+# ── 7. Optional extras, only reported ────────────────────────────────────
+say "Optional extras (nothing breaks without them)"
+[ -f server-bot/adzuna-key.json ] && ok "Adzuna key present" \
+  || echo "  - Adzuna key (free, https://developer.adzuna.com/) → one more job board. Save it to server-bot/adzuna-key.json as {\"app_id\":\"...\",\"app_key\":\"...\"}"
+command -v claude >/dev/null 2>&1 && ok "Claude CLI present" \
+  || echo "  - Claude CLI → AI cover letters ('cover N') and the Council. Install: npm i -g @anthropic-ai/claude-code, then: claude setup-token"
+echo "  - Chromium (npx playwright install chromium) → cover letters as PDF"
+
+say "Done"
+if [ "$TELEGRAM_READY" = yes ]; then
+  echo "  1. Send /start to your bot (see above) — this is the step that makes it yours."
+  echo "  2. Then send 'search' to look right away instead of waiting for the schedule."
+  echo "  3. 'help' lists every command."
+else
+  echo "  1. Link Telegram:  node server-bot/notify.mjs --setup"
+  echo "     (it tells you exactly what is missing: the token, or a first message)"
+  echo "  2. Then send /start to your bot — the step that makes it yours."
+  echo "  3. Then 'search', and 'help' for every command."
+fi
+echo
+echo "  Check the install at any time:  npm test"

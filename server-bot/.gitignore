@@ -1,0 +1,11 @@
+# Secrets and generated state — never commit these
+adzuna-key.json
+telegram.json
+telegram-offset.json
+claude-token.json
+last-scan.json
+linkedin-state.json
+feedback.jsonl
+feedback-applied.jsonl
+scan.log
+listener.log

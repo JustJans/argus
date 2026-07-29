@@ -1,0 +1,128 @@
+#!/usr/bin/env node
+// ➤ ═══════════════════════════════════════════════════════════════════════
+// ➤ WHAT IT IS: the "live list" of pending offers in Telegram. Instead of
+// ➤ piling up old lists in the chat, there is ONE single list: every time
+// ➤ something changes (a new offer arrives, or you say seen/no/applied) the
+// ➤ previous list is DELETED and an updated one is RE-SENT to the bottom of
+// ➤ the chat, silently. Your commands and the bot's confirmations are never
+// ➤ touched: they stay as history. The only "use-and-throw-away" thing is the list.
+// ➤ WHAT IT USES: pendingOffers() (the pending offers), notifyNewOffers() (to
+// ➤ draw it the same way as always, grouped by country and with links) and
+// ➤ deleteTelegramMessage() (to delete the previous one). It remembers the ids
+// ➤ of the list messages in data/list-message.json.
+// ➤ WHEN IT RUNS: it is called by the listener (after list/seen/no/applied) and
+// ➤ by the scanner (when it adds new offers).
+// ➤ ═══════════════════════════════════════════════════════════════════════
+
+import { readFileSync, writeFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { pendingOffers } from './list-offers.mjs';
+import { notifyNewOffers, sendTelegramMessage, deleteTelegramMessage, telegramConfigured } from './notify.mjs';
+
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const ROOT = dirname(SCRIPT_DIR);
+// ➤ Where the ids of the messages that make up the current list are remembered.
+const STATE_PATH = join(ROOT, 'data', 'list-message.json');
+// ➤ Which offer ids you have already seen in a list, so the rest (the ones that
+// ➤ arrived since) can be marked [NEW].
+const SEEN_PATH = join(ROOT, 'data', 'list-seen.json');
+
+// ➤ Reads the ids of the previous list. If the file doesn't exist or is corrupt,
+// ➤ it returns an empty list (no problem, there simply won't be anything to
+// ➤ delete). The `path` parameter exists only so it can be tested in a test.
+export function loadListIds(path = STATE_PATH) {
+  try {
+    const s = JSON.parse(readFileSync(path, 'utf-8'));
+    return Array.isArray(s.message_ids) ? s.message_ids : [];
+  } catch { return []; }
+}
+
+// ➤ Saves the ids of the list that was just sent, so it can be deleted next
+// ➤ time. If saving fails, it is ignored (worst case: an old list is left
+// ➤ undeleted, nothing serious).
+export function saveListIds(ids, path = STATE_PATH) {
+  try {
+    writeFileSync(path, JSON.stringify({ message_ids: ids, ts: new Date().toISOString() }) + '\n', 'utf-8');
+  } catch { /* we don't break just because we couldn't save the state */ }
+}
+
+// ➤ The offer ids you have ALREADY seen in a list (used to mark the rest as
+// ➤ [NEW]). Returns null when it has never been set (first run). Callers wrap
+// ➤ this as `new Set(loadSeenIds() || [])`, so null becomes an EMPTY seen-set:
+// ➤ on the very first list NOTHING counts as seen, so EVERYTHING shows [NEW]
+// ➤ until a command runs and saveSeenIds records the current offers as seen.
+// ➤ The `path` param is only for testing.
+export function loadSeenIds(path = SEEN_PATH) {
+  try {
+    const s = JSON.parse(readFileSync(path, 'utf-8'));
+    return Array.isArray(s.ids) ? s.ids : null;
+  } catch { return null; }
+}
+
+// ➤ Remembers the offer ids you have now seen (so they aren't [NEW] next time).
+export function saveSeenIds(ids, path = SEEN_PATH) {
+  try { writeFileSync(path, JSON.stringify({ ids, ts: new Date().toISOString() }) + '\n', 'utf-8'); }
+  catch { /* not critical: at worst an offer is marked [NEW] one extra time */ }
+}
+
+// ➤ THE HEART: deletes the previous list and re-sends the updated list of
+// ➤ pending offers to the bottom of the chat. Options:
+// ➤   alert   = true → the repost makes a sound (the scanner uses it for new
+// ➤                    offers; this single list is the ONLY offer message, so
+// ➤                    its ping IS the new-offers alert). Default silent.
+// ➤   markSeen= true → YOU viewed the list (a command of yours), so the current
+// ➤                    offers stop being "new". Offers not yet seen show [NEW].
+// ➤ Returns how many offers there are (or null if Telegram is not configured).
+// ➤ It never throws: if something fails, it logs it but doesn't take down its
+// ➤ caller (scanner or listener).
+export async function refreshList({ alert = false, markSeen = false } = {}) {
+  if (!telegramConfigured()) return null;
+  try {
+    // ➤ ORDER FIXED 2026-07-25 (audit): the previous list used to be deleted
+    // ➤ FIRST. If the resend then failed (a 429 beyond the retry, a timeout),
+    // ➤ you were left with NO list at all and a half-sent one orphaned in the
+    // ➤ chat. Now we SEND first and delete the old one only once the new one is
+    // ➤ safely posted: the worst case is two lists for a moment, never zero.
+    const oldIds = loadListIds();
+    const offers = pendingOffers();
+
+    // 2) Work out which offers are NEW: those not in the "already seen" set.
+    //    Everything is [NEW] until you first view the list with a command, which
+    //    marks the current offers as seen; after that only later arrivals show [NEW].
+    const pendingIds = offers.map(o => o.id).filter(id => id != null);
+    const seenSet = new Set(loadSeenIds() || []);
+    const newIds = new Set(pendingIds.filter(id => !seenSet.has(id)));
+
+    // 3) Draw and send the current list. Silent unless alert=true (new offers);
+    //    the new ones are marked [NEW]. If there are no pending offers, a short
+    //    notice so there is always a reference list at the bottom of the chat.
+    let ids;
+    if (offers.length) {
+      ids = await notifyNewOffers(offers, { headerLabel: 'pending', silent: !alert, newIds });
+      if (!Array.isArray(ids)) ids = [];
+    } else {
+      const id = await sendTelegramMessage('No pending offers.', { silent: !alert });
+      ids = id != null ? [id] : [];
+    }
+
+    // 4) Remember the list message ids (to delete next time). And if YOU viewed
+    //    the list (markSeen), the current offers stop being new.
+    if (ids.length) {
+      saveListIds(ids);
+      for (const id of oldIds) await deleteTelegramMessage(id);
+    } else {
+      console.log(`[${new Date().toISOString()}] live-list: the new list could not be sent; the previous one is kept.`);
+    }
+    if (markSeen) saveSeenIds(pendingIds);
+    return offers.length;
+  } catch (e) {
+    console.log(`[${new Date().toISOString()}] refreshList failed: ${String(e.message).slice(0, 200)}`);
+    return null;
+  }
+}
+
+// ➤ Allows refreshing the list by hand from the terminal: node live-list.mjs
+if (process.argv[1] && /(^|[\\/])live-list\.mjs$/.test(process.argv[1])) {
+  refreshList().then(n => console.log(n == null ? 'Telegram not configured.' : `List updated: ${n} pending.`));
+}

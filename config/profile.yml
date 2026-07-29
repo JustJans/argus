@@ -1,0 +1,192 @@
+# Argus profile configuration. Fill this in, or run the Telegram setup (/start).
+# The `search:` block below is a marine/offshore EXAMPLE — replace it with yours.
+
+candidate:
+  full_name: "Your Name"
+  email: "you@example.com"
+  phone: ""
+  location: "City, Country"
+  # ➤ How you sign your COVER letters (header + PDF signature).
+  letter_name: "Your Name"
+  letter_city: "City"
+  linkedin: ""
+  portfolio_url: ""
+  github: ""
+  twitter: ""
+
+# ── SEARCH PROFILE (read by the engine: scan, requirements, judges) ──────────
+# This is what makes Argus YOUR job searcher. Edit here, or via the Telegram
+# onboarding (/start) and `settings`. Terms are matched case-insensitively in
+# offer titles/bodies; the defaults below describe a marine/offshore engineer.
+# Advanced: a term may use regex (e.g. "\\bgis\\b"); plain words also work.
+search:
+  max_years: 2            # drop offers that clearly require more years than this
+
+  # Languages you can work in. An offer whose TITLE is in another language is
+  # dropped (a strong proxy for the working language). Use 2-letter codes.
+  languages:
+    - en
+    - es
+    - ca
+
+  # Foreign languages you do NOT work in. If the offer BODY affirmatively
+  # REQUIRES one of these, the offer is dropped. A mention, or the language
+  # being "a plus / desirable / een pluspunt", does NOT count — those stay.
+  #
+  # A language you half-speak is still worth listing: what decides is whether
+  # the offer DEMANDS it, not how much of it you have. Take one out only if you
+  # want every offer demanding it, at any level. A language named in the TITLE
+  # is a separate, stricter rule (TITLE_LANG_DEMAND in scan.mjs).
+  #
+  # "deutsch(?!land)" so the country name is not read as the language.
+  languages_blocked:
+    - german
+    - "deutsch(?!land)\\w*"
+    - "alem[áa]n"
+    - french
+    - "fran[çc]ais\\w*"
+    - "franc[ée]s"
+    - dutch
+    - "nederlands\\w*"
+    - "neerland[ée]s"
+    - flemish
+    - vlaams
+
+  # Your home city (it gets its own group at the TOP of the Telegram list) and
+  # the countries you target, in PRIORITY order (first shown first).
+  #   name   = the country as it appears in offers / countries.yml
+  #   label  = the header shown in the message
+  #   adzuna = the Adzuna domain code (guesses the country from the offer URL)
+  home_city: Barcelona
+  countries:
+    - { name: Spain, label: SPAIN, adzuna: es }
+    - { name: France, label: FRANCE, adzuna: fr }
+    - { name: Monaco, label: MONACO }
+    - { name: Belgium, label: BELGIUM, adzuna: be }
+    - { name: Netherlands, label: NETHERLANDS, adzuna: nl }
+    - { name: Germany, label: GERMANY, adzuna: de }
+    - { name: Switzerland, label: SWITZERLAND, adzuna: ch }
+    - { name: Austria, label: AUSTRIA, adzuna: at }
+    - { name: Norway, label: NORWAY }
+    - { name: Denmark, label: DENMARK }
+    - { name: Italy, label: ITALY }
+    - { name: Ireland, label: IRELAND }
+
+  # Domains you can legitimately claim (experience or degree). Keep an offer
+  # when it asks for years/a degree "in your field".
+  fields:
+    - mooring
+    - amarre
+    - offshore
+    - "marin[eo]"
+    - "mar[ií]tim"
+    - maritiem
+    - naval
+    - orcaflex
+    - subsea
+    - "\\briser"
+    - floating
+    - fpso
+    - flng
+    - umbilical
+    - seabed
+    - nearshore
+    - metocean
+    - hydrograph
+    - "hidrogr[áa]f"
+    - "oceanogr[áa]f"
+    - oceanograph
+    - survey
+    - "\\bgis\\b"
+    - aquacultur
+    - acuicultur
+    - coastal
+    - costero
+
+  # Degrees / fields of study you HAVE (an offer requiring these is fine).
+  degrees_ok:
+    - "marin[eo]"
+    - "mar[ií]tim"
+    - maritiem
+    - naval
+    - offshore
+    - ocean
+    - oceano
+    - metocean
+    - hydro
+    - hidro
+    - "\\bgeo"
+    - environ
+    - "\\bambient"
+    - survey
+    - "\\bgis\\b"
+    - coastal
+    - costero
+    - nautic
+    - "n[áa]utic"
+
+  # Degrees you do NOT have — an offer requiring ONLY these (none of your
+  # fields) is dropped as impossible.
+  degrees_excluded:
+    - "el[eé]ctr[io]"
+    - "electr[óo]nic"
+    - electromechanic
+    - "electromec[áa]nic"
+    - mechanical
+    - "m[eé]c[áa]nic"
+    - mechatronic
+    - "mecatr[óo]nic"
+    - aerospace
+    - aeroespacial
+    - aeronautic
+    - chemical
+    - "qu[íi]mic"
+    - "civil engineer"
+    - "g[ée]nie civil"
+    - "computer scien"
+    - "inform[áa]tic"
+    - "industrial engineer"
+    # ➤ 2026-07-27 (#708 RWE): the list was all engineering, so a graduate
+    # ➤ programme asking for "a degree in Business Administration, Economics or
+    # ➤ Finance" walked straight in.
+    - "business administration"
+    - "business management"
+    - economics
+    - "\\bfinance\\b"
+    - "administraci[óo]n de empresas"
+    - "direcci[óo]n de empresas"
+    - "gesti[óo]n empresarial"
+    - betriebswirtschaft
+    - bedrijfskunde
+    - "sciences [ée]conomiques"
+
+  # Fields where you have ZERO professional years — "2 years in X" here still
+  # disqualifies (you can't prove them).
+  zero_skill_fields:
+    - "\\bplcs?\\b"
+    - scada
+    - "rob[óo]t"
+    - "programaci[óo]n"
+    - programming
+    - "programm(eur|ier)"
+    - software
+    - cloud
+    - crm
+    - "\\bsap\\b"
+    - "\\bjava"
+    - "\\.net"
+    - typescript
+
+  # Cross-cutting skill-titles that are YOURS: they exempt an otherwise generic
+  # title from the degree filter (you're open to these even outside your degree).
+  skill_titles:
+    - automat
+    - instrument
+    - "\\bplc\\b"
+    - scada
+    - "\\bcontrol"
+
+  # Priority terms: an offer mentioning any of these is KEPT even past the
+  # years-cap and degree limits (your star tool — worth surfacing regardless).
+  priority_terms:
+    - orcaflex

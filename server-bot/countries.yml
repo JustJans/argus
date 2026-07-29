@@ -1,0 +1,50 @@
+# ➤ ═══════════════════════════════════════════════════════════════════
+# ➤ WHAT THIS FILE IS: the country toggles for your search.
+# ➤ Each country set to "true" is searched; "false" ignores it (temporarily).
+# ➤ Edit BY HAND: set a country to "false" to stop searching in it
+# ➤ (and "true" to bring it back). Then upload the file to the server.
+# ➤ NOTE: the UK and Portugal are NOT here — they are hard-blocked
+# ➤ forever in portals.yml, which is the "hard" block.
+# ➤ ═══════════════════════════════════════════════════════════════════
+# Country toggle
+#
+# Turn a country OFF (false) to exclude its offers from the scan.
+# e.g. "hoy no quiero Dinamarca" → set Denmark: false
+#
+# UK and Portugal are hard-blocked in portals.yml (location_filter) and not
+# listed here on purpose — this file is for day-to-day toggling only.
+
+# ➤ The list of toggles: true = search there, false = don't search.
+countries:
+  Spain: true
+  France: true
+  Monaco: true
+  Belgium: true
+  Netherlands: true
+  Germany: true
+  Norway: true
+  Denmark: true
+  Italy: true
+  Ireland: true
+  # ➤ Added 2026-07-11: they pay well and Adzuna covers them.
+  Switzerland: true
+  Austria: true
+
+# Aliases help match the country inside a job's location text (e.g. a job
+# located in "Stavanger" should count as Norway). Case-insensitive substring.
+# ➤ "Alias" = other ways of writing the same country. Offers don't always
+# ➤ say "Norway": sometimes they only give the city ("Stavanger"). This list
+# ➤ teaches the bot to recognize the country by its cities and local names.
+aliases:
+  Spain: ["España", "Barcelona", "Madrid", "Bilbao", "Espana"]
+  Monaco: ["Mónaco", "Monte Carlo", "Monte-Carlo"]
+  Netherlands: ["Nederland", "Holland", "Rotterdam", "Amsterdam", "Den Haag", "The Hague", "Leiden", "Gorinchem"]
+  Belgium: ["België", "Belgique", "Brussels", "Antwerp", "Antwerpen", "Gent", "Zwijndrecht"]
+  Norway: ["Norge", "Oslo", "Stavanger", "Bergen", "Trondheim"]
+  Denmark: ["Danmark", "Copenhagen", "København", "Aarhus", "Brande", "Fredericia"]
+  Germany: ["Deutschland", "Berlin", "Munich", "München", "Hamburg", "Cologne", "Köln"]
+  France: ["Paris", "Lyon", "Marseille", "Nantes", "Toulouse"]
+  Italy: ["Italia", "Rome", "Roma", "Milan", "Milano", "Genoa", "Genova"]
+  Ireland: ["Dublin", "Cork", "Éire"]
+  Switzerland: ["Schweiz", "Suisse", "Svizzera", "Zurich", "Zürich", "Geneva", "Genève", "Basel", "Bern", "Lausanne"]
+  Austria: ["Österreich", "Vienna", "Wien", "Graz", "Linz"]

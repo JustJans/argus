@@ -1,0 +1,35 @@
+# Dependencies (package-lock.json IS committed, so `npm install` gives
+# everyone the exact same versions that were tested here)
+node_modules/
+
+# Secrets and state (NEVER commit)
+server-bot/telegram.json
+server-bot/claude-token.json
+server-bot/adzuna-key.json
+server-bot/telegram-offset.json
+server-bot/last-scan.json
+server-bot/linkedin-state.json
+server-bot/feedback.jsonl
+server-bot/feedback-applied.jsonl
+server-bot/*.log
+
+# Activity and output data (keep the folders, ignore their contents)
+data/*
+!data/.gitkeep
+output/*
+!output/.gitkeep
+
+# Scratch dumps at the root. A redirect run from the wrong working directory
+# is all it takes to commit a pile of scraped postings; loose data files stop
+# here so that slip cannot happen.
+/*.txt
+/*.jsonl
+/*.tsv
+!README*.txt
+
+# argus-discover caches ESCO answers on disk; the classification is fixed,
+# so this is a local speed-up, never something to ship.
+.esco-cache/
+
+# The blind-spot record: local diagnostic data, one per installation.
+data/blind-spots.json
