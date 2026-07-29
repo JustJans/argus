@@ -11,6 +11,14 @@ languages, countries, deal-breakers, CV, judge prompts) lives in
 `config/profile.yml` + `cv.md`, not in the code. The defaults ship as a
 marine/offshore example — replace them with your own.
 
+Two subsystems go past filtering and ask whether the filtering itself is right:
+**[the Council](#the-council--three-judges-and-why-they-still-do-not-vote)**,
+three LLM judges that review offers in shadow and were measured rather than
+trusted, and
+**[argus-discover](#argus-discover--auditing-the-search-not-the-offer)**, which
+audits the search against your CV, the EU occupation taxonomy, the live market
+and its own discards.
+
 ## What arrives on Telegram
 
 One single message, grouped by country, replaced in place whenever something
@@ -127,6 +135,73 @@ You do not have to edit it by hand: the `/start` onboarding writes its own `sear
 and those take precedence over this file. Edit `portals.yml` only if you want to
 add a specific employer board or tune the example itself.
 
+## Beyond the filters
+
+Filtering offers well is not the same problem as knowing whether you are
+filtering the *right* things. Two subsystems exist for the second question.
+Both are optional, both were measured, and neither is allowed to decide
+anything on its own.
+
+### The Council — three judges, and why they still do not vote
+
+`server-bot/argus-council/` · [its README](server-bot/argus-council/README.md)
+
+Three LLM judges read the **body** of an offer, not just its title, and vote on
+whether you should see it. **The Good** defaults to showing and can only hide by
+quoting the barrier it found. **The Bad** hunts for the mismatch a title cannot
+reveal — the seagoing rotation, the technician role dressed as engineering, the
+language demand. **The Ugly** reads the actual day-to-day and breaks ties.
+Majority of three.
+
+They run in **shadow**: the verdict goes to a journal that nothing reads back.
+No offer is ever kept or dropped because of a judge, and the whole thing ships
+off.
+
+That is not caution for its own sake. It is what the measurement said. On 63
+offers with a real decision behind them the Council agreed 49 times — but it
+would have deleted 5 of the 9 offers that were actually wanted, two of which had
+already been applied to. Every voting variant tried, including unanimity and
+"The Good plus one", still loses at least two of those nine. A layer that agrees
+four times in five and still throws away more than half of what mattered is not
+ready to decide, so it does not. `reconcile.mjs` keeps filling in what you
+really did, so the number stays checkable instead of becoming a claim.
+
+### Argus-discover — auditing the search, not the offer
+
+`server-bot/argus-discover/` · [its README](server-bot/argus-discover/README.md)
+
+Every filter above judges an offer. These four tools judge the search itself.
+
+- **`audit-profile.mjs`** cross-reads your CV, your profile and your rejection
+  history: which search terms have no backing in the CV (you are applying into a
+  field with no evidence behind you), which CV skills the search never uses, and
+  which rejections mean *wrong role* versus *right role, short on the
+  requirements*. Local, no network, no tokens.
+- **`esco-match.mjs`** asks the EU's [ESCO](https://esco.ec.europa.eu/)
+  taxonomy — ~3,000 occupations, ~14,000 skills, 28 languages, no API key —
+  which occupations list your skills as *essential*. A published fact rather
+  than a model's opinion, and it answers with the official title in every
+  language you search in.
+- **`harvest-titles.mjs`** queries the boards by skill instead of by assumed job
+  title, and reports what the market actually calls those roles. A term that
+  returns zero adverts is a finding in its own right.
+- **`blind-spots.mjs`** records what the title filter throws away. Read with the
+  `blind` command.
+
+The last one exists because of a number. In one measured cycle the filter
+dropped 1,308 titles: 977 by a rule written deliberately, and **331 purely for
+carrying no keyword from the field list** — invisible, unappealable, never
+counted. "Asset Integrity Engineer" was among those 331.
+
+It does not try to guess which of them mattered; ranking them by similarity to a
+CV was tried, and it returns "support" and "management". It counts **recurrence**
+instead. A one-off appears once and is gone; a role you are systematically blind
+to comes back every week. Recurrence needs no theory about what your field is —
+which is the point, because the hard cases are exactly the ones no tidy
+definition covers.
+
+Nothing here edits a filter. Every tool proposes; you decide.
+
 ## Structure
 
 The engine lives in `server-bot/`:
@@ -141,15 +216,11 @@ The engine lives in `server-bot/`:
 - `telegram-listener.mjs` — the Telegram remote control (cron every minute).
 - `onboarding.mjs` — the `/start` setup + `settings` editor (writes the profile).
 - `cover-letter.mjs` — generates cover letters as PDFs (Claude + Chromium).
-- `argus-council/` — "The Council": three LLM judges (The Good / The Bad / The Ugly)
-  that review the offers in shadow mode, with no decision power. Their prompts
-  can be overridden per user via `search.judge_prompts`.
-- `argus-discover/` — the tools that ask whether the search itself is right, as
-  opposed to whether a given offer is. It audits your profile against your own
-  decisions, harvests the job titles a field actually uses, matches you against
-  the EU's [ESCO](https://esco.ec.europa.eu/) occupation taxonomy, and records
-  what the title filter throws away so a gap in it stops being invisible
-  (the `blind` command). Nothing here changes a filter: it only reports.
+- `argus-council/` — the three shadow judges. See
+  [Beyond the filters](#the-council--three-judges-and-why-they-still-do-not-vote);
+  their prompts can be overridden per user via `search.judge_prompts`.
+- `argus-discover/` — the four tools that audit the search itself. See
+  [Beyond the filters](#argus-discover--auditing-the-search-not-the-offer).
 
 ## When something doesn't work
 
