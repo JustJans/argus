@@ -5,11 +5,23 @@
 import { writeFileSync, renameSync } from 'fs';
 import { randomBytes } from 'crypto';
 
-// ➤ Drop-in for writeFileSync. UNIQUE temp name per write (audit 2026-07-25):
-// ➤ with a fixed ".tmp" the 07:30 housekeep and a seen.mjs fired from Telegram
-// ➤ shared one scratch file and could rename a mixture of both into place.
-export function writeFileAtomic(path, data, encoding = 'utf-8') {
-  const tmp = `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
-  writeFileSync(tmp, data, encoding);
-  renameSync(tmp, path);
+// ➤ The scratch name to write to before renaming. UNIQUE per write (audit
+// ➤ 2026-07-25): with a fixed ".tmp" the 07:30 housekeep and a seen.mjs fired
+// ➤ from Telegram shared one scratch file and could rename a mixture of both
+// ➤ into place. It sits NEXT TO the target on purpose — a rename is only
+// ➤ atomic within one filesystem, so a temp file in /tmp would silently
+// ➤ degrade into a copy on a machine where /tmp is its own mount.
+export function tempNameFor(path) {
+  return `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+}
+
+// ➤ Drop-in for writeFileSync.
+// ➤ `io` exists only so a test can watch what this does rather than only what
+// ➤ it leaves behind: a plain writeFileSync to the target passes any test that
+// ➤ checks the final content, which is exactly how a rewrite could quietly
+// ➤ remove the protection this file exists to give.
+export function writeFileAtomic(path, data, encoding = 'utf-8', io = { writeFileSync, renameSync }) {
+  const tmp = tempNameFor(path);
+  io.writeFileSync(tmp, data, encoding);
+  io.renameSync(tmp, path);
 }

@@ -110,7 +110,7 @@ function sanitizeField(s) {
 // ➤ and must stay clickable), so a crafted link with a newline inside could
 // ➤ otherwise inject a whole fake line into pipeline.md or scan-history.tsv.
 // ➤ A genuine portal link never looks like this, so we drop the offer at the gate.
-function isSafeUrl(u) {
+export function isSafeUrl(u) {
   const s = String(u || '');
   for (const ch of s) {
     const code = ch.codePointAt(0);
@@ -1288,7 +1288,13 @@ function loadIdHighWater() {
 }
 function saveIdHighWater(n) {
   if (!Number.isInteger(n) || n <= 0) return;
-  try { writeFileSync(LAST_ID_PATH, JSON.stringify({ lastId: n }) + '\n', 'utf-8'); }
+  // ➤ Written atomically: this one small file is the ONLY thing standing
+  // ➤ between us and handing the same #number to two different offers. A write
+  // ➤ cut in half leaves invalid JSON, the reader falls back to the highest id
+  // ➤ still in the pipeline, and housekeep has been deleting from that file —
+  // ➤ so the counter would walk backwards. That is the bug this file was added
+  // ➤ to fix, and it deserves the same care as the pipeline itself.
+  try { writeFileAtomic(LAST_ID_PATH, JSON.stringify({ lastId: n }) + '\n'); }
   catch { /* best-effort: at worst we fall back to the old behaviour */ }
 }
 

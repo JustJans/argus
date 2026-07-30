@@ -76,22 +76,31 @@ export function saveSeenIds(ids, path = SEEN_PATH) {
 // ➤ Returns how many offers there are (or null if Telegram is not configured).
 // ➤ It never throws: if something fails, it logs it but doesn't take down its
 // ➤ caller (scanner or listener).
-export async function refreshList({ alert = false, markSeen = false } = {}) {
-  if (!telegramConfigured()) return null;
+// ➤ `deps` exists so the ORDER below can be tested. It is the whole point of
+// ➤ this function and it cannot be checked from the outside: any test that only
+// ➤ looks at the final state passes even if the delete happens first, which is
+// ➤ precisely the bug fixed on 2026-07-25.
+export async function refreshList({ alert = false, markSeen = false, deps } = {}) {
+  const d = deps || {
+    telegramConfigured, pendingOffers, notifyNewOffers,
+    sendTelegramMessage, deleteTelegramMessage,
+    loadListIds, saveListIds, loadSeenIds, saveSeenIds,
+  };
+  if (!d.telegramConfigured()) return null;
   try {
     // ➤ ORDER FIXED 2026-07-25 (audit): the previous list used to be deleted
     // ➤ FIRST. If the resend then failed (a 429 beyond the retry, a timeout),
     // ➤ you were left with NO list at all and a half-sent one orphaned in the
     // ➤ chat. Now we SEND first and delete the old one only once the new one is
     // ➤ safely posted: the worst case is two lists for a moment, never zero.
-    const oldIds = loadListIds();
-    const offers = pendingOffers();
+    const oldIds = d.loadListIds();
+    const offers = d.pendingOffers();
 
     // 2) Work out which offers are NEW: those not in the "already seen" set.
     //    Everything is [NEW] until you first view the list with a command, which
     //    marks the current offers as seen; after that only later arrivals show [NEW].
     const pendingIds = offers.map(o => o.id).filter(id => id != null);
-    const seenSet = new Set(loadSeenIds() || []);
+    const seenSet = new Set(d.loadSeenIds() || []);
     const newIds = new Set(pendingIds.filter(id => !seenSet.has(id)));
 
     // 3) Draw and send the current list. Silent unless alert=true (new offers);
@@ -99,22 +108,22 @@ export async function refreshList({ alert = false, markSeen = false } = {}) {
     //    notice so there is always a reference list at the bottom of the chat.
     let ids;
     if (offers.length) {
-      ids = await notifyNewOffers(offers, { headerLabel: 'pending', silent: !alert, newIds });
+      ids = await d.notifyNewOffers(offers, { headerLabel: 'pending', silent: !alert, newIds });
       if (!Array.isArray(ids)) ids = [];
     } else {
-      const id = await sendTelegramMessage('No pending offers.', { silent: !alert });
+      const id = await d.sendTelegramMessage('No pending offers.', { silent: !alert });
       ids = id != null ? [id] : [];
     }
 
     // 4) Remember the list message ids (to delete next time). And if YOU viewed
     //    the list (markSeen), the current offers stop being new.
     if (ids.length) {
-      saveListIds(ids);
-      for (const id of oldIds) await deleteTelegramMessage(id);
+      d.saveListIds(ids);
+      for (const id of oldIds) await d.deleteTelegramMessage(id);
     } else {
       console.log(`[${new Date().toISOString()}] live-list: the new list could not be sent; the previous one is kept.`);
     }
-    if (markSeen) saveSeenIds(pendingIds);
+    if (markSeen) d.saveSeenIds(pendingIds);
     return offers.length;
   } catch (e) {
     console.log(`[${new Date().toISOString()}] refreshList failed: ${String(e.message).slice(0, 200)}`);

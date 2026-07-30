@@ -3,12 +3,16 @@
 node_modules/
 
 # Secrets and state (NEVER commit)
-server-bot/telegram.json
-server-bot/claude-token.json
-server-bot/adzuna-key.json
-server-bot/telegram-offset.json
-server-bot/last-scan.json
-server-bot/linkedin-state.json
+#
+# Every .json under server-bot/ is ignored as a rule, not one file at a time.
+# The old list had to be extended by hand for each new credential, which is a
+# race nobody wins: the file that gets forgotten is the one that leaks. No
+# tracked source file lives there as .json, so this costs nothing.
+server-bot/*.json
+# Named anyway, so it is obvious what the rule above is protecting:
+#   telegram.json  claude-token.json  adzuna-key.json
+#   gmail-oauth.json  gmail-token.json
+#   telegram-offset.json  last-scan.json  linkedin-state.json
 server-bot/feedback.jsonl
 server-bot/feedback-applied.jsonl
 server-bot/*.log

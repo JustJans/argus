@@ -2,7 +2,7 @@
 // ➤ Tests for the "live list": they check the pure part (remembering and reading the ids
 // ➤ of the list messages), without touching Telegram. They use a temporary file.
 
-import { loadListIds, saveListIds, loadSeenIds, saveSeenIds } from './live-list.mjs';
+import { loadListIds, saveListIds, loadSeenIds, saveSeenIds, refreshList } from './live-list.mjs';
 import { writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -41,6 +41,65 @@ writeFileSync(sp, 'garbage', 'utf-8');
 check('seen corrupt → null', loadSeenIds(sp) === null);
 saveSeenIds([], sp);
 check('seen save empty → [] (not null)', Array.isArray(loadSeenIds(sp)) && loadSeenIds(sp).length === 0);
+
+// ── refreshList: the ORDER is the whole point ────────────────────────────
+// ➤ It used to delete the previous list FIRST. When the resend then failed you
+// ➤ were left with no list at all. Nothing checked that until now, because the
+// ➤ final state looks identical either way — only the order tells them apart.
+const fakeOffers = [{ id: 1, title: 'Mooring Engineer', company: 'ACME', location: 'Spain', url: 'https://x/1' }];
+
+function harness({ sendReturns = [11, 12], offers = fakeOffers, previous = [7, 8] } = {}) {
+  const log = [];
+  const deps = {
+    telegramConfigured: () => true,
+    pendingOffers: () => offers,
+    notifyNewOffers: async () => { log.push('send'); return sendReturns; },
+    sendTelegramMessage: async () => { log.push('send-empty'); return sendReturns[0] ?? null; },
+    deleteTelegramMessage: async id => { log.push('delete:' + id); },
+    loadListIds: () => previous,
+    saveListIds: ids => { log.push('save:' + ids.join(',')); },
+    loadSeenIds: () => [],
+    saveSeenIds: ids => { log.push('seen:' + ids.join(',')); },
+  };
+  return { log, deps };
+}
+
+// ➤ Each step must have HAPPENED before its order is compared: indexOf returns
+// ➤ -1 for a missing entry, and -1 is smaller than everything, so an ordering
+// ➤ check on its own silently passes when the step was dropped entirely.
+const happy = harness();
+await refreshList({ deps: happy.deps });
+check('the new list is sent', happy.log.includes('send'));
+check('the new ids are saved', happy.log.includes('save:11,12'));
+check('sends the new list before deleting the old one', happy.log.indexOf('send') < happy.log.indexOf('delete:7'));
+check('saves the new ids before deleting the old ones', happy.log.indexOf('save:11,12') < happy.log.indexOf('delete:7'));
+check('every previous message is deleted', happy.log.includes('delete:7') && happy.log.includes('delete:8'));
+
+// ➤ The failure that motivated the fix: the send does not go through.
+const failed = harness({ sendReturns: [] });
+await refreshList({ deps: failed.deps });
+check('a failed send deletes nothing', !failed.log.some(l => l.startsWith('delete:')));
+check('a failed send saves no ids', !failed.log.some(l => l.startsWith('save:')));
+
+// ➤ markSeen is what stops offers showing [NEW] for ever, and it must record
+// ➤ the ids that were actually on the list.
+const seen = harness();
+await refreshList({ deps: seen.deps, markSeen: true });
+check('markSeen records the listed offer ids', seen.log.includes('seen:1'));
+const notSeen = harness();
+await refreshList({ deps: notSeen.deps });
+check('without markSeen nothing is marked seen', !notSeen.log.some(l => l.startsWith('seen:')));
+
+// ➤ With no offers left it still posts the placeholder, so the chat always ends
+// ➤ in a list rather than in the last thing you typed.
+const empty = harness({ offers: [] });
+await refreshList({ deps: empty.deps });
+check('an empty list still posts a notice', empty.log.includes('send-empty'));
+
+// ➤ It must never take its caller down: a throwing dependency returns null.
+const boom = harness();
+boom.deps.pendingOffers = () => { throw new Error('pipeline unreadable'); };
+check('a throwing dependency returns null instead of crashing', await refreshList({ deps: boom.deps }) === null);
 
 try { rmSync(p); } catch { /* best-effort cleanup */ }
 try { rmSync(sp); } catch { /* best-effort cleanup */ }

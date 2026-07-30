@@ -65,11 +65,11 @@ offer, with the reason.
 |---|---|
 | `test-filter.mjs` | 509 tests — the filters. Run this after touching any rule |
 | `test-notify.mjs` | 39 tests — the Telegram message format |
-| `test-live-list.mjs` | 9 tests — the single-list bookkeeping |
-| `test-robustness.mjs` | 162 tests — the parts that can LOSE DATA or answer wrongly |
+| `test-live-list.mjs` | 20 tests — the single-list bookkeeping |
+| `test-robustness.mjs` | 204 tests — the parts that can LOSE DATA or answer wrongly |
 | `argus-council/test-council.mjs` | 57 tests — the judges and the vote reader |
 
-`npm test` runs all 776 of them.
+`npm test` runs all 829 of them.
 
 ## 3. Configuration and data
 
