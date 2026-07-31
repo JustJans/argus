@@ -26,7 +26,7 @@
  *   cover N               generate + send the cover-letter PDF for offer N
  *   applied N             log a SENT application (data/applications.jsonl)
  *   longshot N [reason]   same, but flagged: you know you fall short of it
- *   status                where every application you sent stands (from your inbox)
+ *   mail                  where every application you sent stands (from your inbox)
  *   blind                 titles the filter keeps discarding (your blind spots)
  *   seen N [N...]         hide offer(s) from the pending list
  *   no N [reason]         hide an offer AND record why to feedback.jsonl
@@ -90,7 +90,7 @@ const HELP =
   '<code>no N reason</code> — remove an offer and note why (improves the filter)\n' +
   '<code>applied N</code> — mark as applied (removes it from the list)\n' +
   '<code>longshot N reason</code> — applied, but you know you fall short\n' +
-  '<code>status</code> — where every application you sent stands\n' +
+  '<code>mail</code> — where every application you sent stands\n' +
   '<code>blind</code> — titles the filter keeps discarding (your blind spots)\n' +
   '<code>cover N</code> — make the cover-letter PDF for offer N\n' +
   '<code>settings</code> — edit your profile (CV, roles, countries...)\n' +
@@ -304,10 +304,12 @@ async function handle(text) {
   // ➜ "blind": the titles the filter keeps throwing away. Not a list of
   // ➜ mistakes — most of it is correctly discarded — but the only way a gap in
   // ➜ the field list becomes visible instead of staying silent.
-  // ➜ "status": where every application you have sent stands, read from the
-  // ➜ file the nightly mail scan writes. It does NOT read your mail here —
-  // ➜ that runs on its own at midnight, so this answers instantly.
-  if (/^status$/i.test(t)) {
+  // ➜ "mail": where every application you have sent stands. The twin of
+  // ➜ "list" — one shows the offers waiting for you, the other what came back
+  // ➜ from the ones you sent. Like "list" it only PRINTS: it reads the file
+  // ➜ the nightly job wrote and answers instantly, it never goes to Gmail here.
+  // ➜ "status" still answers too: it was the first name this had.
+  if (/^(mail|status)$/i.test(t)) {
     const { formatStatus } = await import('./argus-mail/report.mjs');
     const status = loadJson(join(ROOT, 'data', 'application-status.json'), null);
     if (!status) {

@@ -3,8 +3,8 @@
 A personal, automated job searcher. It scans job portals (Workday, Oracle,
 Adzuna, LinkedIn) at zero token cost, filters offers against **your** profile,
 and sends them over Telegram, where it is controlled with typed commands:
-`search`, `list`, `seen N`, `no N [reason]`, `applied N`, `cover N`, `blind`,
-`settings`.
+`search`, `list`, `seen N`, `no N [reason]`, `applied N`, `cover N`, `mail`,
+`blind`, `settings`.
 
 It is sector-agnostic: everything specific to you (target roles, fields, degrees,
 languages, countries, deal-breakers, CV, judge prompts) lives in
@@ -129,7 +129,7 @@ Typed into the Telegram chat. `N` is the `#number` shown on the offer.
 | `applied N` | remove it and log it to `data/applications.jsonl` |
 | `longshot N [reason]` | the same, but flagged: you applied knowing you fall short |
 | `cover N` | write a cover letter for it and send it back as a PDF |
-| `status` | where every application you sent stands, read from your inbox |
+| `mail` | where every application you sent stands, read from your inbox |
 | `blind` | the titles the filter keeps discarding, ranked by how often they come back |
 | `settings` | re-open any profile question to change your answer |
 | `/start` | first-time setup: builds your profile from a short questionnaire |
@@ -193,7 +193,7 @@ really did, so the number stays checkable instead of becoming a claim.
 Everything else in Argus works on offers. This works on what happened *after*
 you applied: it reads your inbox once a night, matches the replies to the
 applications you logged with `applied N`, and writes one state per application.
-`status` prints it.
+`mail` prints it.
 
 It exists because of a number. On one real mailbox, over 46 replies from
 employers: **35 acknowledgements, 5 rejections, 6 interviews**. Almost nobody
@@ -234,7 +234,7 @@ kind of message and its date.
 
 Setting it up needs a Google Cloud OAuth client of your own — the README in
 `server-bot/argus-mail/` walks through it. Without one, the rest of Argus works
-exactly as before and `status` simply says so.
+exactly as before and `mail` simply says so.
 
 ### Discover — auditing the search, not the offer
 

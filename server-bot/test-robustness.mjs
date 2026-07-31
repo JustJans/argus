@@ -331,6 +331,15 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
     [/^applied[\s,:]*#?\d+/i, 'longshot 729', false],
     [/^no[\s,:]*#?\d+/i, 'no 5 needs 10 years', true], [/^no[\s,:]*#?\d+/i, 'no5', true],
     [/^no\b/i, 'no idea which one', true],   // → asks which offer, does not act
+    // ➤ "mail" is the twin of "list": one prints the offers waiting for you,
+    // ➤ the other what came back from the ones you sent. Neither goes looking
+    // ➤ for anything, both just print. "status" was this command's first name
+    // ➤ and still answers.
+    [/^(mail|status)$/i, 'mail', true], [/^(mail|status)$/i, 'status', true],
+    [/^(mail|status)$/i, 'MAIL', true],
+    [/^(mail|status)$/i, 'mails', false], [/^(mail|status)$/i, 'mail 3', false],
+    // ➤ And it must not swallow a message that merely starts with the word.
+    [/^(mail|status)$/i, 'mailbox full', false],
   ];
   for (const [re, input, want] of CMDS) eq(re.test(input), want, `command "${input}"`);
   // ➤ The reason must survive intact after the number.

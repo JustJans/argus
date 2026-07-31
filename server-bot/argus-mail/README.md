@@ -2,10 +2,10 @@
 
 Reads your inbox once a night, matches the replies to the applications you
 logged with `applied N`, and writes one state per application to
-`data/application-status.json`. The `status` command in Telegram prints it.
+`data/application-status.json`. The `mail` command in Telegram prints it.
 
 It is read-only, it never writes a word of your mail to disk, and Argus works
-without it — if you do not set it up, `status` says so and nothing else changes.
+without it — if you do not set it up, `mail` says so and nothing else changes.
 
 ## What it does
 
@@ -20,7 +20,7 @@ Gmail  ──►  classify  ──►  match  ──►  status  ──►  repo
 | `classify.mjs` | Is this a receipt, a rejection, an invitation, or a mailshot? |
 | `match.mjs` | Which of your applications is it about — or is it ambiguous? |
 | `status.mjs` | One state per application: `rejected`, `interview`, `acknowledged`, `noreply` |
-| `report.mjs` | The text of the `status` command |
+| `report.mjs` | The text of the `mail` command |
 | `listen.mjs` | The nightly run that ties them together |
 
 Run it by hand with `--dry-run` to see what it would write:
