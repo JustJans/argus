@@ -1,0 +1,498 @@
+#!/usr/bin/env node
+// ➤ ═══════════════════════════════════════════════════════════════════════
+// ➤ Tests for reading the inbox. Every fixture here is INVENTED: real mail
+// ➤ never goes into a test file, and a test that needs a live mailbox is a
+// ➤ test nobody can run.
+// ➤ RUN: node server-bot/argus-mail/test-mail.mjs   (part of `npm test`)
+// ➤ ═══════════════════════════════════════════════════════════════════════
+
+import { classifyMessage, looksAutomated } from './classify.mjs';
+import { scoreLink, linkOutcomes, tokens, senderName, senderDomainCore } from './match.mjs';
+import { buildStatus, summarise } from './status.mjs';
+import { windowFrom, gmailDate, searchFor } from './listen.mjs';
+import { formatStatus } from './report.mjs';
+
+let pass = 0, fail = 0;
+const ok = (cond, name) => { if (cond) pass++; else { fail++; console.log(`  FAIL ${name}`); } };
+const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want), `${name} (got ${JSON.stringify(got)}, want ${JSON.stringify(want)})`);
+
+// ── 1) Telling the four kinds of message apart ────────────────────────────
+{
+  const c = (subject, snippet = '', body = '') => classifyMessage({ subject, snippet, body, from: 'x@y.com' });
+
+  eq(c('Your application to Acme'), null, 'a bare subject with no wording decides nothing');
+  eq(c('We have received your application'), 'acknowledged', 'the automated receipt');
+  eq(c('Hemos recibido tu candidatura'), 'acknowledged', 'the receipt in Spanish');
+  eq(c('Bedankt voor je sollicitatie'), 'acknowledged', 'and in Dutch');
+  eq(c('Vielen Dank für Ihre Bewerbung'), 'acknowledged', 'and in German, accents and all');
+
+  eq(c('Unfortunately we will not be proceeding'), 'rejected', 'a refusal');
+  eq(c('Lamentamos comunicarte que no continuaremos'), 'rejected', 'a refusal in Spanish');
+  eq(c('Helaas gaan we niet verder met je sollicitatie'), 'rejected', 'a refusal in Dutch');
+  // ➤ The SAME refusal put positively. A real one read "we hebben beslist om
+  // ➤ met andere kandidaten verder te gaan" — we have decided to continue
+  // ➤ with OTHER candidates — and matched nothing, because only the negative
+  // ➤ form was listed. It reads like good news until the sentence ends.
+  eq(c('Betreft uw sollicitatie', 'Na een grondige beoordeling hebben we beslist om met andere kandidaten verder te gaan'),
+    'rejected', 'a Dutch refusal phrased as continuing with others');
+  eq(c('Your application', 'We have decided to move forward with other candidates'),
+    'rejected', 'and the same in English');
+
+  // ➤ BELGIAN Dutch is not Netherlands Dutch, and this mailbox gets both.
+  // ➤ Different words for the same thing, not different spellings.
+  eq(c('Uw kandidatuur', 'Uw kandidatuur werd helaas niet weerhouden voor deze functie'),
+    'rejected', 'Belgian "niet weerhouden" is a refusal');
+  eq(c('Sollicitatie', 'Je bent niet geselecteerd voor deze vacature'),
+    'rejected', 'and the Netherlands equivalent "niet geselecteerd"');
+  eq(c('Kandidatuur', 'Wij hebben uw kandidatuur goed ontvangen'),
+    'acknowledged', 'Belgian "kandidatuur" is an application too');
+  eq(c('Sollicitatie', 'We hebben je sollicitatie ontvangen'),
+    'acknowledged', 'as is the Netherlands "sollicitatie"');
+  eq(c('Uitnodiging', 'We willen graag een afspraak inplannen voor een kennismakingsgesprek'),
+    'interview', 'a Belgian invitation to meet');
+
+  // ➤ ONE PATTERN AT A TIME. The sentences above each contain several
+  // ➤ matching phrases, so removing any single one of them left the tests
+  // ➤ green: they proved the sentence was understood, not the pattern.
+  // ➤ These carry exactly one trigger each.
+  eq(c('Uw kandidatuur', 'Uw kandidatuur werd niet weerhouden'), 'rejected', 'BE "niet weerhouden", alone');
+  eq(c('Sollicitatie', 'Je bent niet geselecteerd'), 'rejected', 'NL "niet geselecteerd", alone');
+  eq(c('Update', 'We hebben besloten verder te gaan met andere profielen'), 'rejected', 'the positive phrasing, alone');
+  eq(c('Update', 'Uw profiel komt niet in aanmerking'), 'rejected', 'BE "niet in aanmerking", alone');
+  eq(c('Bedankt', 'Bedankt voor uw kandidatuur'), 'acknowledged', 'the formal register, alone');
+
+  // ➤ FORMAL and informal. Companies write to a stranger with "u", and the
+  // ➤ pattern only knew "je": a real receipt went unrecognised.
+  eq(c('Sollicitatie Junior Automation Engineer', 'Wij hebben uw sollicitatie goed ontvangen voor de vacature'),
+    'acknowledged', 'a Dutch receipt in the formal register');
+  eq(c('Bedankt', 'Bedankt voor uw sollicitatie'), 'acknowledged', 'and a formal thank-you');
+
+  // ➤ That same receipt says feedback may come by telephone and asks when
+  // ➤ you can be called. It is still a receipt, not an invitation to talk.
+  eq(c('Sollicitatie', 'U kunt binnen de 48 uur feedback van ons verwachten. Deze feedback kan per mail zijn of een telefonische contactname. Wij hebben uw sollicitatie ontvangen'),
+    'acknowledged', 'a receipt that mentions a possible phone call is not an interview');
+
+  eq(c('Invitation to interview'), 'interview', 'an invitation');
+  // ➤ THE BOILERPLATE OF EVERY AUTOMATED RECEIPT. "next steps" was in the
+  // ➤ interview list, which was harmless while only a 200-character snippet
+  // ➤ was read and reported three plain acknowledgements as invitations the
+  // ➤ moment whole bodies were.
+  eq(c('Thank you for your application', 'We will be in touch soon to let you know about the next steps'),
+    'acknowledged', 'a promise of "next steps" is a receipt, not an invitation');
+  eq(c('Thanks for applying', 'We will contact you about the next steps in the process'),
+    'acknowledged', 'however it is worded');
+  eq(c('Your application', 'We invite you to complete your candidate profile'),
+    null, 'being invited to fill in a form is not being invited to talk');
+  // ➤ And what a real one looks like.
+  eq(c('Your application', 'We would like to speak with you about the role'),
+    'interview', 'someone proposing to talk IS an invitation');
+  eq(c('Tu candidatura', 'Nos gustaria hablar contigo la semana que viene'),
+    'interview', 'and in Spanish');
+  eq(c('Nos gustaría hablar contigo'), 'interview', 'an invitation in Spanish');
+
+  // ➤ A rejection usually opens by thanking you for applying. Whichever
+  // ➤ pattern is tested first decides, so the order is the behaviour.
+  eq(c('Thank you for your application', 'Unfortunately we have decided to move with other candidates'),
+    'rejected', 'a polite rejection is a rejection, not a receipt');
+  // ➤ And an invitation that quotes the receipt it follows.
+  eq(c('Re: we have received your application', 'We would like to schedule a call with you'),
+    'interview', 'an invitation that quotes the receipt is still an invitation');
+
+  // ➤ The newsletters. Without this every mailshot becomes an outcome.
+  eq(c('5 new jobs for you this week'), 'alert', 'a job alert is not an outcome');
+  ok(c('Interview tips to help you prepare') !== 'interview', 'advice ABOUT interviews is never read as an invitation');
+  eq(c('How to prepare for your interview', 'unsubscribe'), 'alert', 'nor is a guide');
+
+  // ➤ THE GUARD READS THE OPENING ONLY, and this is why. Every HTML mail ends
+  // ➤ in the same footer — read our blog, browse our articles, career guides —
+  // ➤ and when whole bodies started being read that footer cancelled a real
+  // ➤ invitation. Measured on the mailbox: exactly one outcome was lost this
+  // ➤ way, and it was an interview, the outcome that matters most.
+  eq(c('Your application', 'We would like to schedule a call with you',
+    'Read our blog for interview tips and how to prepare. Browse articles and guides. Newsletter. Unsubscribe.'),
+    'interview', 'a marketing footer does not cancel an invitation in the body');
+  // ➤ But a genuine piece of advice still announces itself where it always did.
+  ok(c('Interview tips', 'how to prepare for your first interview', 'a long body about interviews') !== 'interview',
+    'while advice named in the subject is still not an invitation');
+
+  // ➤ A PROMISE IS NOT AN INVITATION. The wording below is how a real receipt
+  // ➤ put it, and it was reported as an interview until somebody opened the
+  // ➤ mail and read past the "whether": an employer saying it has NOT decided,
+  // ➤ in the exact words a genuine invitation uses.
+  eq(c('Thanks for your application for the position of Platform & Automation Engineer',
+    'A message from the recruitment team',
+    'We have received your application in good order. After the closing date, we will inform you as soon as possible whether we see the right fit to invite you for an interview. This may be online or on our campus.'),
+    'acknowledged', 'a conditional "whether ... invite you for an interview" is a receipt, not an invitation');
+
+  // ➤ The same trap on the other side: a receipt describing the rejection that
+  // ➤ MIGHT come. "Other candidates" alone would read it as a refusal.
+  eq(c('We have received your application', '',
+    'Should we decide to continue with other candidates, we will let you know.'),
+    'acknowledged', 'a conditional refusal is not a refusal');
+
+  // ➤ And the sentences that must survive the guard, or it has eaten the
+  // ➤ feature it was protecting.
+  eq(c('Your application', 'We would like to invite you for an interview next Tuesday'),
+    'interview', 'an outright invitation is still an invitation');
+  eq(c('Your application', 'If you are available on Tuesday, we would like to invite you for an interview'),
+    'interview', 'and so is a politely conditional one — the condition is about YOUR diary, not their decision');
+  eq(c('Update', 'Unfortunately we have decided to continue with other candidates'),
+    'rejected', 'an outright refusal is still a refusal');
+  // ➤ The condition only cancels the sentence it leads. A later sentence that
+  // ➤ says it outright still counts.
+  eq(c('Update', 'We will let you know whether there is a fit. We would like to invite you for an interview on Monday'),
+    'interview', 'a conditional sentence does not silence the one after it');
+
+  // ➤ ── REAL INVITATIONS ──────────────────────────────────────────────────
+  // ➤ Not invented. These are the shapes the only genuine interview process in
+  // ➤ this mailbox actually took, and they are here because the morning was
+  // ➤ spent nearly deleting the word that catches every one of them: the bare
+  // ➤ noun. Two newsletters had matched on it, and tightening the pattern to
+  // ➤ silence them would have cost all six of these.
+  eq(c('Invitation to interview'), 'interview', 'the subject a recruiter actually writes');
+  eq(c('HM interview - Jr. A&C'), 'interview', 'and the calendar invite that follows it');
+  eq(c('Looking forward with you', 'Hola the owner, queria agradecerte nuevamente por tu tiempo en la entrevista conmigo'),
+    'interview', 'a thank-you after the conversation: it happened, so it counts');
+  eq(c('Cancelado: HM interview - Jr. A&C'), 'interview', 'a cancellation still means there was one');
+
+  ok(looksAutomated('noreply@acme.com') && looksAutomated('careers@x.io'), 'no-reply senders are recognised');
+  ok(!looksAutomated('marta.lopez@acme.com'), 'a person is not an automated sender');
+}
+
+// ── 2) Reading the employer out of the sender ─────────────────────────────
+// ➤ The measurement that motivated this: of 38 emails naming no company in
+// ➤ their text, 30 were identifiable from the "From" line alone.
+{
+  eq(senderName('"Van Oord Careers" <noreply@platform.com>'), 'Van Oord Careers', 'the display name is read');
+  eq(senderName('Recruiting Team <noreply@x.com>'), '', 'a generic team name identifies nobody');
+  eq(senderName('no-reply@x.com'), '', 'an address with no display name gives nothing');
+
+  eq(senderDomainCore('jobs@careers.vanoord.com'), 'vanoord', 'the platform parts of a host are stripped');
+  eq(senderDomainCore('noreply@myworkday.com'), '', 'a known ATS domain names no employer');
+  eq(senderDomainCore('noreply@linkedin.com'), '', 'nor does a job board');
+}
+
+// ── 3) Linking an email to the right application ──────────────────────────
+{
+  const apps = [
+    { id: 1, company: 'Van Oord', title: 'Offshore Engineer', location: 'Rotterdam', ts: '2026-07-01T09:00:00Z' },
+    { id: 2, company: 'Jan De Nul Group', title: 'Project Engineer', location: 'Aalst', ts: '2026-07-01T10:00:00Z' },
+  ];
+  const at = (subject, from, date, snippet = '') => ({ subject, from, date, snippet });
+
+  // ➤ The company named in the text: conclusive.
+  const a = linkOutcomes([at('Your application to Van Oord', 'x@y.com', '2026-07-01T12:00:00Z')], apps);
+  eq(a.links.length, 1, 'a named company links');
+  eq(a.links[0].application.id, 1, 'and to the right application');
+
+  // ➤ Named only in the sender, which is the case the text can never reach.
+  const b = linkOutcomes([at('Your application', '"Van Oord Recruitment" <noreply@ats.com>', '2026-07-01T12:00:00Z')], apps);
+  eq(b.links.length, 1, 'a company named only in the sender still links');
+  eq(b.links[0].application.id, 1, 'to the right one');
+  ok(b.links[0].why.includes('company'), 'and says the company was recognised');
+
+  // ➤ A faceless receipt naming nobody: not a tie, an orphan. Nothing in it
+  // ➤ points at any application, so there is no candidate to be torn between.
+  const c = linkOutcomes([at('Thanks for applying', 'noreply@ats.com', '2026-07-01T12:00:00Z', 'engineer position')], apps);
+  eq(c.links.length, 0, 'a receipt that identifies nothing is not linked');
+  eq(c.orphans.length, 1, 'and it is an orphan, not a tie');
+
+  // ➤ A REAL tie, and one that has already happened here: two open roles at
+  // ➤ the same employer, applied to on the same day. The email names the
+  // ➤ company, which fits both equally. Guessing would invent an outcome for
+  // ➤ one of them, so it is handed back unresolved.
+  const twoRoles = [
+    { id: 7, company: 'ATEXIS', title: 'Design Engineer', location: 'Madrid', ts: '2026-07-01T09:00:00Z' },
+    { id: 8, company: 'ATEXIS', title: 'Systems Engineer', location: 'Madrid', ts: '2026-07-01T09:30:00Z' },
+  ];
+  const t = linkOutcomes([at('We have received your application', '"ATEXIS" <noreply@ats.com>', '2026-07-01T12:00:00Z')], twoRoles);
+  eq(t.links.length, 0, 'two roles at one employer are not guessed between');
+  eq(t.ties.length, 1, 'the email is reported as a tie');
+  eq(t.ties[0].candidates.length, 2, 'with both candidates named, so you can decide');
+
+  // ➤ Mail predating the application cannot be about it.
+  const d = linkOutcomes([at('Your application to Van Oord', 'x@y.com', '2026-06-01T12:00:00Z')], apps);
+  eq(d.links.length, 0, 'an email older than the application is not linked');
+
+  // ➤ Nothing matches at all: an application the bot never recorded.
+  const e = linkOutcomes([at('Thanks from Somewhere Else Ltd', 'x@nowhere.com', '2026-07-02T12:00:00Z')], apps);
+  eq(e.orphans.length, 1, 'an unrelated email is an orphan, not a bad link');
+  // ➤ Arriving the same day is not evidence of anything. Before this, every
+  // ➤ stray email that landed on a busy day became a candidate for whatever
+  // ➤ was applied to that day.
+  const g = linkOutcomes([at('Some newsletter', 'x@nowhere.com', '2026-07-01T11:00:00Z')], apps);
+  eq(g.orphans.length, 1, 'timing alone never makes a candidate');
+  eq(scoreLink(at('Some newsletter', 'x@nowhere.com', '2026-07-01T11:00:00Z'), apps[0]).score, 0, 'and it scores zero');
+
+  // ➤ The generic words must not carry a match on their own.
+  eq(tokens('Engineering Group SA'), [], 'a company name of only generic words yields nothing to match on');
+  ok(tokens('Van Oord').length > 0, 'a real name does');
+  const f = linkOutcomes([at('Your application', 'noreply@ats.com', '2026-07-01T12:00:00Z', 'engineering group')], apps);
+  eq(f.links.length, 0, 'so "engineering group" alone links to nobody');
+
+  // ➤ WHOLE WORDS ONLY. "Van Oord" reduces to the token "oord", and a Dutch
+  // ➤ rejection from an unrelated company contained "beoordeling" — so Van
+  // ➤ Oord scored as though it had been named, and came within one point of
+  // ➤ being told it had been rejected.
+  const dutch = at('Betreft uw sollicitatie', 'info@elsewhere.be', '2026-07-02T12:00:00Z',
+    'Na een grondige beoordeling hebben we beslist om verder te gaan');
+  eq(scoreLink(dutch, apps[0]).score, 0, '"beoordeling" does not count as "Van Oord"');
+  eq(linkOutcomes([dutch], apps).orphans.length, 1, 'and the email stays unlinked');
+  // ➤ The real name still matches, boundary and all.
+  ok(scoreLink(at('Van Oord update', 'x@y.com', '2026-07-02T12:00:00Z'), apps[0]).score > 0, 'the actual name still matches');
+
+  // ➤ The SAME boundary rule has to hold for job titles. "Offshore" sits
+  // ➤ inside plenty of longer words, and a title matched as a substring
+  // ➤ would score on any of them.
+  // ➤ Two title words, and BOTH only as fragments of longer words. It takes
+  // ➤ two to make a match at all, so one fragment proves nothing on its own.
+  const twoWordTitle = [{ id: 11, company: 'Somewhere', title: 'Offshore Wind Analyst', location: 'X', ts: '2026-07-01T09:00:00Z' }];
+  const buried = at('Nieuwsbrief', 'x@y.com', '2026-07-02T12:00:00Z', 'over offshoreactiviteiten en windmolenparken');
+  eq(scoreLink(buried, twoWordTitle[0]).score, 0, 'title words buried inside longer words do not count');
+  // ➤ The same two words, standing on their own, do.
+  const proper = at('Vacature', 'x@y.com', '2026-07-02T12:00:00Z', 'the offshore wind role you applied for');
+  ok(scoreLink(proper, twoWordTitle[0]).why.includes('title'), 'the same words as whole words do match');
+
+  // ➤ ONE title word, and nothing else at all. Without an identity already
+  // ➤ established it must not create a candidate: this is how an email from
+  // ➤ a company never applied to competed for two real applications.
+  const oneWord = at('Vacature', 'x@nowhere.com', '2026-07-02T12:00:00Z', 'a project manager role somewhere else');
+  eq(scoreLink(oneWord, apps[1]).score, 0, 'a single shared title word is not identity on its own');
+  eq(linkOutcomes([oneWord], apps).orphans.length, 1, 'so the email stays an orphan');
+  // ➤ Even when the title reduces to that one word and nothing else. Six of
+  // ➤ a real set of 23 applications were like this, four of them sharing
+  // ➤ "automation": one word could have identified all four at once.
+  const single = [{ id: 9, company: 'Somewhere', title: 'Automation Engineer', location: 'X', ts: '2026-07-01T09:00:00Z' }];
+  const mentions = at('Newsletter', 'x@nowhere.com', '2026-07-02T12:00:00Z', 'the future of automation in industry');
+  eq(scoreLink(mentions, single[0]).score, 0, 'a one-word title is not identified by that word alone');
+  eq(linkOutcomes([mentions], single).orphans.length, 1, 'and such an email is an orphan');
+  // ➤ But once the company IS named, that same single word corroborates.
+  const withCompany = at('Jan De Nul', 'x@y.com', '2026-07-02T12:00:00Z', 'about the project you applied for');
+  ok(scoreLink(withCompany, apps[1]).why.includes('title-partial'), 'and it does count once the company is known');
+}
+
+// ── 4) The state of each application ──────────────────────────────────────
+{
+  const apps = [
+    { id: 1, company: 'A', title: 'T', ts: '2026-07-01T09:00:00Z' },
+    { id: 2, company: 'B', title: 'T', ts: '2026-07-01T09:00:00Z' },
+    { id: 3, company: 'C', title: 'T', ts: '2026-07-01T09:00:00Z' },
+    { id: 4, company: 'D', title: 'T', ts: '2026-07-20T09:00:00Z' },
+    { id: 5, company: 'E', title: 'T', ts: '2026-06-01T09:00:00Z' },
+    { id: 6, company: 'F', title: 'T', ts: '2026-07-01T09:00:00Z', longshot: true },
+  ];
+  const link = (id, kind, date) => ({ application: apps.find(a => a.id === id), kind, message: { date }, why: ['company'], score: 10 });
+  const links = [
+    link(1, 'acknowledged', '2026-07-01T10:00:00Z'),
+    link(2, 'acknowledged', '2026-07-01T10:00:00Z'),
+    link(2, 'rejected', '2026-07-10T10:00:00Z'),
+    link(3, 'acknowledged', '2026-07-01T10:00:00Z'),
+    link(3, 'interview', '2026-07-05T10:00:00Z'),
+    link(6, 'rejected', '2026-07-03T10:00:00Z'),
+  ];
+  const recs = buildStatus(apps, links, { today: new Date('2026-07-25T00:00:00Z') });
+  const st = id => recs.find(r => r.id === id).state;
+
+  eq(st(1), 'acknowledged', 'a receipt and nothing more');
+  eq(st(2), 'rejected', 'a rejection is terminal');
+  eq(st(3), 'interview', 'an invitation beats the receipt that came first');
+  eq(st(4), 'noreply', 'applied five days ago with no receipt at all: receipts arrive within the hour, so five days is silence');
+  eq(st(5), 'noreply', 'nobody ever wrote back');
+
+  // ➤ NO GRACE PERIOD. There used to be a separate state for anything under
+  // ➤ three days old. It is gone: no receipt is no receipt, and how recent it
+  // ➤ is shows as a number of days beside the row.
+  const fresh = buildStatus([{ id: 9, company: 'Z', title: 'T', ts: '2026-07-25T08:00:00Z' }], [],
+    { today: new Date('2026-07-25T09:00:00Z') });
+  eq(fresh[0].state, 'noreply', 'one sent an hour ago is unanswered too, not a state of its own');
+  eq(fresh[0].daysWaiting, 0, 'and it says how fresh it is');
+  ok(!JSON.stringify(recs).includes('waiting'), 'the word waiting appears in no record at all');
+
+  // ➤ Everything that happened is kept: "rejected after an interview" and
+  // ➤ "rejected by a form" are not the same story, and one word cannot hold both.
+  eq(recs.find(r => r.id === 3).reached, ['acknowledged', 'interview'], 'the whole path is recorded');
+
+  // ➤ An invitation arriving after another receipt must not walk it backwards.
+  const back = buildStatus([apps[2]], [
+    link(3, 'interview', '2026-07-05T10:00:00Z'),
+    link(3, 'acknowledged', '2026-07-06T10:00:00Z'),
+  ], { today: new Date('2026-07-25T00:00:00Z') });
+  eq(back[0].state, 'interview', 'a later receipt does not undo an invitation');
+
+  // ➤ Longshots are counted apart: they were sent knowing they fell short, so
+  // ➤ folding them in makes the search look worse than it is.
+  const s = summarise(recs);
+  eq(s.applications, 6, 'every application is counted');
+  eq(s.rejected, 2, 'including the longshot that was rejected');
+  eq(s.longshots, 1, 'and the longshots are named');
+  // ➤ The one place they must NOT count: judging whether the filter chooses
+  // ➤ well. A longshot was sent knowing it fell short, so its rejection is
+  // ➤ not evidence against the search.
+  eq(s.excludingLongshots.rejected, 1, 'the filter is judged without them');
+  eq(s.excludingLongshots.interview, 1, 'and keeps the rest');
+}
+
+// ── 5) End to end, through the real pipeline ──────────────────────────────
+// ➤ Every block above builds its own fixtures, and that is how a real failure
+// ➤ hid: the hand-made links carried the classification in a place the actual
+// ➤ linker does not put it, so buildStatus read undefined and every
+// ➤ application came back "waiting" while the tests stayed green.
+// ➤ This one starts from raw messages and lets classify -> link -> status run
+// ➤ as they do in production. No hand-built links anywhere.
+{
+  const apps = [
+    { id: 1, company: 'Van Oord', title: 'Offshore Engineer', location: 'Rotterdam', ts: '2026-07-01T09:00:00Z' },
+    { id: 2, company: 'Fugro', title: 'Survey Engineer', location: 'Nootdorp', ts: '2026-07-02T09:00:00Z' },
+    { id: 3, company: 'Boskalis', title: 'Marine Engineer', location: 'Papendrecht', ts: '2026-06-01T09:00:00Z' },
+  ];
+  const raw = [
+    { subject: 'We have received your application', snippet: 'Van Oord thanks you', from: 'noreply@ats.com', date: '2026-07-01T10:00:00Z' },
+    { subject: 'Fugro: unfortunately', snippet: 'we will not be proceeding', from: 'noreply@ats.com', date: '2026-07-09T10:00:00Z' },
+    { subject: '5 new jobs for you', snippet: 'unsubscribe', from: 'alerts@board.com', date: '2026-07-03T10:00:00Z' },
+  ];
+
+  const outcomes = raw.map(m => ({ ...m, kind: classifyMessage(m) })).filter(m => m.kind && m.kind !== 'alert');
+  eq(outcomes.length, 2, 'end-to-end: the alert is dropped, the two outcomes survive');
+
+  const { links } = linkOutcomes(outcomes, apps);
+  eq(links.length, 2, 'end-to-end: both outcomes link');
+
+  const recs = buildStatus(apps, links, { today: new Date('2026-07-25T00:00:00Z') });
+  const st = id => recs.find(r => r.id === id).state;
+  eq(st(1), 'acknowledged', 'end-to-end: the receipt reaches the status file');
+  eq(st(2), 'rejected', 'end-to-end: and so does the rejection');
+  eq(st(3), 'noreply', 'end-to-end: the one nobody answered');
+
+  const s = summarise(recs);
+  ok(s.acknowledged === 1 && s.rejected === 1 && s.noreply === 1,
+    'end-to-end: the summary counts what actually happened, not zeroes');
+  ok(s.answered === 2, 'end-to-end: two of the three actually got a reply');
+}
+
+// ── 5b) What YOU sent is never an answer ──────────────────────────────────
+// ➤ Gmail's search covers Sent as well as the inbox, so your own replies come
+// ➤ back with everything else — and they classify. A real reply to a recruiter
+// ➤ reads "thank you for considering me for an interview", which every pattern
+// ➤ here calls an invitation. That is your own message reported to you as news.
+// ➤ Found on a live mailbox: two such messages sat inside the read window;
+// ➤ neither happened to link to an application, but that was luck, not design.
+{
+  const since = new Date('2026-07-17T00:00:00Z');
+  const q = searchFor(since);
+  ok(q.includes('-from:me'), 'the search excludes anything you sent');
+  ok(q.includes('after:2026/7/17'), 'and still starts at your oldest application');
+
+  // ➤ The sentence itself, so the reason this filter exists cannot be
+  // ➤ forgotten: without the filter, THIS is an interview.
+  eq(classifyMessage({ subject: 'Re: Invitation to interview', from: 'you@example.com',
+    snippet: 'Thank you very much for considering me for an interview' }),
+    'interview', 'your own reply does classify as one — which is exactly why it must never be read');
+}
+
+// ── 6) How much of the mailbox it opens ───────────────────────────────────
+// ➤ The window is derived from your own applications, not from a number
+// ➤ somebody picked. Reading further back cannot find an answer to anything
+// ➤ recorded, and every extra day is more of your mail read for nothing.
+{
+  const apps = [
+    { id: 1, ts: '2026-07-18T19:45:00Z' },
+    { id: 2, ts: '2026-07-30T09:38:00Z' },
+    { id: 3, ts: '2026-07-20T09:00:00Z' },
+  ];
+  const from = windowFrom(apps);
+  eq(from.toISOString().slice(0, 10), '2026-07-17', 'the window starts a day before the OLDEST application');
+  ok(from < new Date(apps[0].ts), 'and never after it');
+
+  eq(windowFrom([]), null, 'no applications, no window');
+  eq(windowFrom([{ id: 1, ts: 'not a date' }]), null, 'an unreadable date does not become a window');
+
+  // ➤ Gmail wants YYYY/M/D, not an ISO string: a wrong format silently returns
+  // ➤ the whole mailbox instead of erroring.
+  eq(gmailDate(new Date('2026-07-05T00:00:00Z')), '2026/7/5', 'the date is in the format Gmail search expects');
+  ok(!/-|T|Z/.test(gmailDate(new Date())), 'never an ISO timestamp');
+}
+
+// ── 7) The message you actually read on the phone ────────────────────
+{
+  const status = {
+    generated: '2026-07-30T00:00:00Z',
+    summary: {},
+    unlinked: { ambiguous: 2, unrelated: 9 },
+    applications: [
+      { id: 1, company: 'Van Oord', title: 'Offshore Engineer', state: 'interview', reached: ['interview'], daysWaiting: 6, longshot: false, evidence: [] },
+      { id: 2, company: 'R&D <Marine>', title: 'Survey Engineer', state: 'acknowledged', reached: ['acknowledged'], daysWaiting: 4, longshot: false, evidence: [] },
+      { id: 3, company: 'Quiet Ltd', title: 'Production Automation Systems Engineer', state: 'noreply', reached: [], daysWaiting: 9, longshot: false, evidence: [] },
+      { id: 4, company: 'Reach Co', title: 'Lead Engineer', state: 'noreply', reached: [], daysWaiting: 1, longshot: true, evidence: [] },
+      { id: 5, company: 'Nope BV', title: 'Marine Engineer', state: 'rejected', reached: ['rejected'], daysWaiting: 8, longshot: false, evidence: [] },
+    ],
+  };
+  const txt = formatStatus(status);
+  const lines = txt.split('\n');
+
+  // ➤ An application belongs to ONE state. Listing the silent ones again
+  // ➤ under "waiting" read as two different things and was one.
+  for (const id of [1, 2, 3, 4, 5]) {
+    const hits = lines.filter(l => l.includes('#' + id)).length;
+    ok(hits <= 1, 'application #' + id + ' appears at most once');
+  }
+
+  // ➤ The three you can still do something about are listed one by one.
+  ok(txt.includes('#3') && txt.includes('#4'), 'the ones nobody replied to are listed');
+  ok(txt.includes('#2'), 'and one that was acknowledged');
+  ok(txt.includes('#1'), 'and an interview');
+  ok(!txt.includes('#5'), 'a rejection is counted, not listed — it is closed');
+  ok(/🔴 1 rejected/.test(txt), 'but it is in the count line');
+
+  // ➤ THERE IS NO BLUE CIRCLE. It stood for "sent less than three days ago",
+  // ➤ which is not a thing that needs its own colour: the number of days is
+  // ➤ right there on the row.
+  ok(!txt.includes('🔵'), 'no blue circle anywhere');
+  ok(!/just sent|waiting/i.test(txt), 'and no state named after being recent');
+  eq((txt.match(/[⚪🟡🔴🟢🔵]/gu) || []).length, 4 + 3, 'four in the count line, one per section heading');
+
+  // ➤ Least progress first: N/A, received, rejected, interview.
+  const at = s => txt.indexOf(s);
+  ok(at('⚪ 2 N/A') >= 0 && at('🟡 1 received') > at('⚪ 2 N/A'), 'N/A is counted before received');
+  ok(at('🔴 1 rejected') > at('🟡 1 received'), 'received before rejected');
+  ok(at('🟢 1 interview') > at('🔴 1 rejected'), 'and rejected before interview');
+  ok(at('<b>⚪ N/A</b>') >= 0 && at('<b>🟡 Received</b>') > at('<b>⚪ N/A</b>'), 'the sections follow the same order');
+  ok(at('<b>🟢 Interview</b>') > at('<b>🟡 Received</b>'), 'with interview last');
+
+  // ➤ Longest silence at the top: with no separate state for the recent ones,
+  // ➤ this is what keeps the ones worth chasing where they can be seen.
+  ok(at('#3 Quiet Ltd') < at('#4 Reach Co'), 'nine days of silence is listed above one');
+
+  // ➤ Every circle is spelled out. Colours and bare numbers meant nothing to
+  // ➤ anyone who did not already know the code by heart.
+  for (const [dot, word] of [['⚪', 'N/A'], ['🟡', 'received'], ['🔴', 'rejected'], ['🟢', 'interview']]) {
+    ok(new RegExp(dot + ' \\d+ ' + word.replace('/', '\\/')).test(txt), `the ${dot} circle says what it means`);
+  }
+
+  // ➤ NOTHING IS CLIPPED. Cutting "Production Automation Systems Engineer"
+  // ➤ down to "Production Automation Sys…" tells you less and looks broken.
+  ok(!txt.includes('…'), 'no ellipsis anywhere');
+  ok(txt.includes('Production Automation Systems Engineer'), 'a long job title survives whole');
+  ok(txt.includes('#3 Quiet Ltd - Production Automation Systems Engineer (9d)'), 'company, title and the wait, all of it');
+
+  // ➤ It still has to fit a phone.
+  ok(lines.length <= 20, 'the message stays short (' + lines.length + ' lines)');
+  ok(txt.length < 3500, 'and well inside the Telegram limit');
+
+  ok(txt.includes(' - '), 'fields are separated with a hyphen');
+  ok(!lines.slice(2).some(l => l.includes('·')), 'the middle dot appears only in the count line, never in a listing');
+
+  // ➤ Job boards send company names with & and <> in them, and a raw one
+  // ➤ makes Telegram reject the whole message.
+  ok(txt.includes('R&amp;D') && txt.includes('&lt;Marine&gt;'), 'company names are escaped');
+  ok(!/[^&]&(?!amp;|lt;|gt;)/.test(txt), 'no unescaped ampersand survives');
+
+  // ➤ The old footer told you nothing you could use.
+  ok(!/got a reply/.test(txt), 'no arithmetic footer');
+  ok(!/Receipts always arrive/.test(txt), 'no explanatory paragraph');
+  ok(!/Last checked/.test(txt), 'no staleness note');
+
+  eq(formatStatus({ applications: [] }).includes('No applications on record'), true, 'an empty record says so plainly');
+}
+
+if (fail) { console.log(`\n${fail}/${pass + fail} mail tests FAILED.`); process.exit(1); }
+console.log(`All ${pass} mail tests passed.`);
