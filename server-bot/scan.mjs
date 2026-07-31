@@ -39,7 +39,8 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
 // ➤ Atomic full-file overwrite (temp file + rename) so a crash mid-write can't
 // ➤ truncate the pending list. Used for the pipeline.md rewrite below.
-import { writeFileAtomic } from './fs-atomic.mjs';
+import { writeFileAtomic, withFileLock } from './fs-atomic.mjs';
+import { PENDING_HEADING, PROCESSED_HEADING, pendingIndex } from './pipeline-format.mjs';
 // ➜ The blind-spot record: what the title filter throws away. Fed here,
 // ➜ read by argus-discover. See that file for why recurrence is the signal.
 import { mergeDrops, loadStore, saveStore } from './argus-discover/blind-spots.mjs';
@@ -1143,7 +1144,11 @@ function loadSeenUrls() {
 // ➤ link (aggregators re-post it). It's compared by the company+title
 // ➤ pair, normalizing odd dashes and extra spaces: GE Vernova posted the same
 // ➤ role twice as "Power Systems - …" and "Power Systems – …" (en dash).
-function roleKey(company, title) {
+// ➤ Exported to be tested: this key is what makes your "no" stick when a board
+// ➤ re-posts the same job with a different link. A mutation that stopped it
+// ➤ normalising the en dash — the exact case that made one employer's role
+// ➤ appear twice — passed every test in the project.
+export function roleKey(company, title) {
   // ➤ Also (Lonza case #595/#602, 2026-07-18): German portals
   // ➤ re-post the SAME role with gender tags "(m/w/d)"/"(All
   // ➤ Genders)" and schedules "80-100%" that vary between postings. They're removed
@@ -1223,7 +1228,16 @@ function loadSeenCompanyRoles() {
 // ➤ confusion (numbering by position failed because Telegram groups by country).
 function appendToPipeline(offers) {
   if (offers.length === 0) return;
-  let text = existsSync(PIPELINE_PATH) ? readFileSync(PIPELINE_PATH, 'utf-8') : '# Pipeline\n\n## Pending\n\n## Processed\n';
+  // ➤ Under lock. The scan runs every two hours and takes minutes, but this
+  // ➤ part — read the file, add the offers, write it back — must not overlap
+  // ➤ with a "seen" from Telegram or with the cleanup. Whoever wrote second
+  // ➤ used to erase the other's work: measured, eight overlapping writers kept
+  // ➤ 200 lines out of 1600. Only these milliseconds are held, not the scan.
+  return withFileLock(PIPELINE_PATH, () => appendToPipelineLocked(offers));
+}
+
+function appendToPipelineLocked(offers) {
+  let text = existsSync(PIPELINE_PATH) ? readFileSync(PIPELINE_PATH, 'utf-8') : `# Pipeline\n\n${PENDING_HEADING}\n\n${PROCESSED_HEADING}\n`;
   // Stable per-offer ID (last field, "#412"): shown in every Telegram message
   // and used by visto/no. Positional numbering caused wrong-offer feedback —
   // the Telegram list is country-grouped, so positions never matched.
@@ -1239,8 +1253,9 @@ function appendToPipeline(offers) {
   // ➤ again, and two different offers ended up sharing one "#412". We also
   // ➤ remember the highest id EVER handed out, so numbers only move forward.
   nextId = Math.max(nextId, loadIdHighWater());
-  const marker = '## Pending';
-  const idx = text.indexOf(marker);
+  // ➤ Where to insert: the pending heading, asked for in one place.
+  const idx = pendingIndex(text);
+  const marker = idx === -1 ? PENDING_HEADING : text.slice(idx).split('\n')[0];
   const block = offers.map(o => {
     const loc = normalizeLocation(o.location);
     o.id = ++nextId;
@@ -1257,7 +1272,7 @@ function appendToPipeline(offers) {
   // ➤ If the file has no "Pending" section, it creates it; if it has one,
   // ➤ it inserts the new offers inside that section.
   if (idx === -1) {
-    const procIdx = text.indexOf('## Processed');
+    const procIdx = text.indexOf(PROCESSED_HEADING);
     const at = procIdx === -1 ? text.length : procIdx;
     text = text.slice(0, at) + `\n${marker}\n\n${block}\n\n` + text.slice(at);
   } else {

@@ -12,14 +12,20 @@
 import { claudeErrorKind, claudeErrorMessage } from './claude-cli.mjs';
 import { parseVerdict } from './argus-council/judges.mjs';
 import { parseLetter, coverFileBase, resolveCoverBase } from './cover-letter.mjs';
-import { writeFileAtomic, tempNameFor } from './fs-atomic.mjs';
+import { writeFileAtomic, tempNameFor, withFileLock } from './fs-atomic.mjs';
 import { classifyLiveness } from './liveness-core.mjs';
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync, copyFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, dirname } from 'path';
-import { pathToFileURL } from 'url';
+import { pathToFileURL, fileURLToPath } from 'url';
+// ➤ To launch real separate programs in the lock test below.
+import { spawn } from 'child_process';
 import yaml from 'js-yaml';
 import { buildProfileYaml } from './onboarding.mjs';
+
+// ➤ Where this test file itself lives, so the lock test can launch standalone
+// ➤ programs that import the real module rather than a copy of it.
+const SELF_DIR = dirname(fileURLToPath(import.meta.url));
 
 let pass = 0, fail = 0;
 const ok = (cond, name) => { if (cond) pass++; else { fail++; console.log(`  FAIL ${name}`); } };
@@ -150,6 +156,100 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   rmSync(dir, { recursive: true, force: true });
 }
 
+// ── 5b) The lock around read-decide-write ─────────────────────────────────
+// ➤ The atomic write above only guarantees nobody sees HALF a file. It does
+// ➤ nothing about the real danger: the scanner, the cleanup and a "seen" typed
+// ➤ on Telegram all read the pending list, change their bit, and write it back.
+// ➤ Measured before the lock existed: eight overlapping writers kept 200 lines
+// ➤ out of 1600. These tests watch the MECHANISM, because a lock that quietly
+// ➤ stopped locking would still pass every test about the file's contents.
+{
+  const dir = join(tmpdir(), `argus-lock-${process.pid}`);
+  const file = join(dir, 'pipeline.md');
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+
+  // ➤ It takes the lock, runs the work, and hands the result back.
+  eq(withFileLock(file, () => 'done'), 'done', 'the lock returns what the work returned');
+  ok(!existsSync(`${file}.lock`), 'and it releases the lock afterwards');
+
+  // ➤ Released even when the work throws — otherwise one crash would block
+  // ➤ every later scan for as long as the machine stayed up.
+  try { withFileLock(file, () => { throw new Error('boom'); }); } catch { /* expected */ }
+  ok(!existsSync(`${file}.lock`), 'a crash inside the work still releases the lock');
+
+  // ➤ Taken BEFORE the work and released AFTER: the whole point is that the
+  // ➤ read and the write happen inside it.
+  const order = [];
+  const spy = {
+    mkdirSync: () => order.push('take'),
+    rmdirSync: () => order.push('release'),
+    statSync: () => ({ mtimeMs: Date.now() }),
+  };
+  withFileLock(file, () => order.push('work'), { io: spy });
+  eq(order, ['take', 'work', 'release'], 'lock, work, unlock — in that order');
+
+  // ➤ It really refuses when somebody else holds it: a second attempt while the
+  // ➤ first is inside must not get in.
+  let inner = 'not attempted';
+  withFileLock(file, () => {
+    ok(existsSync(`${file}.lock`), 'while the work runs, the lock exists on disk');
+    // ➤ Short timeout so the test does not wait for the real one.
+    withFileLock(file, () => { inner = 'got in'; }, { timeoutMs: 60 });
+  });
+  eq(inner, 'got in', 'a blocked writer waits, then proceeds rather than dropping the work');
+
+  // ➤ A lock left behind by a job that was killed must not block the bot for
+  // ➤ ever. One older than the timeout is treated as abandoned and cleared —
+  // ➤ tested with an already-old lock, not a fresh one, or it proves nothing.
+  mkdirSync(`${file}.lock`);
+  const stale = Date.now() + 40;
+  while (Date.now() < stale) { /* let the lock get old */ }
+  let ranWithStale = false;
+  withFileLock(file, () => { ranWithStale = true; }, { timeoutMs: 20 });
+  ok(ranWithStale, 'a stale lock does not stop the job');
+  ok(!existsSync(`${file}.lock`), 'the abandoned lock is cleared, not left behind');
+
+  // ➤ A lock that can NEVER be taken (the folder does not exist, the disk is
+  // ➤ read-only) must not stall the job for the whole timeout. It gives up at
+  // ➤ once and lets the write report the real problem.
+  const nowhere = join(dir, 'does', 'not', 'exist', 'pipeline.md');
+  const t1 = Date.now();
+  let ranAnyway = false;
+  withFileLock(nowhere, () => { ranAnyway = true; }, { timeoutMs: 4000 });
+  ok(ranAnyway, 'an impossible lock does not cancel the work');
+  ok(Date.now() - t1 < 500, 'and it does not wait out the timeout for nothing');
+
+  // ➤ THE REASON IT EXISTS: many read-decide-write cycles, nothing lost.
+  // ➤ IN SEPARATE PROCESSES, deliberately. The first version of this test ran
+  // ➤ eight "writers" inside this one process and passed with the lock REMOVED —
+  // ➤ worthless, because a synchronous read-and-write inside a single Node
+  // ➤ process cannot be interrupted anyway. The danger is a scan, a cleanup and
+  // ➤ a "seen" as three separate programs, which is what this launches.
+  writeFileSync(file, '');
+  const WRITERS = 6, ROUNDS = 25;
+  const worker = join(dir, 'worker.mjs');
+  writeFileSync(worker, [
+    `import { withFileLock, writeFileAtomic } from ${JSON.stringify(pathToFileURL(join(SELF_DIR, 'fs-atomic.mjs')).href)};`,
+    `import { readFileSync } from 'fs';`,
+    `const [file, who, rounds] = [process.argv[2], process.argv[3], +process.argv[4]];`,
+    `for (let i = 0; i < rounds; i++) withFileLock(file, () => {`,
+    `  const cur = readFileSync(file, 'utf-8');`,
+    // ➤ A pause INSIDE the lock, so an unlocked version would really lose
+    // ➤ lines: without it the window is too small to catch anything.
+    `  const until = Date.now() + 2; while (Date.now() < until) {}`,
+    `  writeFileAtomic(file, cur + who + '-' + i + '\\n');`,
+    `});`,
+  ].join('\n'));
+  await Promise.all(Array.from({ length: WRITERS }, (_, w) => new Promise(res => {
+    spawn(process.execPath, [worker, file, String(w), String(ROUNDS)], { stdio: 'ignore' }).on('exit', res);
+  })));
+  eq(readFileSync(file, 'utf-8').split('\n').filter(Boolean).length, WRITERS * ROUNDS,
+     'six programs writing the same list at once lose nothing');
+
+  rmSync(dir, { recursive: true, force: true });
+}
+
 // ── 6) The offer-number high-water mark ───────────────────────────────────
 // ➤ Same logic scan.mjs uses: the next id is the highest EVER handed out, not
 // ➤ merely the highest still present in a file that housekeep deletes from.
@@ -262,6 +362,97 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ok(scanSrc.includes('process.argv[1]') && /scan\\\.mjs\$/.test(scanSrc), 'scan.mjs guards its main() too');
 }
 
+// ── 11a) The two headings that divide the pipeline ───────────────────────
+// ➤ Four modules need them: the scanner writes, the list reads, "seen" edits,
+// ➤ housekeep deletes. Each used to spell them out for itself — four copies of
+// ➤ one decision, which drift the moment anybody changes one of them.
+// ➤ One place, one spelling, and these tests hold the four to it.
+{
+  const { PENDING_HEADING, PROCESSED_HEADING, isPendingHeading, isProcessedHeading, pendingIndex } =
+    await import('./pipeline-format.mjs');
+
+  eq(PENDING_HEADING, '## Pending', 'the pending heading is English');
+  eq(PROCESSED_HEADING, '## Processed', 'and so is the other one');
+  ok(isPendingHeading(PENDING_HEADING) && isProcessedHeading(PROCESSED_HEADING), 'each recognises its own');
+  ok(pendingIndex(`# Pipeline\n\n${PENDING_HEADING}\n\n- [ ] x\n`) > 0, 'and is found inside a file');
+
+  // ➤ A heading with something after it still counts ("## Pending (12)").
+  ok(isPendingHeading('## Pending (12)'), 'a heading with a count after it still counts');
+  // ➤ And nothing else does: an offer line is not a heading.
+  ok(!isPendingHeading('- [ ] https://a/1 | ACME | Engineer | #1'), 'an offer line is not a heading');
+  ok(!isPendingHeading('# Pipeline'), 'nor the title of the file');
+  ok(!isPendingHeading(''), 'nor an empty line');
+  ok(!isPendingHeading('## Pendiente'), 'and nothing that merely looks like it');
+  eq(pendingIndex('# Pipeline\n\nno headings here\n'), -1, 'a file without the heading says so, rather than guessing');
+  eq(pendingIndex(''), -1, 'and so does an empty file');
+
+  // ➤ NOBODY SPELLS THEM OUT AGAIN. This is the rule the file exists for, and
+  // ➤ a stray literal in one module is exactly how the two copies drifted.
+  const readers = ['scan.mjs', 'seen.mjs', 'housekeep.mjs', 'list-offers.mjs'];
+  for (const r of readers) {
+    const src = readFileSync(new URL(`./${r}`, import.meta.url), 'utf-8')
+      .split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+    ok(!/'## Pend|"## Pend|'## Proc|"## Proc/.test(src), `${r} asks pipeline-format for the heading instead of writing it out`);
+  }
+}
+
+// ── 11b) What housekeep DELETES ──────────────────────────────────────────
+// ➤ The block above only checks that importing housekeep does not run it. An
+// ➤ audit asked the harder question — what does it delete? — and the answer
+// ➤ was that none of its 14 functions had a test, in the one module that
+// ➤ destroys data. These three decide what goes.
+{
+  const { rewritePipelineWithout, fuzzyKey, normUrl } = await import('./housekeep.mjs');
+
+  // ➤ THE DELETE ITSELF, on a file of our own. It matches the trimmed line
+  // ➤ exactly, which is the safe way round: a line you edited in the meantime
+  // ➤ stops matching and survives instead of being removed by accident.
+  const dir = join(tmpdir(), `argus-hk-${process.pid}`);
+  mkdirSync(dir, { recursive: true });
+  const p = join(dir, 'pipeline.md');
+  const before = ['## Pending', '- [ ] a | Acme | Engineer | #1', '- [ ] b | Beta | Engineer | #2', '- [x] c | Gamma | Engineer | #3', ''];
+  writeFileSync(p, before.join('\n'));
+
+  const removed = rewritePipelineWithout(['- [x] c | Gamma | Engineer | #3'], p);
+  const after = readFileSync(p, 'utf-8').split('\n');
+  eq(removed, 1, 'housekeep: it reports how many lines it actually removed');
+  ok(!after.some(l => l.includes('#3')), 'housekeep: the line asked for is gone');
+  ok(after.some(l => l.includes('#1')) && after.some(l => l.includes('#2')), 'housekeep: and nothing else went with it');
+  ok(after[0] === '## Pending', 'housekeep: the heading survives');
+
+  // ➤ A line that no longer matches is NOT removed, and it says zero.
+  writeFileSync(p, before.join('\n'));
+  eq(rewritePipelineWithout(['- [ ] a | Acme | Engineer | #1 | visto'], p), 0,
+    'housekeep: a line that changed since the decision is left alone');
+  eq(rewritePipelineWithout([], p), 0, 'housekeep: asked to delete nothing, it deletes nothing');
+  eq(rewritePipelineWithout(['', '   '], p), 0, 'housekeep: blank entries never match a real line');
+  rmSync(dir, { recursive: true, force: true });
+
+  // ➤ THE DUPLICATE KEY, which decides that two postings are the same job and
+  // ➤ therefore that one of them dies. It has been wrong before: it used to
+  // ➤ keep only the first word of the company, so "Royal IHC" and "Royal
+  // ➤ Niestern Sander" shared a key and a real second vacancy was deleted.
+  ok(fuzzyKey('Royal IHC', 'Engineer') !== fuzzyKey('Royal Niestern Sander', 'Engineer'),
+    'housekeep: two different companies sharing a first word are NOT one job');
+  eq(fuzzyKey('Connetix', 'Engineer'), fuzzyKey('Connetix Nederland', 'Engineer'),
+    'housekeep: but a branch suffix does not make a second company');
+  eq(fuzzyKey('Acme BV', 'Engineer'), fuzzyKey('Acme', 'Engineer'), 'housekeep: nor does a legal form');
+  // ➤ The same posting re-listed with a gender tag, a percentage or an en dash
+  // ➤ must give the SAME key, or your "no" is dodged by a re-post.
+  eq(fuzzyKey('Acme', 'Engineer (m/w/d)'), fuzzyKey('Acme', 'Engineer'), 'housekeep: a gender tag is not a new job');
+  eq(fuzzyKey('Acme', 'Engineer 80-100%'), fuzzyKey('Acme', 'Engineer'), 'housekeep: nor a workload');
+  eq(fuzzyKey('Acme', 'Power Systems – Lead'), fuzzyKey('Acme', 'Power Systems - Lead'), 'housekeep: nor an en dash');
+  ok(fuzzyKey('Acme', 'Engineer') !== fuzzyKey('Acme', 'Surveyor'), 'housekeep: a different role is a different job');
+
+  // ➤ And the link normaliser, which decides whether an offer is already in
+  // ➤ the history — i.e. whether deleting it lets it come back as "new".
+  eq(normUrl('https://www.adzuna.es/details/123?utm_source=x'), 'https://www.adzuna.es/details/123', 'housekeep: tracking parameters are not part of a link');
+  eq(normUrl('https://www.adzuna.es/details/123/'), 'https://www.adzuna.es/details/123', 'housekeep: nor a trailing slash');
+  eq(normUrl('https://www.adzuna.fr/land/ad/456'), 'https://www.adzuna.fr/details/456', 'housekeep: the two Adzuna link shapes are one link');
+  eq(normUrl(''), '', 'housekeep: nothing normalises to nothing');
+  eq(normUrl(undefined), '', 'housekeep: and so does a missing link');
+}
+
 // ── 12) Reading the pending list back (list-offers) ──────────────────────
 // ➤ Everything you type — cover N, no N, applied N — resolves the number
 // ➤ through this parser. It had no test, yet a mis-read line means acting on
@@ -287,6 +478,10 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ].join('\n'), 'utf-8');
   const mod = join(dir, 'server-bot', 'list-offers.mjs');
   copyFileSync(new URL('./list-offers.mjs', import.meta.url), mod);
+  // ➤ Its own imports have to travel with it. The module reads the two section
+  // ➤ headings from pipeline-format.mjs, and without that file next door the
+  // ➤ copy cannot even load — which is how this line came to exist.
+  copyFileSync(new URL('./pipeline-format.mjs', import.meta.url), join(dir, 'server-bot', 'pipeline-format.mjs'));
   const { pendingOffers } = await import(pathToFileURL(mod).href);
   const got = pendingOffers();
 
@@ -331,6 +526,15 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
     [/^applied[\s,:]*#?\d+/i, 'longshot 729', false],
     [/^no[\s,:]*#?\d+/i, 'no 5 needs 10 years', true], [/^no[\s,:]*#?\d+/i, 'no5', true],
     [/^no\b/i, 'no idea which one', true],   // → asks which offer, does not act
+    // ➤ "mail" is the twin of "list": one prints the offers waiting for you,
+    // ➤ the other what came back from the ones you sent. Neither goes looking
+    // ➤ for anything, both just print. "status" was this command's first name
+    // ➤ and still answers.
+    [/^(mail|status)$/i, 'mail', true], [/^(mail|status)$/i, 'status', true],
+    [/^(mail|status)$/i, 'MAIL', true],
+    [/^(mail|status)$/i, 'mails', false], [/^(mail|status)$/i, 'mail 3', false],
+    // ➤ And it must not swallow a message that merely starts with the word.
+    [/^(mail|status)$/i, 'mailbox full', false],
   ];
   for (const [re, input, want] of CMDS) eq(re.test(input), want, `command "${input}"`);
   // ➤ The reason must survive intact after the number.

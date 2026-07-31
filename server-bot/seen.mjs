@@ -11,7 +11,8 @@
 
 import { readFileSync, existsSync } from 'fs';
 // ➤ Atomic overwrite so a crash mid-write can't truncate the pending list.
-import { writeFileAtomic } from './fs-atomic.mjs';
+import { writeFileAtomic, withFileLock } from './fs-atomic.mjs';
+import { isPendingHeading } from './pipeline-format.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -27,13 +28,13 @@ export function parseIds(argv) {
   return [...new Set(argv.map(s => Number(String(s).replace(/^#/, ''))).filter(n => Number.isInteger(n) && n > 0))];
 }
 
-// ➤ Index of offer number -> line, built ONLY from the "## Pending" section
+// ➤ Index of offer number -> line, built ONLY from the pending section
 // ➤ and only from lines still unchecked ("- [ ] ").
 export function indexPending(lines) {
   let inPending = false;
   const byId = new Map();
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].startsWith('## Pending')) { inPending = true; continue; }
+    if (isPendingHeading(lines[i])) { inPending = true; continue; }
     if (lines[i].startsWith('## ') && inPending) { inPending = false; }
     if (!inPending || !/^- \[ \] /.test(lines[i])) continue;
     const m = lines[i].match(/\|\s*#(\d+)\s*$/);
@@ -76,8 +77,17 @@ if (process.argv[1] && /(^|[\\/])seen\.mjs$/.test(process.argv[1])) {
     console.error('pipeline.md not found');
     process.exit(1);
   }
-  const text = readFileSync(PIPELINE_PATH, 'utf-8');
-  const res = markSeenInLines(text.split('\n'), nums);
+  // ➤ Read, mark and write INSIDE the lock. This runs from Telegram, so it can
+  // ➤ fire at any second — including while the scanner is appending or
+  // ➤ housekeep is deleting. Without the lock, whichever wrote last wiped the
+  // ➤ other's work; with it, a "seen" can no longer be swallowed by a scan that
+  // ➤ started a moment earlier.
+  const res = withFileLock(PIPELINE_PATH, () => {
+    const text = readFileSync(PIPELINE_PATH, 'utf-8');
+    const r = markSeenInLines(text.split('\n'), nums);
+    if (r.hadPending) writeFileAtomic(PIPELINE_PATH, r.lines.join('\n'));
+    return r;
+  });
 
   if (!res.hadPending) {
     console.log('No pending offers to mark.');
@@ -85,7 +95,6 @@ if (process.argv[1] && /(^|[\\/])seen\.mjs$/.test(process.argv[1])) {
   }
   for (const n of res.missing) console.log(`#${n} is not in pending (did you already remove it?)`);
 
-  writeFileAtomic(PIPELINE_PATH, res.lines.join('\n'));
   if (res.marked.length) {
     console.log('Marked as seen:');
     for (const m of res.marked) console.log('  ✓ ' + m);

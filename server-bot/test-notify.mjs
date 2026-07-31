@@ -18,7 +18,7 @@
  * Run: node server-bot/test-notify.mjs
  */
 
-import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc } from './notify.mjs';
+import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc, languageOfPlace, translateTitle, MAX_CHUNK, TELEGRAM_LIMIT } from './notify.mjs';
 
 const matchers = loadCountryMatchers();
 let failures = 0;
@@ -119,6 +119,82 @@ check(urlGroupHint('https://ecyq.fa.em2.oraclecloud.com/x'), null, 'hint non-adz
 // ➤ messages if they aren't "escaped" (converted to codes).
 check(esc('R&D Engineer <Offshore>'), 'R&amp;D Engineer &lt;Offshore&gt;', 'esc html chars');
 check(esc('Plain Title'), 'Plain Title', 'esc untouched');
+
+// ➤ ── THE MESSAGE MUST FIT ───────────────────────────────────────────────
+// ➤ Telegram refuses anything over 4096 characters, and refusing means you get
+// ➤ NO list — the failure is total, not partial. Raising the limit to 100000
+// ➤ passed every test in the project, which is how this one came to exist.
+// ➤ The margin is real: the count is of the visible text, while what goes out
+// ➤ carries HTML tags and a link on every line.
+check(MAX_CHUNK < TELEGRAM_LIMIT, true, 'a message is split below what Telegram accepts');
+check(TELEGRAM_LIMIT - MAX_CHUNK >= 500, true, 'with room for the tags and links added on top');
+check(MAX_CHUNK > 500, true, 'and not so small that every list arrives in pieces');
+
+// ➤ ── THE LANGUAGE OF A PLACE ────────────────────────────────────────────
+// ➤ Only ever a SECOND attempt, after the automatic detection has given up —
+// ➤ and it gives up often, because job titles are three words long. Google
+// ➤ reported "Charpentier naval H/F" as ENGLISH and handed it straight back,
+// ➤ so French postings reached the phone in French for weeks. Told outright
+// ➤ that it is French, the same service answers "Shipwright M/F".
+check(languageOfPlace('Saint-Nazaire, Loire-Atlantique, France'), 'fr', 'France by name');
+check(languageOfPlace('Alfarrasi, Valencian Community, Spain'), 'es', 'Spain by name');
+check(languageOfPlace('Bremen, Deutschland'), 'de', 'Germany in its own language');
+check(languageOfPlace('Rotterdam, Nederland'), 'nl', 'the Netherlands likewise');
+check(languageOfPlace('Antwerpen, België'), 'nl', 'Belgium answers Dutch, where the search is');
+check(languageOfPlace('Monaco, MC'), 'fr', 'and Monaco is French');
+// ➤ The site it came from says the country as plainly as the words do; plenty
+// ➤ of postings carry only a town.
+check(languageOfPlace('https://www.adzuna.fr/details/123'), 'fr', 'the board tells you too');
+check(languageOfPlace('https://www.adzuna.es/details/123'), 'es', 'whichever one it is');
+// ➤ Nothing recognised means no second attempt, which is the safe outcome.
+check(languageOfPlace('Aberdeen, United Kingdom'), '', 'an English-speaking country asks for nothing');
+check(languageOfPlace(''), '', 'and neither does an empty location');
+check(languageOfPlace(null), '', 'nor a missing one');
+// ➤ It must not read a country out of the middle of another word.
+check(languageOfPlace('Francesca Ltd, Aberdeen'), '', 'a name that merely contains one is not a country');
+
+// ➤ ── THE TWO ATTEMPTS, WIRED UP ─────────────────────────────────────────
+// ➤ languageOfPlace was tested; nothing tested that the translator USES it. A
+// ➤ mutation run proved the cost — deleting the country hint entirely, the
+// ➤ whole reason non-English titles arrive in English, left the suite green.
+// ➤ The translator is asked through an injected fetch, so this needs no network.
+{
+  const reply = text => ({ ok: true, json: async () => [[[text, '', null, null]]] });
+  const calls = [];
+  // ➤ Google reports a short French title as ENGLISH and hands it straight
+  // ➤ back; told outright that it is French it answers properly.
+  const fake = async (url) => {
+    calls.push(url);
+    const sl = (url.match(/[?&]sl=([^&]+)/) || [])[1];
+    if (sl === 'auto') return reply('Charpentier naval H/F');
+    if (sl === 'fr') return reply('Shipwright M/F');
+    return reply('');
+  };
+  const out = await translateTitle('Charpentier naval H/F', 'Saint-Nazaire, France', { fetchImpl: fake, cache: new Map() });
+  check(out, 'Shipwright M/F', 'an unchanged answer triggers a second attempt in the local language');
+  check(calls.length, 2, 'which is exactly two requests, never more');
+  check(/sl=fr/.test(calls[1]), true, 'and the second one names the country language');
+
+  // ➤ An English title comes back unchanged too, so it MUST not be retried
+  // ➤ blindly — that is why the country, not the text, decides.
+  const c2 = [];
+  const fake2 = async (url) => { c2.push(url); return reply('Offshore Installation Engineer'); };
+  const en = await translateTitle('Offshore Installation Engineer', 'Aberdeen, United Kingdom', { fetchImpl: fake2, cache: new Map() });
+  check(en, 'Offshore Installation Engineer', 'an English title survives untouched');
+  check(c2.length, 1, 'and asks only once, because there is no language to force');
+
+  // ➤ A title already translated on the first attempt must not be asked twice.
+  const c3 = [];
+  const fake3 = async (url) => { c3.push(url); return reply('Industrial automation engineer'); };
+  await translateTitle('Ingeniero de automatización industrial', 'Valencia, Spain', { fetchImpl: fake3, cache: new Map() });
+  check(c3.length, 1, 'a successful first attempt is not repeated');
+
+  // ➤ And the whole thing must survive the translator being down: the original
+  // ➤ title is worth more than an error.
+  const dead = async () => { throw new Error('network is down'); };
+  const kept = await translateTitle('Ingeniero naval', 'Spain', { fetchImpl: dead, cache: new Map() });
+  check(kept, 'Ingeniero naval', 'if the translator fails the original title is kept');
+}
 
 // ➤ Final tally: says whether EVERYTHING passed or how many failed.
 // ➤ "exit(1)" tells the system that something is wrong.

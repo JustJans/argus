@@ -4,9 +4,10 @@
   "description": "Argus — a personal, automated job searcher driven from Telegram. The engine lives in server-bot/.",
   "private": true,
   "scripts": {
-    "test": "node server-bot/test-filter.mjs && node server-bot/test-notify.mjs && node server-bot/argus-council/test-council.mjs && node server-bot/test-live-list.mjs && node server-bot/test-robustness.mjs"
+    "test": "node server-bot/test-filter.mjs && node server-bot/test-notify.mjs && node server-bot/argus-council/test-council.mjs && node server-bot/test-live-list.mjs && node server-bot/test-robustness.mjs && node server-bot/test-gmail.mjs && node server-bot/argus-mail/test-mail.mjs"
   },
   "dependencies": {
+    "html-to-text": "^10.0.0",
     "js-yaml": "^4.1.1",
     "playwright": "^1.58.1"
   },

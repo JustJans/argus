@@ -25,7 +25,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
-import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, parseLinkedInCards, titleDemandsForeignLanguage, bodyLanguageBlock, pipelineRoleKey, hasApplySignal, overrideDeadIfApply, formatSalary, normUrl } from './scan.mjs';
+import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, roleKey, parseLinkedInCards, titleDemandsForeignLanguage, bodyLanguageBlock, pipelineRoleKey, hasApplySignal, overrideDeadIfApply, formatSalary, normUrl } from './scan.mjs';
 import { offerAffinity } from './notify.mjs';
 import { extractRequiredYears, stripHtml, experienceScreen, extractAdzunaJd, degreeScreen } from './requirements.mjs';
 
@@ -899,6 +899,37 @@ const COMPANY = [
 ];
 for (const [name, ok] of COMPANY) {
   check(companyOk(name) === ok, `company ${ok ? 'passes' : 'blocked'}`, name);
+}
+
+// ➤ ── THE DUPLICATE KEY (roleKey) ────────────────────────────────────────
+// ➤ What makes your "no" stick when a board re-posts the same job under a new
+// ➤ link. A mutation that stopped it normalising the en dash — the exact case
+// ➤ that made one employer's role appear twice — passed every test there was.
+{
+  const same = (a, b, why) => check(roleKey(...a) === roleKey(...b), `roleKey: ${why}`, `${a[1]} = ${b[1]}`);
+  same(['GE Vernova', 'Power Systems – Lead'], ['GE Vernova', 'Power Systems - Lead'], 'an en dash is not a new job');
+  same(['GE Vernova', 'Power Systems — Lead'], ['GE Vernova', 'Power Systems - Lead'], 'nor an em dash');
+  same(['Lonza', 'Engineer (m/w/d)'], ['Lonza', 'Engineer'], 'nor a gender tag');
+  same(['Lonza', 'Engineer (All Genders)'], ['Lonza', 'Engineer'], 'however it is written');
+  same(['Sartorius', 'Engineer (x w m)'], ['Sartorius', 'Engineer'], 'even separated by spaces');
+  same(['Lonza', 'Engineer 80-100%'], ['Lonza', 'Engineer'], 'nor a workload percentage');
+  same(['Acme', 'Engineer  '], ['Acme', 'Engineer'], 'nor trailing space');
+  check(roleKey('Acme', 'Engineer') !== roleKey('Acme', 'Surveyor'), 'roleKey: a different role IS a different job', 'Engineer vs Surveyor');
+  check(roleKey('Acme', 'Engineer') !== roleKey('Beta', 'Engineer'), 'roleKey: and a different company', 'Acme vs Beta');
+}
+
+// ➤ ── AN ACRONYM POSITIVE IS A WHOLE WORD ────────────────────────────────
+// ➤ "GIS" must not match inside "Logistiek". The rule exists because it once
+// ➤ did; nothing tested it, and switching it off passed the whole suite.
+{
+  const t = buildTitleFilter({ positive: ['GIS', 'PLC', 'Engineer'], negative: [] });
+  check(t('GIS Specialist'), 'an acronym matches as a word', 'GIS Specialist');
+  check(t('PLC Programmer'), 'and so does the other one', 'PLC Programmer');
+  check(!t('Medewerker Logistiek'), 'but never inside another word', 'Logistiek contains gis');
+  check(!t('Bagisto Developer'), 'nor in the middle of one', 'Bagisto contains gis');
+  // ➤ A non-acronym positive stays a plain substring, which is what makes
+  // ➤ "engineer" match "engineering".
+  check(t('Engineering Manager'), 'a normal keyword still matches inside a longer word', 'Engineering');
 }
 
 // ➤ Final tally: reports the result and returns an exit code (0 = all good)

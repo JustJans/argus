@@ -3,8 +3,8 @@
 A personal, automated job searcher. It scans job portals (Workday, Oracle,
 Adzuna, LinkedIn) at zero token cost, filters offers against **your** profile,
 and sends them over Telegram, where it is controlled with typed commands:
-`search`, `list`, `seen N`, `no N [reason]`, `applied N`, `cover N`, `blind`,
-`settings`.
+`search`, `list`, `seen N`, `no N [reason]`, `applied N`, `cover N`, `mail`,
+`blind`, `settings`.
 
 It is sector-agnostic: everything specific to you (target roles, fields, degrees,
 languages, countries, deal-breakers, CV, judge prompts) lives in
@@ -125,10 +125,11 @@ Typed into the Telegram chat. `N` is the `#number` shown on the offer.
 | `search` | run a scan right now instead of waiting for the schedule |
 | `list` | re-send the current list of pending offers |
 | `seen N [N...]` | remove one or more offers from the list |
-| `no N [reason]` | remove an offer **and** record why, in `server-bot/feedback.jsonl` |
+| `no N [reason]` | remove an offer **and** record why, in `server-bot/feedback.jsonl` — or, if you already applied to it, close that application |
 | `applied N` | remove it and log it to `data/applications.jsonl` |
 | `longshot N [reason]` | the same, but flagged: you applied knowing you fall short |
 | `cover N` | write a cover letter for it and send it back as a PDF |
+| `mail` | where every application you sent stands, read from your inbox |
 | `blind` | the titles the filter keeps discarding, ranked by how often they come back |
 | `settings` | re-open any profile question to change your answer |
 | `/start` | first-time setup: builds your profile from a short questionnaire |
@@ -185,6 +186,77 @@ four times in five and still throws away more than half of what mattered is not
 ready to decide, so it does not. `reconcile.mjs` keeps filling in what you
 really did, so the number stays checkable instead of becoming a claim.
 
+### Mail — reading the replies, so silence counts as an answer
+
+`server-bot/argus-mail/`
+
+Everything else in Argus works on offers. This works on what happened *after*
+you applied: it reads your inbox once a night, matches the replies to the
+applications you logged with `applied N`, and writes one state per application.
+`mail` prints it.
+
+It exists because of a number. On one real mailbox, over 46 replies from
+employers: **35 acknowledgements, 5 rejections, 6 interviews**. Almost nobody
+tells you no — they stop writing. So "no reply after a while" is not missing
+data, it *is* the outcome, and a record that leaves it out flatters itself.
+
+Every application ends up in one of five states:
+
+| | State | Means |
+|---|---|---|
+| ⚪ | **N/A** | nothing came back at all — the commonest outcome by far |
+| ⚪ | **Never arrived** | the mail bounced: nobody read it, so applying again somewhere that works is a real move |
+| 🟡 | **Received** | they acknowledged it and that is all, so far |
+| 🔴 | **Rejected/Ghosted** | they said no — or two months passed with nothing, which is a no nobody wrote down |
+| 🟢 | **Interview** | somebody proposed talking to you |
+
+Two things make this harder than it looks, and both are measured rather than
+assumed:
+
+- **The sender's own domain is useless.** Not once in 46 replies did an employer
+  write from the domain on the job advert; it is always a third-party
+  recruiting system. What identifies the application is the company name in the
+  text, or failing that the display name on the "From:" line.
+- **Only about a quarter of replies name the company at all.** So matching has
+  to be built from weak signals without inventing links: a company name is worth
+  enough on its own to identify an application, a job title needs two distinct
+  words, and the date is worth something only *alongside* one of those. Timing
+  alone never creates a candidate — otherwise every message that arrived on a
+  busy day becomes a match. When two applications fit equally well, the message
+  is reported as ambiguous instead of being assigned to a guess — with one
+  exception, a bounce, which is about the *address* and so belongs to every
+  application sent there.
+
+**Some employers never write at all.** They put the verdict on their own portal,
+or their address bounces and nobody fixes it, and the application would sit
+under "no reply" for ever although you already know how it ended. `no N` closes
+it: the same word you use on an offer you do not want, for an application that
+is finished. It is kept apart from your offer rejections on purpose — one trains
+the filter, and this one must not, because you were right to apply.
+
+Classification is word lists, not a model: on 500 real messages they found 46
+outcomes and 2 false alarms, and when one is wrong you add the phrase and it
+stays fixed. Two mistakes worth knowing about, because both are in the tests:
+"we will be in touch about the next steps" is the closing line of nearly every
+automated receipt, not an invitation; and neither is "we will let you know
+**whether** we see the right fit to invite you for an interview" — a promise is
+not an invitation, and read without the start of the sentence the two are
+identical.
+
+**It can only read.** The token is issued for `gmail.readonly`, which Google
+enforces on their side, so the guarantee does not depend on this code being
+correct. There is one function that talks to the mail API and the verb `GET` is
+written into it rather than passed in, and a test reads the file as text and
+fails if a second verb ever appears. Nothing from a message is ever written to
+disk: the body is read, matched in memory and dropped, and what survives is the
+kind of message and its date. Your own sent mail is excluded from the search —
+a reply you wrote reads exactly like an invitation to any pattern here, and it
+would be your own words handed back to you as news.
+
+Setting it up needs a Google Cloud OAuth client of your own — the README in
+`server-bot/argus-mail/` walks through it. Without one, the rest of Argus works
+exactly as before and `mail` simply says so.
+
 ### Discover — auditing the search, not the offer
 
 `server-bot/argus-discover/` · [its README](server-bot/argus-discover/README.md)
@@ -240,13 +312,17 @@ The engine lives in `server-bot/`:
   their prompts can be overridden per user via `search.judge_prompts`.
 - `argus-discover/` — the four tools that audit the search itself. See
   [Beyond the filters](#discover--auditing-the-search-not-the-offer).
+- `gmail.mjs` / `gmail-auth.mjs` — the read-only door to your inbox: one
+  `GET`-only reader and the one-time authorisation.
+- `argus-mail/` — turns the replies into one state per application. See
+  [its README](server-bot/argus-mail/README.md) for the Gmail setup.
 
 ## When something doesn't work
 
 Every part can be run by hand, and each one prints why it failed:
 
 ```bash
-npm test                                    # 829 tests; run this first
+npm test                                    # 1106 tests; run this first
 node server-bot/scan.mjs --dry-run          # scan without writing or notifying
 node server-bot/scan.mjs --explain          # why each offer was dropped → data/scan-explain.txt
 node server-bot/telegram-listener.mjs       # process pending commands once

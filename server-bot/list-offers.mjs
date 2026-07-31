@@ -16,6 +16,9 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
+// ➤ The two headings that divide the file, asked for in one place so all four
+// ➤ readers agree instead of each spelling them out for itself.
+import { pendingIndex, isProcessedHeading } from './pipeline-format.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -31,11 +34,13 @@ export function pendingOffers() {
   // ➤ If the offers file doesn't exist yet, there's nothing to list.
   if (!existsSync(PIPELINE_PATH)) return [];
   const text = readFileSync(PIPELINE_PATH, 'utf-8');
-  const pendIdx = text.indexOf('## Pending');
+  const pendIdx = pendingIndex(text);
   if (pendIdx === -1) return [];
-  const procIdx = text.indexOf('## Processed');
-  // ➤ Keeps only the chunk of the file between the "## Pending" heading
-  // ➤ and the "## Processed" heading: what's already handled isn't shown.
+  // ➤ Keeps only the chunk between the pending heading and the processed one:
+  // ➤ what has already been dealt with is not shown.
+  const lines = text.split('\n');
+  const procLine = lines.findIndex(l => isProcessedHeading(l));
+  const procIdx = procLine === -1 ? -1 : text.indexOf(lines[procLine]);
   const section = text.slice(pendIdx, procIdx === -1 ? text.length : procIdx);
   const offers = [];
   // ➤ Walks line by line through the format "- [ ] link | company | title |
