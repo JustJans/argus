@@ -81,6 +81,10 @@ const HOST_NOISE = /^(mail|email|no-?reply|noreply|smtp|send|notify|notification
 // ➤ so reading a company out of it would invent one.
 export const KNOWN_ATS = /workday|myworkday|successfactors|greenhouse|lever|smartrecruiters|teamtailor|recruitee|personio|softgarden|jobvite|icims|taleo|talentclue|bizneo|factorial|workable|ashby|epreselec|linkedin|indeed|adzuna|infojobs|welcometothejungle|sendgrid|mailchimp|amazonses/;
 
+// ➤ The employer's name as it appears in the sending address, or nothing.
+// ➤ "careers.vanoord.com" is worth "vanoord"; "mail.greenhouse.io" is worth
+// ➤ nothing at all, because that is the recruiting platform's name and reading
+// ➤ a company out of it would invent one that never applied to anybody.
 export function senderDomainCore(from) {
   const host = (String(from || '').match(/@([\w.-]+)/) || [])[1] || '';
   if (!host || KNOWN_ATS.test(fold(host))) return '';

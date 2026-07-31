@@ -158,6 +158,9 @@ export function classifyMessage({ subject = '', snippet = '', body = '', from = 
 // ➤ Used to decide whether a message is worth trying to link at all.
 export const ATS_SENDER = /(no-?reply|do-?not-?reply|noreply|careers?|recruit|talent|jobs?|hiring|apply|sollicit|empleo|bewerbung)@|@(workday|myworkday|successfactors|greenhouse|lever|smartrecruiters|teamtailor|recruitee|personio|softgarden|jobvite|icims|taleo|talentclue|bizneo|factorial|workable|ashby|epreselec)/;
 
+// ➤ Did a recruiting system send this, or a person? Only the address is read,
+// ➤ never the text — a human writing from their own company address is a
+// ➤ different kind of message from a no-reply robot, and worth telling apart.
 export function looksAutomated(from) {
   return ATS_SENDER.test(fold(from));
 }

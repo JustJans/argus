@@ -58,6 +58,17 @@ export function applyVerdicts(records, verdicts) {
   });
 }
 
+// ➤ THE ANSWER FOR EVERY APPLICATION, one record each, built from the messages
+// ➤ that were linked to it. Takes the applications you sent and the links found
+// ➤ for them; returns, per application:
+// ➤   state         where it ended up — see the ladder below
+// ➤   reached       every kind of message that ever arrived, in order. A
+// ➤                 rejection AFTER an interview is a different story from a
+// ➤                 form rejection, and one word cannot hold both
+// ➤   daysWaiting   how long since you applied
+// ➤   evidence      why each link was made, so a wrong one can be traced
+// ➤ `today` is injected rather than read from the clock, because a function
+// ➤ that decides things by date cannot be tested if it insists on now.
 export function buildStatus(applications, links, { today = new Date() } = {}) {
   const byApp = new Map();
   for (const l of links) {

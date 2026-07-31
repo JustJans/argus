@@ -44,6 +44,10 @@ const STATES = [
 // ➤ counted above and left there.
 const LISTED = ['bounced', 'noreply', 'acknowledged', 'interview'];
 
+// ➤ The whole message, as one string of Telegram HTML: a count line, then a
+// ➤ section per state worth reading one by one. Takes the file the nightly run
+// ➤ wrote and nothing else — no clock, no network, no disk — so the `mail`
+// ➤ command answers the instant it is typed.
 export function formatStatus(status) {
   if (!status?.applications?.length) {
     return 'No applications on record yet. Mark one with <code>applied N</code> and this fills up.';

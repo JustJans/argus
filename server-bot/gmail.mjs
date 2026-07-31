@@ -39,6 +39,10 @@ function loadJson(path) {
   try { return JSON.parse(readFileSync(path, 'utf-8')); } catch { return null; }
 }
 
+// ➤ Is there anything to read the mailbox WITH? Both halves are needed: the
+// ➤ client that identifies the app, and the token that says you allowed it.
+// ➤ Everything that touches mail asks this first, so that a bot without Gmail
+// ➤ set up says so plainly instead of failing somewhere deeper.
 export function gmailConfigured() {
   return !!(loadJson(OAUTH_PATH)?.client_id && loadJson(TOKEN_PATH)?.refresh_token);
 }
