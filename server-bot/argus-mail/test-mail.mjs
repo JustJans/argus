@@ -188,7 +188,7 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   // ➤ silence them would have cost all six of these.
   eq(c('Invitation to interview'), 'interview', 'the subject a recruiter actually writes');
   eq(c('HM interview - Jr. A&C'), 'interview', 'and the calendar invite that follows it');
-  eq(c('Looking forward with you', 'Hola the owner, queria agradecerte nuevamente por tu tiempo en la entrevista conmigo'),
+  eq(c('Looking forward with you', 'Hola, queria agradecerte nuevamente por tu tiempo en la entrevista conmigo'),
     'interview', 'a thank-you after the conversation: it happened, so it counts');
   eq(c('Cancelado: HM interview - Jr. A&C'), 'interview', 'a cancellation still means there was one');
 
@@ -540,7 +540,7 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
 }
 
 // ── 5b) What YOU sent is never an answer ──────────────────────────────────
-// ➤ Gmail's search covers Sent as well as the inbox. a reply the owner wrote to a
+// ➤ Gmail's search covers Sent as well as the inbox, and your own reply to a
 // ➤ recruiter reads "thank you very much for considering me for an interview",
 // ➤ which every pattern here calls an invitation. That is your own message
 // ➤ reported to you as news. Found on a live mailbox: two such messages sat
