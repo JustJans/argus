@@ -231,10 +231,14 @@ const COUNTRY_LANG = [
 const unaccent = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
 export const languageOfPlace = place => (COUNTRY_LANG.find(([re]) => re.test(unaccent(place))) || [])[1] || '';
 
-async function askTranslator(title, sl) {
+// ➤ fetchImpl is injectable so the two-attempt logic can be tested without a
+// ➤ network. It was not, and a mutation run proved the cost: deleting the
+// ➤ country hint entirely — the whole reason non-English titles arrive in
+// ➤ English — left the suite green, because nothing exercised this at all.
+async function askTranslator(title, sl, fetchImpl = fetch) {
   const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=en&dt=t&q=`
     + encodeURIComponent(title);
-  const res = await fetch(url, { signal: AbortSignal.timeout(8_000) });
+  const res = await fetchImpl(url, { signal: AbortSignal.timeout(8_000) });
   if (!res.ok) return '';
   const data = await res.json();
   return (data?.[0] || []).map(seg => seg?.[0] || '').join('').trim();
@@ -254,24 +258,24 @@ async function askTranslator(title, sl) {
 // ➤ answers "Shipwright M/F". The country the job is in is the hint, and being
 // ➤ wrong about it costs nothing — an English title handed over as French comes
 // ➤ back unchanged, which is what a wrong guess should do.
-export async function translateTitle(title, place = '') {
+export async function translateTitle(title, place = '', { fetchImpl = fetch, cache = _tcache } = {}) {
   const key = `${title} ${place}`;
-  if (_tcache.has(key)) return _tcache.get(key);
+  if (cache.has(key)) return cache.get(key);
   let out = title;
   try {
-    const auto = await askTranslator(title, 'auto');
+    const auto = await askTranslator(title, 'auto', fetchImpl);
     if (auto) out = auto;
     // ➤ Unchanged means one of two things: it was already English, or the
     // ➤ detection failed. Only the country can tell those apart.
     if (out.toLowerCase() === title.toLowerCase()) {
       const sl = languageOfPlace(place);
       if (sl) {
-        const forced = await askTranslator(title, sl);
+        const forced = await askTranslator(title, sl, fetchImpl);
         if (forced) out = forced;
       }
     }
   } catch { /* keep original */ }
-  _tcache.set(key, out);
+  cache.set(key, out);
   return out;
 }
 

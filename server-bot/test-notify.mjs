@@ -18,7 +18,7 @@
  * Run: node server-bot/test-notify.mjs
  */
 
-import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc, languageOfPlace } from './notify.mjs';
+import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc, languageOfPlace, translateTitle } from './notify.mjs';
 
 const matchers = loadCountryMatchers();
 let failures = 0;
@@ -142,6 +142,49 @@ check(languageOfPlace(''), '', 'and neither does an empty location');
 check(languageOfPlace(null), '', 'nor a missing one');
 // ➤ It must not read a country out of the middle of another word.
 check(languageOfPlace('Francesca Ltd, Aberdeen'), '', 'a name that merely contains one is not a country');
+
+// ➤ ── THE TWO ATTEMPTS, WIRED UP ─────────────────────────────────────────
+// ➤ languageOfPlace was tested; nothing tested that the translator USES it. A
+// ➤ mutation run proved the cost — deleting the country hint entirely, the
+// ➤ whole reason non-English titles arrive in English, left the suite green.
+// ➤ The translator is asked through an injected fetch, so this needs no network.
+{
+  const reply = text => ({ ok: true, json: async () => [[[text, '', null, null]]] });
+  const calls = [];
+  // ➤ Google reports a short French title as ENGLISH and hands it straight
+  // ➤ back; told outright that it is French it answers properly.
+  const fake = async (url) => {
+    calls.push(url);
+    const sl = (url.match(/[?&]sl=([^&]+)/) || [])[1];
+    if (sl === 'auto') return reply('Charpentier naval H/F');
+    if (sl === 'fr') return reply('Shipwright M/F');
+    return reply('');
+  };
+  const out = await translateTitle('Charpentier naval H/F', 'Saint-Nazaire, France', { fetchImpl: fake, cache: new Map() });
+  check(out, 'Shipwright M/F', 'an unchanged answer triggers a second attempt in the local language');
+  check(calls.length, 2, 'which is exactly two requests, never more');
+  check(/sl=fr/.test(calls[1]), true, 'and the second one names the country language');
+
+  // ➤ An English title comes back unchanged too, so it MUST not be retried
+  // ➤ blindly — that is why the country, not the text, decides.
+  const c2 = [];
+  const fake2 = async (url) => { c2.push(url); return reply('Offshore Installation Engineer'); };
+  const en = await translateTitle('Offshore Installation Engineer', 'Aberdeen, United Kingdom', { fetchImpl: fake2, cache: new Map() });
+  check(en, 'Offshore Installation Engineer', 'an English title survives untouched');
+  check(c2.length, 1, 'and asks only once, because there is no language to force');
+
+  // ➤ A title already translated on the first attempt must not be asked twice.
+  const c3 = [];
+  const fake3 = async (url) => { c3.push(url); return reply('Industrial automation engineer'); };
+  await translateTitle('Ingeniero de automatización industrial', 'Valencia, Spain', { fetchImpl: fake3, cache: new Map() });
+  check(c3.length, 1, 'a successful first attempt is not repeated');
+
+  // ➤ And the whole thing must survive the translator being down: the original
+  // ➤ title is worth more than an error.
+  const dead = async () => { throw new Error('network is down'); };
+  const kept = await translateTitle('Ingeniero naval', 'Spain', { fetchImpl: dead, cache: new Map() });
+  check(kept, 'Ingeniero naval', 'if the translator fails the original title is kept');
+}
 
 // ➤ Final tally: says whether EVERYTHING passed or how many failed.
 // ➤ "exit(1)" tells the system that something is wrong.
