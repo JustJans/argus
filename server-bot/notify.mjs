@@ -42,7 +42,14 @@ import { USER_FIELDS, searchProfile } from './requirements.mjs';
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const CFG_PATH = join(SCRIPT_DIR, 'telegram.json');
 const COUNTRIES_PATH = join(SCRIPT_DIR, 'countries.yml');
-const MAX_CHUNK = 3500; // Telegram hard limit is 4096; keep margin
+// ➤ How much text goes in one message before it is sent and a new one begun.
+// ➤ TELEGRAM REFUSES ANYTHING OVER 4096 CHARACTERS, and refusing means you get
+// ➤ no list at all — the failure is total, not partial. The margin exists
+// ➤ because the count is of the VISIBLE text while what is sent carries HTML
+// ➤ tags and links on top. Exported so a test can hold it under the limit: a
+// ➤ mutation that raised it to 100000 passed every test there was.
+export const MAX_CHUNK = 3500;
+export const TELEGRAM_LIMIT = 4096;
 
 // ── Country grouping (the user's priority order) ────────────────────────
 // Barcelona first, then rest of Spain, France, Monaco, Belgium,

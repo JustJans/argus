@@ -49,7 +49,14 @@ const LISTED = ['bounced', 'noreply', 'acknowledged', 'interview'];
 // ➤ wrote and nothing else — no clock, no network, no disk — so the `mail`
 // ➤ command answers the instant it is typed.
 export function formatStatus(status) {
-  if (!status?.applications?.length) {
+  // ➤ AN ARRAY, not merely something with a length. A string has a length too,
+  // ➤ so a status file whose "applications" arrived as text sailed past this
+  // ➤ guard and died on the next line with "apps.filter is not a function" —
+  // ➤ found by feeding the command a deliberately malformed file. Nothing this
+  // ➤ project writes produces that shape, but a half-written file, a bad merge
+  // ➤ or an edit by hand does, and the answer to a broken file is to say so,
+  // ➤ not to hand back a stack trace.
+  if (!Array.isArray(status?.applications) || !status.applications.length) {
     return 'No applications on record yet. Mark one with <code>applied N</code> and this fills up.';
   }
   const apps = status.applications;

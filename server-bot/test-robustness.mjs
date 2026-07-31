@@ -262,6 +262,63 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ok(scanSrc.includes('process.argv[1]') && /scan\\\.mjs\$/.test(scanSrc), 'scan.mjs guards its main() too');
 }
 
+// ── 11b) What housekeep DELETES ──────────────────────────────────────────
+// ➤ The block above only checks that importing housekeep does not run it. An
+// ➤ audit asked the harder question — what does it delete? — and the answer
+// ➤ was that none of its 14 functions had a test, in the one module that
+// ➤ destroys data. These three decide what goes.
+{
+  const { rewritePipelineWithout, fuzzyKey, normUrl } = await import('./housekeep.mjs');
+
+  // ➤ THE DELETE ITSELF, on a file of our own. It matches the trimmed line
+  // ➤ exactly, which is the safe way round: a line you edited in the meantime
+  // ➤ stops matching and survives instead of being removed by accident.
+  const dir = join(tmpdir(), `argus-hk-${process.pid}`);
+  mkdirSync(dir, { recursive: true });
+  const p = join(dir, 'pipeline.md');
+  const before = ['## Pending', '- [ ] a | Acme | Engineer | #1', '- [ ] b | Beta | Engineer | #2', '- [x] c | Gamma | Engineer | #3', ''];
+  writeFileSync(p, before.join('\n'));
+
+  const removed = rewritePipelineWithout(['- [x] c | Gamma | Engineer | #3'], p);
+  const after = readFileSync(p, 'utf-8').split('\n');
+  eq(removed, 1, 'housekeep: it reports how many lines it actually removed');
+  ok(!after.some(l => l.includes('#3')), 'housekeep: the line asked for is gone');
+  ok(after.some(l => l.includes('#1')) && after.some(l => l.includes('#2')), 'housekeep: and nothing else went with it');
+  ok(after[0] === '## Pending', 'housekeep: the heading survives');
+
+  // ➤ A line that no longer matches is NOT removed, and it says zero.
+  writeFileSync(p, before.join('\n'));
+  eq(rewritePipelineWithout(['- [ ] a | Acme | Engineer | #1 | visto'], p), 0,
+    'housekeep: a line that changed since the decision is left alone');
+  eq(rewritePipelineWithout([], p), 0, 'housekeep: asked to delete nothing, it deletes nothing');
+  eq(rewritePipelineWithout(['', '   '], p), 0, 'housekeep: blank entries never match a real line');
+  rmSync(dir, { recursive: true, force: true });
+
+  // ➤ THE DUPLICATE KEY, which decides that two postings are the same job and
+  // ➤ therefore that one of them dies. It has been wrong before: it used to
+  // ➤ keep only the first word of the company, so "Royal IHC" and "Royal
+  // ➤ Niestern Sander" shared a key and a real second vacancy was deleted.
+  ok(fuzzyKey('Royal IHC', 'Engineer') !== fuzzyKey('Royal Niestern Sander', 'Engineer'),
+    'housekeep: two different companies sharing a first word are NOT one job');
+  eq(fuzzyKey('Connetix', 'Engineer'), fuzzyKey('Connetix Nederland', 'Engineer'),
+    'housekeep: but a branch suffix does not make a second company');
+  eq(fuzzyKey('Acme BV', 'Engineer'), fuzzyKey('Acme', 'Engineer'), 'housekeep: nor does a legal form');
+  // ➤ The same posting re-listed with a gender tag, a percentage or an en dash
+  // ➤ must give the SAME key, or your "no" is dodged by a re-post.
+  eq(fuzzyKey('Acme', 'Engineer (m/w/d)'), fuzzyKey('Acme', 'Engineer'), 'housekeep: a gender tag is not a new job');
+  eq(fuzzyKey('Acme', 'Engineer 80-100%'), fuzzyKey('Acme', 'Engineer'), 'housekeep: nor a workload');
+  eq(fuzzyKey('Acme', 'Power Systems – Lead'), fuzzyKey('Acme', 'Power Systems - Lead'), 'housekeep: nor an en dash');
+  ok(fuzzyKey('Acme', 'Engineer') !== fuzzyKey('Acme', 'Surveyor'), 'housekeep: a different role is a different job');
+
+  // ➤ And the link normaliser, which decides whether an offer is already in
+  // ➤ the history — i.e. whether deleting it lets it come back as "new".
+  eq(normUrl('https://www.adzuna.es/details/123?utm_source=x'), 'https://www.adzuna.es/details/123', 'housekeep: tracking parameters are not part of a link');
+  eq(normUrl('https://www.adzuna.es/details/123/'), 'https://www.adzuna.es/details/123', 'housekeep: nor a trailing slash');
+  eq(normUrl('https://www.adzuna.fr/land/ad/456'), 'https://www.adzuna.fr/details/456', 'housekeep: the two Adzuna link shapes are one link');
+  eq(normUrl(''), '', 'housekeep: nothing normalises to nothing');
+  eq(normUrl(undefined), '', 'housekeep: and so does a missing link');
+}
+
 // ── 12) Reading the pending list back (list-offers) ──────────────────────
 // ➤ Everything you type — cover N, no N, applied N — resolves the number
 // ➤ through this parser. It had no test, yet a mis-read line means acting on

@@ -722,6 +722,17 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ok(!/Last checked/.test(txt), 'no staleness note');
 
   eq(formatStatus({ applications: [] }).includes('No applications on record'), true, 'an empty record says so plainly');
+  // ➤ A BROKEN FILE MUST SAY SO, NOT THROW. The guard used to ask for a
+  // ➤ length, and a string has one — so "applications" arriving as text walked
+  // ➤ past it and died on the next line with "apps.filter is not a function".
+  // ➤ Found by feeding the command a deliberately malformed file, not by
+  // ➤ reading the code.
+  for (const junk of [{ applications: 'not an array' }, { applications: 42 }, { applications: {} }, {}, null, undefined, 'nonsense']) {
+    let out;
+    try { out = formatStatus(junk); } catch (e) { out = `THREW ${e.message}`; }
+    ok(typeof out === 'string' && out.includes('No applications on record'),
+      `a malformed status file is answered, not thrown at: ${JSON.stringify(junk)}`);
+  }
 }
 
 if (fail) { console.log(`\n${fail}/${pass + fail} mail tests FAILED.`); process.exit(1); }

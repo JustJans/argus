@@ -1143,7 +1143,11 @@ function loadSeenUrls() {
 // ➤ link (aggregators re-post it). It's compared by the company+title
 // ➤ pair, normalizing odd dashes and extra spaces: GE Vernova posted the same
 // ➤ role twice as "Power Systems - …" and "Power Systems – …" (en dash).
-function roleKey(company, title) {
+// ➤ Exported to be tested: this key is what makes your "no" stick when a board
+// ➤ re-posts the same job with a different link. A mutation that stopped it
+// ➤ normalising the en dash — the exact case that made one employer's role
+// ➤ appear twice — passed every test in the project.
+export function roleKey(company, title) {
   // ➤ Also (Lonza case #595/#602, 2026-07-18): German portals
   // ➤ re-post the SAME role with gender tags "(m/w/d)"/"(All
   // ➤ Genders)" and schedules "80-100%" that vary between postings. They're removed

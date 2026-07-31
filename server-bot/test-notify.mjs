@@ -18,7 +18,7 @@
  * Run: node server-bot/test-notify.mjs
  */
 
-import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc, languageOfPlace, translateTitle } from './notify.mjs';
+import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc, languageOfPlace, translateTitle, MAX_CHUNK, TELEGRAM_LIMIT } from './notify.mjs';
 
 const matchers = loadCountryMatchers();
 let failures = 0;
@@ -119,6 +119,16 @@ check(urlGroupHint('https://ecyq.fa.em2.oraclecloud.com/x'), null, 'hint non-adz
 // ➤ messages if they aren't "escaped" (converted to codes).
 check(esc('R&D Engineer <Offshore>'), 'R&amp;D Engineer &lt;Offshore&gt;', 'esc html chars');
 check(esc('Plain Title'), 'Plain Title', 'esc untouched');
+
+// ➤ ── THE MESSAGE MUST FIT ───────────────────────────────────────────────
+// ➤ Telegram refuses anything over 4096 characters, and refusing means you get
+// ➤ NO list — the failure is total, not partial. Raising the limit to 100000
+// ➤ passed every test in the project, which is how this one came to exist.
+// ➤ The margin is real: the count is of the visible text, while what goes out
+// ➤ carries HTML tags and a link on every line.
+check(MAX_CHUNK < TELEGRAM_LIMIT, true, 'a message is split below what Telegram accepts');
+check(TELEGRAM_LIMIT - MAX_CHUNK >= 500, true, 'with room for the tags and links added on top');
+check(MAX_CHUNK > 500, true, 'and not so small that every list arrives in pieces');
 
 // ➤ ── THE LANGUAGE OF A PLACE ────────────────────────────────────────────
 // ➤ Only ever a SECOND attempt, after the automatic detection has given up —

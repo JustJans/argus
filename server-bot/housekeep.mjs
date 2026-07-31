@@ -65,7 +65,10 @@ const LIVENESS_CONCURRENCY = 5;
 // ➤ Cleans a URL for comparing duplicates: strips what comes after "?" and the
 // ➤ trailing slash; and the Adzuna redirect /land/ad/<id> is matched to its
 // ➤ /details/<id> page (same offer, two link forms).
-function normUrl(u) {
+// ➤ Two links to the SAME posting written differently. Exported to be tested:
+// ➤ it decides whether an offer already lives in the history, and getting it
+// ➤ wrong either deletes something twice or lets a deleted one come back.
+export function normUrl(u) {
   return (u || '').split('?')[0].replace(/\/$/, '')
     .replace(/^(https?:\/\/[^/]*adzuna\.[a-z.]+)\/land\/ad\/(\d+)$/, '$1/details/$2');
 }
@@ -104,17 +107,27 @@ function ensureInHistory(offers, why) {
 // ➤ was silently undone. Instead of writing back our stale copy, we re-read the
 // ➤ file at the last moment and delete only the LINES WE DECIDED ON, matched by
 // ➤ their exact text. Whatever else changed in between is preserved.
-function rewritePipelineWithout(linesToDrop) {
+// ➤ THE ONLY PERMANENT DELETE IN THE PROJECT: it rewrites your pending list
+// ➤ without the lines given. Exported, and with the file to work on as an
+// ➤ argument, so a test can prove what it removes without going anywhere near
+// ➤ your real list — an audit found it had no test at all, which for the one
+// ➤ function that destroys data is the wrong place to be short of them.
+// ➤ Matching is EXACT on the trimmed line: a line that changed in the meantime
+// ➤ no longer matches and survives, which is the safe way round.
+export function rewritePipelineWithout(linesToDrop, path = PIPELINE_PATH) {
   const drop = new Set(linesToDrop.map(l => l.trim()).filter(Boolean));
-  const fresh = readFileSync(PIPELINE_PATH, 'utf-8').split('\n');
+  const fresh = readFileSync(path, 'utf-8').split('\n');
   const kept = fresh.filter(l => !drop.has(l.trim()));
-  writeFileAtomic(PIPELINE_PATH, kept.join('\n'));
+  writeFileAtomic(path, kept.join('\n'));
   // ➤ How many of our decisions no longer applied (the line had already been
   // ➤ marked or removed by you in the meantime).
   return (fresh.length - kept.length);
 }
 
-function fuzzyKey(company, title) {
+// ➤ The key that decides two postings are THE SAME job — and therefore that
+// ➤ one of them gets deleted. Exported so the rule can be tested: it already
+// ➤ went wrong once (see below) and nothing stopped it coming back.
+export function fuzzyKey(company, title) {
   // ➤ (2026-07-19) the gender-tag separator can be a space: "(x w m)".
   const norm = s => String(s).toLowerCase()
     .replace(/\(\s*(?:(?:m|w|f|d|x|h|v)(?:\s*[/|,.]?\s*(?:m|w|f|d|x|h|v))+|all\s*genders?|gn)\s*\)/gi, ' ')
