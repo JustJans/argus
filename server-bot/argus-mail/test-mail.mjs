@@ -8,7 +8,7 @@
 
 import { classifyMessage, looksAutomated } from './classify.mjs';
 import { scoreLink, linkOutcomes, tokens, senderName, senderDomainCore } from './match.mjs';
-import { buildStatus, summarise } from './status.mjs';
+import { buildStatus, summarise, applyVerdicts } from './status.mjs';
 import { windowFrom, gmailDate, searchFor } from './listen.mjs';
 import { formatStatus } from './report.mjs';
 
@@ -98,6 +98,43 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(c('Re: we have received your application', 'We would like to schedule a call with you'),
     'interview', 'an invitation that quotes the receipt is still an invitation');
 
+  // ➤ ── FOUR REAL MISSES, all found by reading the N/A pile ────────────────
+  // ➤ POLITE PADDING. "Thank you SO MUCH for your interest" is as ordinary as
+  // ➤ writing gets and it matched nothing: the pattern wanted "thank you" and
+  // ➤ "for" side by side. A real receipt sat in no-reply for a week over two
+  // ➤ words of courtesy.
+  eq(c('Thanks for putting us on your roadmap!', '',
+    'Thank you so much for your interest in joining us and considering us as part of your career journey!'),
+    'acknowledged', 'an adverb between "thank you" and "for" no longer hides a receipt');
+  eq(c('Update', 'Thank you very much for your application'), 'acknowledged', 'and any of the usual ones');
+  // ➤ And the other half of the same message: saying they are reading it is
+  // ➤ saying it arrived, which is what a receipt means.
+  eq(c('We are on it', '', 'Our team is currently reviewing your application, and we will be in touch.'),
+    'acknowledged', '"reviewing your application" is a receipt');
+  eq(c('Applied', '', 'Our team is carefully reviewing all applications.'),
+    'acknowledged', 'however they phrase it');
+
+  // ➤ THE BOUNCE. Not a reply at all — the mail system handing your own message
+  // ➤ back. It is the only outcome here you can still do something about.
+  eq(c('Delivery Status Notification (Failure)', '',
+    'Your message could not be delivered. Address not found.'),
+    'bounced', 'a failure notice means the application never arrived');
+  eq(c('Undelivered Mail Returned to Sender', '', 'user unknown'),
+    'bounced', 'however the mail server words it');
+  // ➤ THE TRAP, and the reason the SENDER is not part of the test: the same
+  // ➤ "Mail Delivery Subsystem" writes delay notices while it is still trying,
+  // ➤ and a delay usually ends in delivery. Two of the three notices in a real
+  // ➤ mailbox were delays; matching on the sender would have called all three
+  // ➤ a failure and reported an application lost when it was not.
+  ok(c('Delivery Status Notification (Delay)', '',
+    'Your message has not been delivered yet. Gmail will keep trying.') !== 'bounced',
+    'a DELAY is not a failure');
+  // ➤ A bounce quotes your own application back, so it is tested FIRST: every
+  // ➤ other pattern here would happily read the words of your covering letter.
+  eq(c('Delivery Status Notification (Failure)', '',
+    'Address not found. --- Original message --- Thank you for your interest in the role, I am applying for...'),
+    'bounced', 'the quoted original does not turn a bounce into something else');
+
   // ➤ The newsletters. Without this every mailshot becomes an outcome.
   eq(c('5 new jobs for you this week'), 'alert', 'a job alert is not an outcome');
   ok(c('Interview tips to help you prepare') !== 'interview', 'advice ABOUT interviews is never read as an invitation');
@@ -115,10 +152,10 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ok(c('Interview tips', 'how to prepare for your first interview', 'a long body about interviews') !== 'interview',
     'while advice named in the subject is still not an invitation');
 
-  // ➤ A PROMISE IS NOT AN INVITATION. The wording below is how a real receipt
-  // ➤ put it, and it was reported as an interview until somebody opened the
-  // ➤ mail and read past the "whether": an employer saying it has NOT decided,
-  // ➤ in the exact words a genuine invitation uses.
+  // ➤ A PROMISE IS NOT AN INVITATION. This is the real sentence, from the real
+  // ➤ receipt that was reported as an interview until the owner opened the mail:
+  // ➤ a university saying it has NOT decided, in the exact words a genuine
+  // ➤ invitation uses. Read past the "whether" and it is good news.
   eq(c('Thanks for your application for the position of Platform & Automation Engineer',
     'A message from the recruitment team',
     'We have received your application in good order. After the closing date, we will inform you as soon as possible whether we see the right fit to invite you for an interview. This may be online or on our campus.'),
@@ -224,6 +261,35 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(g.orphans.length, 1, 'timing alone never makes a candidate');
   eq(scoreLink(at('Some newsletter', 'x@nowhere.com', '2026-07-01T11:00:00Z'), apps[0]).score, 0, 'and it scores zero');
 
+  // ➤ THE ACRONYM EMPLOYER. A company called "TWD" produces no tokens (three
+  // ➤ letters) and is too short for the squeezed-out substring search, so it
+  // ➤ was invisible: a receipt from "TWD/Marine Engineer" was read correctly as
+  // ➤ a receipt and then belonged to nobody.
+  {
+    const app = { id: 1, company: 'TWD', title: 'TWD - Marine Engineer', location: 'Nederland', ts: '2026-07-18T09:00:00Z' };
+    const msg = { subject: "We're excited you applied to TWD!", snippet: 'Thank you for applying to the Marine Engineer position at TWD',
+      from: 'TWD/Marine Engineer <no-reply@recruitee-email.com>', date: '2026-07-18T10:00:00Z', body: '' };
+    ok(scoreLink(msg, app).identity >= 10, 'a three-letter employer is identified');
+    // ➤ But as a WHOLE WORD only. Loosening the substring rule instead would
+    // ➤ have matched "twd" inside anything that happened to contain it.
+    const other = { subject: 'Newsletter', snippet: 'betwd and other nonsense words', from: 'x@y.com', date: '2026-07-19T10:00:00Z', body: '' };
+    eq(scoreLink(other, app).score, 0, 'and never inside another word');
+  }
+
+  // ➤ THE DATE ON THE APPLICATION IS WHEN YOU TOLD THE BOT, not when you
+  // ➤ applied. A real receipt arrived on the 17th against a record written on
+  // ➤ the 18th and was thrown out by half a day.
+  {
+    const app = { id: 1, company: 'Bjak', title: 'Applied AI Engineer', location: 'Spain', ts: '2026-07-18T07:00:00Z' };
+    const dayBefore = { subject: 'Thanks!', snippet: 'Bjak team here', from: 'x@ashbyhq.com', date: '2026-07-17T12:00:00Z', body: '' };
+    ok(scoreLink(dayBefore, app).score > 0, 'a reply logged a day late still links');
+    // ➤ The rule still exists, though: something from last month cannot be an
+    // ➤ answer to this week's application.
+    const longBefore = { ...dayBefore, date: '2026-06-17T12:00:00Z' };
+    eq(scoreLink(longBefore, app).score, 0, 'but a month earlier is still impossible');
+    eq(scoreLink(longBefore, app).why[0], 'arrived-before-applying', 'and it says so');
+  }
+
   // ➤ The generic words must not carry a match on their own.
   eq(tokens('Engineering Group SA'), [], 'a company name of only generic words yields nothing to match on');
   ok(tokens('Van Oord').length > 0, 'a real name does');
@@ -306,6 +372,110 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
     { today: new Date('2026-07-25T09:00:00Z') });
   eq(fresh[0].state, 'noreply', 'one sent an hour ago is unanswered too, not a state of its own');
   eq(fresh[0].daysWaiting, 0, 'and it says how fresh it is');
+
+  // ➤ A BOUNCE OUTRANKS EVERYTHING, because it is not a verdict on you — it is
+  // ➤ the reason there is no verdict, and the only state here you can still act
+  // ➤ on. Even a rejection afterwards does not change that the first attempt
+  // ➤ never arrived.
+  const bounced = buildStatus([{ id: 7, company: 'Q', title: 'T', ts: '2026-07-01T09:00:00Z' }], [
+    { application: { id: 7 }, kind: 'bounced', message: { date: '2026-07-01T10:00:00Z', kind: 'bounced' }, why: ['company'], score: 12 },
+    { application: { id: 7 }, kind: 'acknowledged', message: { date: '2026-07-02T10:00:00Z', kind: 'acknowledged' }, why: ['company'], score: 12 },
+  ], { today: new Date('2026-07-10T00:00:00Z') });
+  eq(bounced[0].state, 'bounced', 'a bounce wins over anything else on the same application');
+
+  // ➤ GHOSTED. Two months of nothing and waiting stops being waiting.
+  {
+    const day = (d) => `2026-${String(d).padStart(2, '0')}-01T09:00:00Z`;
+    const now = new Date('2026-07-31T00:00:00Z');
+    // ➤ Never answered, and it has been long enough.
+    const old = buildStatus([{ id: 30, company: 'C', title: 'T', ts: day(1) }], [], { today: now });
+    eq(old[0].state, 'ghosted', 'silence for two months is an answer');
+    // ➤ Same silence, but recent: still just silence.
+    const recent = buildStatus([{ id: 31, company: 'C', title: 'T', ts: day(7) }], [], { today: now });
+    eq(recent[0].state, 'noreply', 'three weeks of it is not');
+
+    // ➤ COUNTED FROM THE LAST THING THAT HAPPENED, not from the application. An
+    // ➤ employer that acknowledged you in July has been quiet since July.
+    const ackLate = buildStatus([{ id: 32, company: 'C', title: 'T', ts: day(1) }],
+      [{ application: { id: 32 }, kind: 'acknowledged', message: { date: day(7), kind: 'acknowledged' }, why: [], score: 10 }],
+      { today: now });
+    eq(ackLate[0].state, 'acknowledged', 'an old application acknowledged recently is not ghosted');
+    const ackOld = buildStatus([{ id: 33, company: 'C', title: 'T', ts: day(1) }],
+      [{ application: { id: 33 }, kind: 'acknowledged', message: { date: day(1), kind: 'acknowledged' }, why: [], score: 10 }],
+      { today: now });
+    eq(ackOld[0].state, 'ghosted', 'but one acknowledged two months ago and silent since is');
+
+    // ➤ Neither of the two settled states ages out: a rejection is already
+    // ➤ answered, and an interview is worth chasing rather than writing off.
+    for (const [id, kind] of [[34, 'rejected'], [35, 'interview']]) {
+      const r = buildStatus([{ id, company: 'C', title: 'T', ts: day(1) }],
+        [{ application: { id }, kind, message: { date: day(1), kind }, why: [], score: 10 }], { today: now });
+      eq(r[0].state, kind, `a ${kind} is never turned into a ghost by the calendar`);
+    }
+    // ➤ Nor is one that never arrived: that has its own answer already.
+    const b = buildStatus([{ id: 36, company: 'C', title: 'T', ts: day(1) }],
+      [{ application: { id: 36 }, kind: 'bounced', message: { date: day(1), kind: 'bounced' }, why: [], score: 10 }], { today: now });
+    eq(b[0].state, 'bounced', 'and neither is a bounce');
+  }
+
+  // ➤ WHAT YOU KNOW BEATS WHAT THE INBOX SAYS. Some employers never write —
+  // ➤ the verdict is on their own portal, or their address bounces and nobody
+  // ➤ fixes it — so the application would sit under "no reply" for ever while
+  // ➤ you already know how it ended. "no N" records it, and it has to survive
+  // ➤ the nightly rebuild, which starts from the mail every single time.
+  {
+    const base = buildStatus([
+      { id: 20, company: 'Portal Co', title: 'T', ts: '2026-07-01T09:00:00Z' },
+      { id: 21, company: 'Other Co', title: 'T', ts: '2026-07-01T09:00:00Z' },
+    ], [], { today: new Date('2026-07-20T00:00:00Z') });
+    eq(base[0].state, 'noreply', 'without a verdict it is silence, as before');
+
+    const after = applyVerdicts(base, [{ id: 20, state: 'rejected', reason: 'their portal says closed', ts: '2026-07-19T10:00:00Z' }]);
+    eq(after[0].state, 'rejected', 'your decision is applied');
+    eq(after[0].decidedByYou, true, 'and marked as yours, not read from an email');
+    eq(after[0].decidedWhy, 'their portal says closed', 'with the reason kept');
+    eq(after[1].state, 'noreply', 'while the others are untouched');
+
+    // ➤ What actually happened is NOT rewritten: your decision changes the
+    // ➤ verdict, not the history of the messages.
+    const withMail = buildStatus([{ id: 22, company: 'C', title: 'T', ts: '2026-07-01T09:00:00Z' }],
+      [{ application: { id: 22 }, kind: 'acknowledged', message: { date: '2026-07-01T10:00:00Z', kind: 'acknowledged' }, why: [], score: 10 }],
+      { today: new Date('2026-07-20T00:00:00Z') });
+    const closed = applyVerdicts(withMail, [{ id: 22, state: 'rejected', ts: '2026-07-19T10:00:00Z' }]);
+    eq(closed[0].state, 'rejected', 'a verdict overrides what the mail said');
+    eq(closed[0].reached, ['acknowledged'], 'but the receipt that really arrived is still on the record');
+
+    // ➤ Change your mind and the newest line wins; the file is append-only.
+    const twice = applyVerdicts(base, [
+      { id: 20, state: 'rejected', ts: '2026-07-19T10:00:00Z' },
+      { id: 20, state: 'interview', ts: '2026-07-20T10:00:00Z' },
+    ]);
+    eq(twice[0].state, 'interview', 'the newest decision is the one that counts');
+
+    // ➤ A junk line must not take the file down with it.
+    eq(applyVerdicts(base, [null, { id: 'x' }, { state: 'rejected' }])[0].state, 'noreply', 'unusable lines are ignored');
+    eq(applyVerdicts(base, []).length, 2, 'and no verdicts changes nothing');
+  }
+
+  // ➤ AND IT LINKS TO EVERY APPLICATION AT THAT EMPLOYER. Every other message
+  // ➤ is about ONE vacancy, so a tie must not be guessed. A bounce is about the
+  // ➤ ADDRESS, and mail that did not get through did not get through for any of
+  // ➤ them. Real case: two applications to one employer the same day, one
+  // ➤ failure notice — reported as an unresolved tie it says nothing useful.
+  {
+    const twin = [
+      { id: 10, company: 'Machinebouw Banen', title: 'Project Engineer Offshore Wind', location: '', ts: '2026-07-22T09:00:00Z' },
+      { id: 11, company: 'Machinebouw Banen', title: 'Project Engineer Starter', location: '', ts: '2026-07-22T09:00:00Z' },
+    ];
+    const note = { subject: 'Delivery Status Notification (Failure)', snippet: 'Address not found',
+      body: 'machinebouwbanen', from: 'mailer-daemon@googlemail.com', date: '2026-07-23T09:00:00Z' };
+    const out = linkOutcomes([{ ...note, kind: 'bounced' }], twin);
+    eq(out.ties.length, 0, 'a bounce is never left as an unresolved tie');
+    eq(out.links.length, 2, 'it lands on both applications sent to that employer');
+    // ➤ Anything else in the same position still refuses to guess.
+    const receipt = { ...note, subject: 'We have received your application', snippet: '', kind: 'acknowledged' };
+    eq(linkOutcomes([receipt], twin).ties.length, 1, 'while a receipt in the same position is still a tie');
+  }
   ok(!JSON.stringify(recs).includes('waiting'), 'the word waiting appears in no record at all');
 
   // ➤ Everything that happened is kept: "rejected after an interview" and
@@ -370,12 +540,11 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
 }
 
 // ── 5b) What YOU sent is never an answer ──────────────────────────────────
-// ➤ Gmail's search covers Sent as well as the inbox, so your own replies come
-// ➤ back with everything else — and they classify. A real reply to a recruiter
-// ➤ reads "thank you for considering me for an interview", which every pattern
-// ➤ here calls an invitation. That is your own message reported to you as news.
-// ➤ Found on a live mailbox: two such messages sat inside the read window;
-// ➤ neither happened to link to an application, but that was luck, not design.
+// ➤ Gmail's search covers Sent as well as the inbox. a reply the owner wrote to a
+// ➤ recruiter reads "thank you very much for considering me for an interview",
+// ➤ which every pattern here calls an invitation. That is your own message
+// ➤ reported to you as news. Found on a live mailbox: two such messages sat
+// ➤ inside the read window; neither linked, but that was luck, not design.
 {
   const since = new Date('2026-07-17T00:00:00Z');
   const q = searchFor(since);
@@ -441,22 +610,64 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ok(txt.includes('#2'), 'and one that was acknowledged');
   ok(txt.includes('#1'), 'and an interview');
   ok(!txt.includes('#5'), 'a rejection is counted, not listed — it is closed');
-  ok(/🔴 1 rejected/.test(txt), 'but it is in the count line');
+  ok(/🔴 1 Rejected\/Ghosted/.test(txt), 'but it is in the count line');
 
   // ➤ THERE IS NO BLUE CIRCLE. It stood for "sent less than three days ago",
   // ➤ which is not a thing that needs its own colour: the number of days is
   // ➤ right there on the row.
   ok(!txt.includes('🔵'), 'no blue circle anywhere');
   ok(!/just sent|waiting/i.test(txt), 'and no state named after being recent');
-  eq((txt.match(/[⚪🟡🔴🟢🔵]/gu) || []).length, 4 + 3, 'four in the count line, one per section heading');
+  // ➤ Every entry in the count line carries exactly one dot, and so does every
+  // ➤ section heading. Written as a property rather than a number, because the
+  // ➤ number changes every time a state is added and a stale count then fails
+  // ➤ for a reason that has nothing to do with what it is guarding.
+  const countLine = lines[1];
+  const groups = countLine.split('·').length;
+  eq((countLine.match(/\p{Extended_Pictographic}/gu) || []).length, groups, 'one dot per entry in the count line');
+  const headings = lines.filter(l => /^<b>\p{Extended_Pictographic}/u.test(l));
+  eq(headings.length, lines.filter(l => /^<b>/.test(l)).length - 1, 'and one on every section heading');
 
   // ➤ Least progress first: N/A, received, rejected, interview.
   const at = s => txt.indexOf(s);
-  ok(at('⚪ 2 N/A') >= 0 && at('🟡 1 received') > at('⚪ 2 N/A'), 'N/A is counted before received');
-  ok(at('🔴 1 rejected') > at('🟡 1 received'), 'received before rejected');
-  ok(at('🟢 1 interview') > at('🔴 1 rejected'), 'and rejected before interview');
+  ok(at('⚪ 2 N/A') >= 0 && at('🟡 1 Received') > at('⚪ 2 N/A'), 'N/A is counted before received');
+  ok(at('🔴 1 Rejected/Ghosted') > at('🟡 1 Received'), 'received before rejected');
+  ok(at('🟢 1 Interview') > at('🔴 1 Rejected/Ghosted'), 'and rejected before interview');
   ok(at('<b>⚪ N/A</b>') >= 0 && at('<b>🟡 Received</b>') > at('<b>⚪ N/A</b>'), 'the sections follow the same order');
   ok(at('<b>🟢 Interview</b>') > at('<b>🟡 Received</b>'), 'with interview last');
+
+  // ➤ A STATE NOBODY IS IN GETS NO LINE. "0 never arrived · 0 ghosted" was
+  // ➤ most of the count and none of the information.
+  ok(!/0 (N\/A|Received|Rejected|Never)/.test(lines[1]), 'the count line carries no empty states');
+  ok(!/never arrived/i.test(txt), 'and no heading for a state with nobody in it');
+
+  // ➤ EXCEPT THE INTERVIEW, which is always there. It is what all of this is
+  // ➤ for: "0 Interview" says something, and a green circle missing from the
+  // ➤ line reads as a fault rather than as an answer.
+  {
+    const none = formatStatus({ applications: [
+      { id: 1, company: 'A', title: 'T', state: 'noreply', reached: [], daysWaiting: 5 },
+    ] });
+    ok(/🟢 0 Interview/.test(none), 'the green is on the line even at zero');
+    ok(!/<b>🟢 Interview<\/b>/.test(none), 'but there is no empty section under it');
+  }
+
+  // ➤ FOUR COLOURS. Every state does not need one of its own — past four you
+  // ➤ are decoding a legend instead of reading a list. Blue ("just sent") and
+  // ➤ orange ("never arrived") were both tried and both thrown out.
+  eq([...new Set(txt.match(/\p{Extended_Pictographic}/gu) || [])].length <= 4, true, 'no more than four colours in the whole message');
+  ok(!txt.includes('🟠') && !txt.includes('🔵'), 'and neither orange nor blue is one of them');
+
+  // ➤ Ghosted shares the red with a rejection: after two months of silence the
+  // ➤ answer is the same one, and a second shade of red only asks the reader to
+  // ➤ remember which is which.
+  {
+    const g = formatStatus({ applications: [
+      { id: 1, company: 'A', title: 'T', state: 'ghosted', reached: [], daysWaiting: 70 },
+      { id: 2, company: 'B', title: 'T', state: 'rejected', reached: ['rejected'], daysWaiting: 30 },
+    ] });
+    ok(/🔴 2 Rejected\/Ghosted/.test(g), 'the two are counted together under one red');
+    ok(!/🔴 \d+ Rejected(?!\/)/.test(g), 'and never as two separate reds');
+  }
 
   // ➤ Longest silence at the top: with no separate state for the recent ones,
   // ➤ this is what keeps the ones worth chasing where they can be seen.
@@ -464,8 +675,27 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
 
   // ➤ Every circle is spelled out. Colours and bare numbers meant nothing to
   // ➤ anyone who did not already know the code by heart.
-  for (const [dot, word] of [['⚪', 'N/A'], ['🟡', 'received'], ['🔴', 'rejected'], ['🟢', 'interview']]) {
+  for (const [dot, word] of [['⚪', 'N/A'], ['🟡', 'Received'], ['🔴', 'Rejected/Ghosted'], ['🟢', 'Interview']]) {
     ok(new RegExp(dot + ' \\d+ ' + word.replace('/', '\\/')).test(txt), `the ${dot} circle says what it means`);
+  }
+
+  // ➤ IN ENGLISH WHEREVER THERE IS AN ENGLISH VERSION. The offers list has
+  // ➤ always translated titles; this list never did, so a Spanish posting
+  // ➤ reached the phone in Spanish. The employer's own wording stays in the
+  // ➤ file — the posting has to remain findable on their site — but what is
+  // ➤ printed reads in one language.
+  {
+    const withEn = formatStatus({ applications: [
+      { id: 9, company: 'Gaviplas', title: 'Ingeniero de automatización industrial',
+        titleEn: 'Industrial automation engineer', state: 'noreply', reached: [], daysWaiting: 8 },
+    ] });
+    ok(withEn.includes('Industrial automation engineer'), 'the English version is what gets printed');
+    ok(!withEn.includes('automatización'), 'and the original is not shown as well');
+    // ➤ No English version, no problem: the original is better than nothing.
+    const noEn = formatStatus({ applications: [
+      { id: 9, company: 'X', title: 'Ingeniero naval', state: 'noreply', reached: [], daysWaiting: 8 },
+    ] });
+    ok(noEn.includes('Ingeniero naval'), 'an untranslated title still shows');
   }
 
   // ➤ NOTHING IS CLIPPED. Cutting "Production Automation Systems Engineer"

@@ -18,7 +18,7 @@
  * Run: node server-bot/test-notify.mjs
  */
 
-import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc } from './notify.mjs';
+import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc, languageOfPlace } from './notify.mjs';
 
 const matchers = loadCountryMatchers();
 let failures = 0;
@@ -119,6 +119,29 @@ check(urlGroupHint('https://ecyq.fa.em2.oraclecloud.com/x'), null, 'hint non-adz
 // ➤ messages if they aren't "escaped" (converted to codes).
 check(esc('R&D Engineer <Offshore>'), 'R&amp;D Engineer &lt;Offshore&gt;', 'esc html chars');
 check(esc('Plain Title'), 'Plain Title', 'esc untouched');
+
+// ➤ ── THE LANGUAGE OF A PLACE ────────────────────────────────────────────
+// ➤ Only ever a SECOND attempt, after the automatic detection has given up —
+// ➤ and it gives up often, because job titles are three words long. Google
+// ➤ reported "Charpentier naval H/F" as ENGLISH and handed it straight back,
+// ➤ so French postings reached the phone in French for weeks. Told outright
+// ➤ that it is French, the same service answers "Shipwright M/F".
+check(languageOfPlace('Saint-Nazaire, Loire-Atlantique, France'), 'fr', 'France by name');
+check(languageOfPlace('Alfarrasi, Valencian Community, Spain'), 'es', 'Spain by name');
+check(languageOfPlace('Bremen, Deutschland'), 'de', 'Germany in its own language');
+check(languageOfPlace('Rotterdam, Nederland'), 'nl', 'the Netherlands likewise');
+check(languageOfPlace('Antwerpen, België'), 'nl', 'Belgium answers Dutch, where the search is');
+check(languageOfPlace('Monaco, MC'), 'fr', 'and Monaco is French');
+// ➤ The site it came from says the country as plainly as the words do; plenty
+// ➤ of postings carry only a town.
+check(languageOfPlace('https://www.adzuna.fr/details/123'), 'fr', 'the board tells you too');
+check(languageOfPlace('https://www.adzuna.es/details/123'), 'es', 'whichever one it is');
+// ➤ Nothing recognised means no second attempt, which is the safe outcome.
+check(languageOfPlace('Aberdeen, United Kingdom'), '', 'an English-speaking country asks for nothing');
+check(languageOfPlace(''), '', 'and neither does an empty location');
+check(languageOfPlace(null), '', 'nor a missing one');
+// ➤ It must not read a country out of the middle of another word.
+check(languageOfPlace('Francesca Ltd, Aberdeen'), '', 'a name that merely contains one is not a country');
 
 // ➤ Final tally: says whether EVERYTHING passed or how many failed.
 // ➤ "exit(1)" tells the system that something is wrong.

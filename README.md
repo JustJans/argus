@@ -125,7 +125,7 @@ Typed into the Telegram chat. `N` is the `#number` shown on the offer.
 | `search` | run a scan right now instead of waiting for the schedule |
 | `list` | re-send the current list of pending offers |
 | `seen N [N...]` | remove one or more offers from the list |
-| `no N [reason]` | remove an offer **and** record why, in `server-bot/feedback.jsonl` |
+| `no N [reason]` | remove an offer **and** record why, in `server-bot/feedback.jsonl` — or, if you already applied to it, close that application |
 | `applied N` | remove it and log it to `data/applications.jsonl` |
 | `longshot N [reason]` | the same, but flagged: you applied knowing you fall short |
 | `cover N` | write a cover letter for it and send it back as a PDF |
@@ -200,6 +200,16 @@ employers: **35 acknowledgements, 5 rejections, 6 interviews**. Almost nobody
 tells you no — they stop writing. So "no reply after a while" is not missing
 data, it *is* the outcome, and a record that leaves it out flatters itself.
 
+Every application ends up in one of five states:
+
+| | State | Means |
+|---|---|---|
+| ⚪ | **N/A** | nothing came back at all — the commonest outcome by far |
+| ⚪ | **Never arrived** | the mail bounced: nobody read it, so applying again somewhere that works is a real move |
+| 🟡 | **Received** | they acknowledged it and that is all, so far |
+| 🔴 | **Rejected/Ghosted** | they said no — or two months passed with nothing, which is a no nobody wrote down |
+| 🟢 | **Interview** | somebody proposed talking to you |
+
 Two things make this harder than it looks, and both are measured rather than
 assumed:
 
@@ -213,7 +223,16 @@ assumed:
   words, and the date is worth something only *alongside* one of those. Timing
   alone never creates a candidate — otherwise every message that arrived on a
   busy day becomes a match. When two applications fit equally well, the message
-  is reported as ambiguous instead of being assigned to a guess.
+  is reported as ambiguous instead of being assigned to a guess — with one
+  exception, a bounce, which is about the *address* and so belongs to every
+  application sent there.
+
+**Some employers never write at all.** They put the verdict on their own portal,
+or their address bounces and nobody fixes it, and the application would sit
+under "no reply" for ever although you already know how it ended. `no N` closes
+it: the same word you use on an offer you do not want, for an application that
+is finished. It is kept apart from your offer rejections on purpose — one trains
+the filter, and this one must not, because you were right to apply.
 
 Classification is word lists, not a model: on 500 real messages they found 46
 outcomes and 2 false alarms, and when one is wrong you add the phrase and it
@@ -230,7 +249,9 @@ correct. There is one function that talks to the mail API and the verb `GET` is
 written into it rather than passed in, and a test reads the file as text and
 fails if a second verb ever appears. Nothing from a message is ever written to
 disk: the body is read, matched in memory and dropped, and what survives is the
-kind of message and its date.
+kind of message and its date. Your own sent mail is excluded from the search —
+a reply you wrote reads exactly like an invitation to any pattern here, and it
+would be your own words handed back to you as news.
 
 Setting it up needs a Google Cloud OAuth client of your own — the README in
 `server-bot/argus-mail/` walks through it. Without one, the rest of Argus works
@@ -301,7 +322,7 @@ The engine lives in `server-bot/`:
 Every part can be run by hand, and each one prints why it failed:
 
 ```bash
-npm test                                    # 1042 tests; run this first
+npm test                                    # 1106 tests; run this first
 node server-bot/scan.mjs --dry-run          # scan without writing or notifying
 node server-bot/scan.mjs --explain          # why each offer was dropped → data/scan-explain.txt
 node server-bot/telegram-listener.mjs       # process pending commands once

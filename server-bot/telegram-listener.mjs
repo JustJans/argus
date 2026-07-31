@@ -99,6 +99,33 @@ const HELP =
 // ➤ File where your rejections are recorded with their reason, one per line.
 const FEEDBACK_PATH = join(SCRIPT_DIR, 'feedback.jsonl');
 
+// ➤ Records that an application you already SENT is over, when you learnt it
+// ➤ somewhere the bot cannot read: the employer's own portal, a phone call, or
+// ➤ a bounced address they never fixed.
+// ➤ It is written to its own file rather than to feedback.jsonl because the two
+// ➤ mean different things: feedback is "this offer was not for me" and trains
+// ➤ the filter; this is "this application is finished" and must NOT — you were
+// ➤ right to apply, they simply never answered.
+// ➤ Returns true if it found an application with that number.
+async function closeApplication(n, reason) {
+  const path = join(ROOT, 'data', 'applications.jsonl');
+  let app = null;
+  try {
+    for (const line of readFileSync(path, 'utf-8').split('\n')) {
+      if (!line.trim()) continue;
+      try { const r = JSON.parse(line); if (r.id === n) app = r; } catch { /* corrupt line */ }
+    }
+  } catch { return false; }
+  if (!app) return false;
+
+  const rec = { ts: new Date().toISOString(), id: n, state: 'rejected', reason: reason || '' };
+  writeFileSync(join(ROOT, 'data', 'application-verdicts.jsonl'), JSON.stringify(rec) + '\n', { flag: 'a' });
+  console.log(`[${rec.ts}] closed application #${n} → ${app.title} — ${app.company}`);
+  await sendTelegram(`Closed #${n}: ${app.title} — ${app.company}. It now shows as rejected in <code>mail</code>.`
+    + (reason ? `\nReason: ${reason}` : ''), { html: true });
+  return true;
+}
+
 // ➤ The "no N reason" command ("no 3 needs 5 years of experience"): removes
 // ➤ offer 3 from pending AND records why it didn't fit in feedback.jsonl.
 // ➤ That file is your rejection history — read it before touching the filters,
@@ -109,6 +136,12 @@ async function rejectWithReason(n, reason) {
   // ➤ Find the offer whose fixed number matches the one you typed.
   const off = offers.find(o => o.id === n);
   if (!off) {
+    // ➤ NOT PENDING — so it may be one you already SENT. Some employers never
+    // ➤ write back: they post the verdict on their own portal, or their address
+    // ➤ bounces and nobody notices. That application would sit under "no reply"
+    // ➤ for ever although you already know how it ended. Same word for the same
+    // ➤ meaning: "no" closes it, and the answer survives the nightly rebuild.
+    if (await closeApplication(n, reason)) return;
     await sendTelegram(`There's no pending offer with the number #${n} (did you already remove it?). The numbers appear on each offer in the list.`);
     return;
   }

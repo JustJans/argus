@@ -17,11 +17,36 @@ Gmail  ──►  classify  ──►  match  ──►  status  ──►  repo
 
 | File | Job |
 |---|---|
-| `classify.mjs` | Is this a receipt, a rejection, an invitation, or a mailshot? |
+| `classify.mjs` | Is this a receipt, a rejection, an invitation, a bounce, or a mailshot? |
 | `match.mjs` | Which of your applications is it about — or is it ambiguous? |
-| `status.mjs` | One state per application: `rejected`, `interview`, `acknowledged`, `noreply` |
+| `status.mjs` | One state per application, and your own verdicts on top |
 | `report.mjs` | The text of the `mail` command |
 | `listen.mjs` | The nightly run that ties them together |
+
+The states, in the order the message shows them:
+
+| | State | Means |
+|---|---|---|
+| ⚪ | `noreply` | nothing came back at all |
+| ⚪ | `bounced` | the mail never arrived — worth applying again elsewhere |
+| 🟡 | `acknowledged` | they acknowledged it, and that is all so far |
+| 🔴 | `rejected` / `ghosted` | they said no, or two months passed in silence |
+| 🟢 | `interview` | somebody proposed talking to you |
+
+Four colours, not six. Every state does not need one of its own: past four the
+reader is decoding a legend instead of reading a list. Ghosted shares the red
+with a rejection because after two months the answer is the same one — the
+difference survives in the record, which is where it is useful. A state nobody
+is in gets no line at all, with one exception: the interview count is always
+shown, because that is what all of this is for and "0" says something.
+
+**Closing one by hand.** Some employers never write: the verdict is on their own
+portal, or their address bounces and nobody fixes it. `no N` in Telegram records
+that the application is finished, into `data/application-verdicts.jsonl`, and it
+is applied *on top* of whatever the mail says — the nightly run rebuilds
+everything from scratch, so without that it would be wiped every midnight. It is
+deliberately not written to `feedback.jsonl`: that file trains the offer filter,
+and "they never answered" is no reason to stop looking for jobs like that one.
 
 Run it by hand with `--dry-run` to see what it would write:
 

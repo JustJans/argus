@@ -211,26 +211,67 @@ export function cityOf(location) {
 // ➤ twice within one send.
 const _tcache = new Map();
 
+// ➤ Which language a job title in a given country is written in. Used only as
+// ➤ a second attempt, when the automatic detection has already given up.
+// ➤ Written WITHOUT accents, and the text is stripped of them before matching.
+// ➤ Not tidiness: JavaScript's \b only knows ASCII, so "\bbelgië\b" never
+// ➤ matches "België" — the ë is not a word character to it, so there is no
+// ➤ boundary to find and the country goes unrecognised. Folding both sides
+// ➤ also means "Espana" and "España" are the same word, which is how the job
+// ➤ boards actually spell it: both.
+const COUNTRY_LANG = [
+  [/\bfrance\b|\bfrancia\b|\bfrankrijk\b|\bmonaco\b|\.fr[/?]|\.fr$/i, 'fr'],
+  [/\bspain\b|\bespana\b|\bspanje\b|\bspanien\b|\.es[/?]|\.es$/i, 'es'],
+  [/\bgermany\b|\bdeutschland\b|\balemania\b|\bduitsland\b|\.de[/?]|\.de$/i, 'de'],
+  [/\bnetherlands\b|\bnederland\b|\bholanda\b|\bpaises bajos\b|\.nl[/?]|\.nl$/i, 'nl'],
+  [/\bbelgium\b|\bbelgie\b|\bbelgique\b|\bbelgica\b|\.be[/?]|\.be$/i, 'nl'],
+  [/\bitaly\b|\bitalia\b|\.it[/?]|\.it$/i, 'it'],
+  [/\bportugal\b|\.pt[/?]|\.pt$/i, 'pt'],
+];
+const unaccent = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+export const languageOfPlace = place => (COUNTRY_LANG.find(([re]) => re.test(unaccent(place))) || [])[1] || '';
+
+async function askTranslator(title, sl) {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=en&dt=t&q=`
+    + encodeURIComponent(title);
+  const res = await fetch(url, { signal: AbortSignal.timeout(8_000) });
+  if (!res.ok) return '';
+  const data = await res.json();
+  return (data?.[0] || []).map(seg => seg?.[0] || '').join('').trim();
+}
+
 // ➤ Translates the title into English with Google's free translator (no key).
 // ➤ If it fails or takes more than 8 seconds, the original title is used.
 // ➤ EVERY title goes through it. A "looks foreign" heuristic was tried first
 // ➤ and failed on ASCII German compounds ("Nachrichtentechnik"), which reached
 // ➤ the phone untranslated. English input comes back unchanged, and a scan
 // ➤ notifies a handful of offers at most, so the cost is nil.
-async function translateTitle(title) {
-  if (_tcache.has(title)) return _tcache.get(title);
+// ➤
+// ➤ THE SECOND ATTEMPT IS WHY FRENCH WAS NOT WORKING. Job titles are three or
+// ➤ four words long, and on those the automatic detection guesses badly:
+// ➤ "Charpentier naval H/F" is reported as ENGLISH, so it comes back exactly as
+// ➤ it went in and reaches the phone in French. Told the language outright it
+// ➤ answers "Shipwright M/F". The country the job is in is the hint, and being
+// ➤ wrong about it costs nothing — an English title handed over as French comes
+// ➤ back unchanged, which is what a wrong guess should do.
+export async function translateTitle(title, place = '') {
+  const key = `${title} ${place}`;
+  if (_tcache.has(key)) return _tcache.get(key);
   let out = title;
   try {
-    const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q='
-      + encodeURIComponent(title);
-    const res = await fetch(url, { signal: AbortSignal.timeout(8_000) });
-    if (res.ok) {
-      const data = await res.json();
-      const t = (data?.[0] || []).map(seg => seg?.[0] || '').join('').trim();
-      if (t) out = t;
+    const auto = await askTranslator(title, 'auto');
+    if (auto) out = auto;
+    // ➤ Unchanged means one of two things: it was already English, or the
+    // ➤ detection failed. Only the country can tell those apart.
+    if (out.toLowerCase() === title.toLowerCase()) {
+      const sl = languageOfPlace(place);
+      if (sl) {
+        const forced = await askTranslator(title, sl);
+        if (forced) out = forced;
+      }
     }
   } catch { /* keep original */ }
-  _tcache.set(title, out);
+  _tcache.set(key, out);
   return out;
 }
 
@@ -446,7 +487,9 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
   // ➤ strip tags → translate to English → shorten.
   const displayTitle = new Map();
   for (const o of offers) {
-    displayTitle.set(o, compactTitle(cleanTitle(await translateTitle(cleanTitle(o.title)))));
+    // ➤ The location goes with it: it is the only clue to the language when
+    // ➤ the automatic detection gives up, which on short titles it often does.
+    displayTitle.set(o, compactTitle(cleanTitle(await translateTitle(cleanTitle(o.title), `${o.location || ''} ${o.url || ''}`))));
   }
 
   // ➤ Step 3: build the message header with today's date (Madrid time) and how

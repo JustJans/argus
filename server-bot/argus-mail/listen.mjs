@@ -19,8 +19,10 @@ import { dirname, join } from 'path';
 import { listMessageIds, messageSummary, accessToken, gmailConfigured } from '../gmail.mjs';
 import { classifyMessage } from './classify.mjs';
 import { linkOutcomes } from './match.mjs';
-import { buildStatus, summarise } from './status.mjs';
+import { buildStatus, summarise, applyVerdicts } from './status.mjs';
 import { writeFileAtomic } from '../fs-atomic.mjs';
+// ➤ The same translator the offers list uses, so both lists read alike.
+import { translateTitle } from '../notify.mjs';
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const APPS_PATH = join(ROOT, 'data', 'applications.jsonl');
@@ -50,13 +52,24 @@ export const gmailDate = d => `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDat
 // ➤ The search. Two parts, and the second one is not cosmetic.
 // ➤ WHAT YOU SENT IS NOT AN ANSWER. Gmail's search covers Sent as well as the
 // ➤ inbox, so a reply you wrote comes back with everything else — and your own
-// ➤ words classify: a real one in this mailbox reads "muchas gracias por
-// ➤ considerarme para una entrevista", which is an interview invitation as far
+// ➤ words classify: a real one reads "thank you very much for considering me
+// ➤ for an interview", which is an interview invitation as far
 // ➤ as any pattern can tell. It would be your own message reported back to you
 // ➤ as news. Measured on the real window: this drops exactly the 2 messages
 // ➤ the owner sent and nothing else, and it means the bot reads less of the mailbox,
 // ➤ which is the right direction for something holding a standing key to it.
 export const searchFor = since => `after:${gmailDate(since)} -from:me`;
+
+// ➤ The verdicts you gave by hand with "no N", one JSON object per line.
+// ➤ Append-only: the file is the record of what you decided and when, and the
+// ➤ newest line for an id is the one that counts.
+export const VERDICTS_PATH = join(ROOT, 'data', 'application-verdicts.jsonl');
+
+function loadVerdicts() {
+  if (!existsSync(VERDICTS_PATH)) return [];
+  return readFileSync(VERDICTS_PATH, 'utf-8').split('\n').filter(l => l.trim())
+    .map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+}
 
 function loadApplications() {
   if (!existsSync(APPS_PATH)) return [];
@@ -103,7 +116,22 @@ async function main() {
     .filter(m => m.kind && m.kind !== 'alert');
 
   const { links, ties, orphans } = linkOutcomes(outcomes, applications);
-  const records = buildStatus(applications, links);
+  // ➤ Your own decisions go on top of what the mail says, never under it: this
+  // ➤ job rebuilds the file from scratch every night, so an answer you gave by
+  // ➤ hand would otherwise be wiped at midnight.
+  const records = applyVerdicts(buildStatus(applications, links), loadVerdicts());
+  // ➤ THE TITLES ARE PUT INTO ENGLISH HERE, not when the message is printed.
+  // ➤ The offers list has always done this; this list never did, so a Spanish
+  // ➤ or French posting reached the phone in its own language. It happens at
+  // ➤ build time on purpose: "mail" must answer instantly like "list" does, and
+  // ➤ it cannot if it has to wait on a translator. Done once a night, kept in
+  // ➤ the file, and the original stays alongside so the posting is still
+  // ➤ findable on the employer's own site.
+  await Promise.all(records.map(async r => {
+    const src = applications.find(a => a.id === r.id);
+    const en = await translateTitle(r.title, `${src?.location || ''} ${src?.url || ''}`);
+    if (en && en !== r.title) r.titleEn = en;
+  }));
   const summary = summarise(records);
 
   const out = {
@@ -127,6 +155,7 @@ async function main() {
 
   console.log('');
   console.log(`  applications:   ${summary.applications} (${summary.longshots} longshot)`);
+  console.log(`  never arrived:  ${summary.bounced}`);
   console.log(`  interview:      ${summary.interview}`);
   console.log(`  rejected:       ${summary.rejected}`);
   console.log(`  acknowledged:   ${summary.acknowledged}`);

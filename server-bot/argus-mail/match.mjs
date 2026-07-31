@@ -88,6 +88,11 @@ export function senderDomainCore(from) {
   return parts.sort((a, b) => b.length - a.length)[0] || '';
 }
 
+// ➤ How long after applying you might get round to typing "applied N". The
+// ➤ recorded date is that moment, not the moment you applied, so a reply can
+// ➤ honestly be older than the record it belongs to.
+export const LOGGING_LAG_DAYS = 2;
+
 // ➤ How well one email fits one application. Returns the score and the reasons,
 // ➤ because a link you cannot explain is a link you cannot check.
 export function scoreLink(message, application) {
@@ -109,6 +114,14 @@ export function scoreLink(message, application) {
   // ➤ The same check with the punctuation squeezed out, which is the only way
   // ➤ a name made entirely of short words is recognised at all.
   else if (compact.length >= 6 && compactAll(all).includes(compact)) { identity += 10; why.push('company'); }
+  // ➤ AND THE ACRONYMS. A company called "TWD" produces no tokens (three
+  // ➤ letters) and is too short for the squeezed-out search above, so it was
+  // ➤ invisible: a receipt from "TWD/Marine Engineer" was correctly read as a
+  // ➤ receipt and then belonged to nobody. The rule above cannot simply be
+  // ➤ loosened — "twd" as a loose substring would hit inside other words — so a
+  // ➤ short name has to appear as a WHOLE WORD, which is exactly how a company
+  // ➤ writes its own name.
+  else if (compact.length >= 2 && compact.length < 6 && hasWord(all, compact)) { identity += 10; why.push('company'); }
 
   // ➤ 3: real but weak, so it takes TWO matching words — never one, however
   // ➤ short the title. Six of a real set of 23 applications reduce to a single
@@ -129,9 +142,15 @@ export function scoreLink(message, application) {
   // ➤ company you never applied to gets filed against one you did.
   if (identity === 0) return { score: 0, why: ['nothing-identifies-it'] };
 
-  // ➤ An email cannot be about an application that did not exist yet.
+  // ➤ An email cannot be about an application that did not exist yet — but the
+  // ➤ date on the application is the day you TOLD the bot, not the day you
+  // ➤ applied, and those are not the same day. A real receipt arrived on the
+  // ➤ 17th against an application logged on the 18th and was thrown out by half
+  // ➤ a day, which is the wrong side of a rule that exists to stop nonsense.
+  // ➤ Two days of slack covers logging it the next morning; anything that
+  // ➤ arrived earlier than that really cannot be an answer.
   const when = new Date(message.date), applied = new Date(application.ts);
-  if (!isNaN(when) && !isNaN(applied) && (when - applied) / 86_400_000 < -0.5) {
+  if (!isNaN(when) && !isNaN(applied) && (when - applied) / 86_400_000 < -LOGGING_LAG_DAYS) {
     return { score: 0, why: ['arrived-before-applying'] };
   }
 
@@ -177,10 +196,20 @@ export function linkOutcomes(messages, applications, { margin = 1 } = {}) {
       || (ranked[0].identity - ranked[1].identity) >= margin
       || (ranked[0].identity === ranked[1].identity && (ranked[0].score - ranked[1].score) >= margin);
     if (!clear) {
-      ties.push({
-        message: m,
-        candidates: ranked.filter(r => r.identity === ranked[0].identity && r.score === ranked[0].score),
-      });
+      const tied = ranked.filter(r => r.identity === ranked[0].identity && r.score === ranked[0].score);
+      // ➤ A BOUNCE IS THE ONE THING THAT LINKS TO ALL OF THEM. Every other kind
+      // ➤ of message is about ONE vacancy, so guessing between two would put a
+      // ➤ rejection on the wrong job. A bounce is not about a vacancy at all —
+      // ➤ it says mail to that ADDRESS did not get through, which is equally
+      // ➤ true of every application sent there. Real case: two applications to
+      // ➤ the same employer on the same day, one failure notice. Reported as an
+      // ➤ unresolved tie, it told you nothing; the one thing you could act on
+      // ➤ was the thing that stayed silent.
+      if (m.kind === 'bounced') {
+        for (const t of tied) links.push({ message: m, application: t.application, score: t.score, why: [...t.why, 'bounce-hits-every-application-there'] });
+        continue;
+      }
+      ties.push({ message: m, candidates: tied });
       continue;
     }
     links.push({ message: m, application: ranked[0].application, score: ranked[0].score, why: ranked[0].why });

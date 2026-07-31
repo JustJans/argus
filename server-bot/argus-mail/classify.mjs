@@ -94,13 +94,34 @@ export const ADVICE = /tips|how to|guide|prepare for|consejos|curso|webinar|blog
 // ➤ "wij hebben UW sollicitatie ontvangen" went unrecognised because only the
 // ➤ informal "we hebben JE sollicitatie" was written down. A company writing
 // ➤ to a stranger uses the formal form, which is most of this mailbox.
-export const ACKNOWLEDGED = /(we have|we've) received|thanks? (you )?for (your )?(applying|application|interest|submitting)|application (has been )?received|received your application|hemos recibido (tu|su)|gracias por (tu|su) (candidatura|solicitud|interes|postulacion)|candidatura recibida|bedankt voor (je|uw|jouw) (sollicitatie|kandidatuur|interesse)|(we|wij) hebben (je|uw|jouw) (sollicitatie|kandidatuur)|(sollicitatie|kandidatuur) (goed )?ontvangen|goed ontvangen|nous avons (bien )?recu|merci de votre candidature|vielen dank fur (ihre|deine) bewerbung|danke fur (deine|ihre) bewerbung|eingang (ihrer|deiner) bewerbung/;
+// ➤ THE POLITE PADDING BREAKS IT, and that is why the middle group exists.
+// ➤ "Thank you SO MUCH for your interest in joining us" is as ordinary as
+// ➤ writing gets, and it matched nothing at all: the pattern wanted "thank you"
+// ➤ and "for" side by side. A real receipt sat in the no-reply pile for a week
+// ➤ because of two words of courtesy.
+// ➤ "Reviewing your application" is here for the same message: it says plainly
+// ➤ that the application arrived, which is the whole meaning of a receipt.
+export const ACKNOWLEDGED = /(we have|we've) received|thanks? (you )?(so much |very much |once again |again |kindly )?for (your )?(applying|application|interest|submitting)|(is |are |currently )?reviewing (your|all) applications?|application (has been )?received|received your application|hemos recibido (tu|su)|gracias por (tu|su) (candidatura|solicitud|interes|postulacion)|candidatura recibida|bedankt voor (je|uw|jouw) (sollicitatie|kandidatuur|interesse)|(we|wij) hebben (je|uw|jouw) (sollicitatie|kandidatuur)|(sollicitatie|kandidatuur) (goed )?ontvangen|goed ontvangen|nous avons (bien )?recu|merci de votre candidature|vielen dank fur (ihre|deine) bewerbung|danke fur (deine|ihre) bewerbung|eingang (ihrer|deiner) bewerbung/;
+
+// ➤ THE APPLICATION NEVER ARRIVED. Not a reply from anybody — the mail system
+// ➤ handing your own message back. It is the most useful thing this file can
+// ➤ find: everything else tells you how you did, this tells you that you did
+// ➤ not compete at all, and it is fixable by applying somewhere that works.
+// ➤ Found on a real mailbox: three bounces against two applications that had
+// ➤ been sitting in the no-reply pile looking like ordinary silence.
+// ➤ ONLY A FAILURE COUNTS, and this is the whole subtlety. The same sender
+// ➤ ("Mail Delivery Subsystem") writes "Delivery Status Notification (Delay)"
+// ➤ while it is still retrying, and a delay usually ends in delivery. Two of
+// ➤ the three notices in one real mailbox were delays. So the sender is
+// ➤ deliberately NOT part of this test — matching on it would have called all
+// ➤ three a failure and told you an application was lost when it was not.
+export const BOUNCED = /undelivered mail returned|delivery status notification \(failure\)|address not found|recipient address rejected|user unknown|no such user|mailbox (is )?(unavailable|full)|550[ -]5\.|domain .{0,30}not found/;
 
 // ➤ Mailshots about jobs you have NOT applied to. They mention roles and
 // ➤ companies constantly, so without this they poison everything downstream.
 export const ALERT = /job alert|new jobs|jobs for you|recommended for you|nuevas ofertas|ofertas para ti|empleos recomendados|vacatures voor jou|nieuwe vacatures|neue jobs|job digest|we found \d|hemos encontrado|apply now|postula ya|solliciteer nu|unsubscribe|darse de baja/;
 
-// ➤ Returns one of: 'rejected' | 'interview' | 'acknowledged' | 'alert' | null.
+// ➤ Returns one of: 'bounced' | 'rejected' | 'interview' | 'acknowledged' | 'alert' | null.
 // ➤ null means "this is not about an application", and it is the honest answer
 // ➤ far more often than any of the others.
 export function classifyMessage({ subject = '', snippet = '', body = '', from = '' } = {}) {
@@ -121,6 +142,11 @@ export function classifyMessage({ subject = '', snippet = '', body = '', from = 
   // ➤ outright. A receipt describes both of them as possibilities — "should we
   // ➤ continue with other candidates", "whether we invite you" — and those
   // ➤ sentences are the single most common way to be told something wrong.
+  // ➤ A bounce is checked FIRST because it is not a reply at all. It quotes
+  // ➤ your own message back at you, so the words of your application are in it
+  // ➤ and every other pattern here would happily read them.
+  if (BOUNCED.test(text)) return 'bounced';
+
   if (saidOutright(REJECTED, text)) return 'rejected';
   if (saidOutright(INTERVIEW, text) && !ADVICE.test(opening)) return 'interview';
   if (ACKNOWLEDGED.test(text)) return 'acknowledged';
