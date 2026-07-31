@@ -9,13 +9,21 @@ node_modules/
 # race nobody wins: the file that gets forgotten is the one that leaks. No
 # tracked source file lives there as .json, so this costs nothing.
 server-bot/*.json
+server-bot/**/*.json
 # Named anyway, so it is obvious what the rule above is protecting:
 #   telegram.json  claude-token.json  adzuna-key.json
 #   gmail-oauth.json  gmail-token.json
 #   telegram-offset.json  last-scan.json  linkedin-state.json
-server-bot/feedback.jsonl
-server-bot/feedback-applied.jsonl
+#
+# Same rule for .jsonl. These hold your own words about specific employers —
+# why you turned an offer down — which is the most personal thing the bot
+# writes down. Listing them one by one had already missed feedback-errors.jsonl;
+# no tracked source file uses this extension, so the blanket rule costs nothing.
+#   feedback.jsonl  feedback-applied.jsonl  feedback-errors.jsonl
+server-bot/*.jsonl
+server-bot/**/*.jsonl
 server-bot/*.log
+server-bot/**/*.log
 
 # Activity and output data (keep the folders, ignore their contents)
 data/*
