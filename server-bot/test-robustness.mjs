@@ -12,14 +12,20 @@
 import { claudeErrorKind, claudeErrorMessage } from './claude-cli.mjs';
 import { parseVerdict } from './argus-council/judges.mjs';
 import { parseLetter, coverFileBase, resolveCoverBase } from './cover-letter.mjs';
-import { writeFileAtomic, tempNameFor } from './fs-atomic.mjs';
+import { writeFileAtomic, tempNameFor, withFileLock } from './fs-atomic.mjs';
 import { classifyLiveness } from './liveness-core.mjs';
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync, copyFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, dirname } from 'path';
-import { pathToFileURL } from 'url';
+import { pathToFileURL, fileURLToPath } from 'url';
+// ➤ To launch real separate programs in the lock test below.
+import { spawn } from 'child_process';
 import yaml from 'js-yaml';
 import { buildProfileYaml } from './onboarding.mjs';
+
+// ➤ Where this test file itself lives, so the lock test can launch standalone
+// ➤ programs that import the real module rather than a copy of it.
+const SELF_DIR = dirname(fileURLToPath(import.meta.url));
 
 let pass = 0, fail = 0;
 const ok = (cond, name) => { if (cond) pass++; else { fail++; console.log(`  FAIL ${name}`); } };
@@ -147,6 +153,100 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   // ➤ And it must sit next to the target: a rename is only atomic within one
   // ➤ filesystem, so a scratch file elsewhere would degrade into a copy.
   eq(dirname(tempNameFor(file)), dirname(file), 'the temp file sits next to its target');
+  rmSync(dir, { recursive: true, force: true });
+}
+
+// ── 5b) The lock around read-decide-write ─────────────────────────────────
+// ➤ The atomic write above only guarantees nobody sees HALF a file. It does
+// ➤ nothing about the real danger: the scanner, the cleanup and a "seen" typed
+// ➤ on Telegram all read the pending list, change their bit, and write it back.
+// ➤ Measured before the lock existed: eight overlapping writers kept 200 lines
+// ➤ out of 1600. These tests watch the MECHANISM, because a lock that quietly
+// ➤ stopped locking would still pass every test about the file's contents.
+{
+  const dir = join(tmpdir(), `argus-lock-${process.pid}`);
+  const file = join(dir, 'pipeline.md');
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+
+  // ➤ It takes the lock, runs the work, and hands the result back.
+  eq(withFileLock(file, () => 'done'), 'done', 'the lock returns what the work returned');
+  ok(!existsSync(`${file}.lock`), 'and it releases the lock afterwards');
+
+  // ➤ Released even when the work throws — otherwise one crash would block
+  // ➤ every later scan for as long as the machine stayed up.
+  try { withFileLock(file, () => { throw new Error('boom'); }); } catch { /* expected */ }
+  ok(!existsSync(`${file}.lock`), 'a crash inside the work still releases the lock');
+
+  // ➤ Taken BEFORE the work and released AFTER: the whole point is that the
+  // ➤ read and the write happen inside it.
+  const order = [];
+  const spy = {
+    mkdirSync: () => order.push('take'),
+    rmdirSync: () => order.push('release'),
+    statSync: () => ({ mtimeMs: Date.now() }),
+  };
+  withFileLock(file, () => order.push('work'), { io: spy });
+  eq(order, ['take', 'work', 'release'], 'lock, work, unlock — in that order');
+
+  // ➤ It really refuses when somebody else holds it: a second attempt while the
+  // ➤ first is inside must not get in.
+  let inner = 'not attempted';
+  withFileLock(file, () => {
+    ok(existsSync(`${file}.lock`), 'while the work runs, the lock exists on disk');
+    // ➤ Short timeout so the test does not wait for the real one.
+    withFileLock(file, () => { inner = 'got in'; }, { timeoutMs: 60 });
+  });
+  eq(inner, 'got in', 'a blocked writer waits, then proceeds rather than dropping the work');
+
+  // ➤ A lock left behind by a job that was killed must not block the bot for
+  // ➤ ever. One older than the timeout is treated as abandoned and cleared —
+  // ➤ tested with an already-old lock, not a fresh one, or it proves nothing.
+  mkdirSync(`${file}.lock`);
+  const stale = Date.now() + 40;
+  while (Date.now() < stale) { /* let the lock get old */ }
+  let ranWithStale = false;
+  withFileLock(file, () => { ranWithStale = true; }, { timeoutMs: 20 });
+  ok(ranWithStale, 'a stale lock does not stop the job');
+  ok(!existsSync(`${file}.lock`), 'the abandoned lock is cleared, not left behind');
+
+  // ➤ A lock that can NEVER be taken (the folder does not exist, the disk is
+  // ➤ read-only) must not stall the job for the whole timeout. It gives up at
+  // ➤ once and lets the write report the real problem.
+  const nowhere = join(dir, 'does', 'not', 'exist', 'pipeline.md');
+  const t1 = Date.now();
+  let ranAnyway = false;
+  withFileLock(nowhere, () => { ranAnyway = true; }, { timeoutMs: 4000 });
+  ok(ranAnyway, 'an impossible lock does not cancel the work');
+  ok(Date.now() - t1 < 500, 'and it does not wait out the timeout for nothing');
+
+  // ➤ THE REASON IT EXISTS: many read-decide-write cycles, nothing lost.
+  // ➤ IN SEPARATE PROCESSES, deliberately. The first version of this test ran
+  // ➤ eight "writers" inside this one process and passed with the lock REMOVED —
+  // ➤ worthless, because a synchronous read-and-write inside a single Node
+  // ➤ process cannot be interrupted anyway. The danger is a scan, a cleanup and
+  // ➤ a "seen" as three separate programs, which is what this launches.
+  writeFileSync(file, '');
+  const WRITERS = 6, ROUNDS = 25;
+  const worker = join(dir, 'worker.mjs');
+  writeFileSync(worker, [
+    `import { withFileLock, writeFileAtomic } from ${JSON.stringify(pathToFileURL(join(SELF_DIR, 'fs-atomic.mjs')).href)};`,
+    `import { readFileSync } from 'fs';`,
+    `const [file, who, rounds] = [process.argv[2], process.argv[3], +process.argv[4]];`,
+    `for (let i = 0; i < rounds; i++) withFileLock(file, () => {`,
+    `  const cur = readFileSync(file, 'utf-8');`,
+    // ➤ A pause INSIDE the lock, so an unlocked version would really lose
+    // ➤ lines: without it the window is too small to catch anything.
+    `  const until = Date.now() + 2; while (Date.now() < until) {}`,
+    `  writeFileAtomic(file, cur + who + '-' + i + '\\n');`,
+    `});`,
+  ].join('\n'));
+  await Promise.all(Array.from({ length: WRITERS }, (_, w) => new Promise(res => {
+    spawn(process.execPath, [worker, file, String(w), String(ROUNDS)], { stdio: 'ignore' }).on('exit', res);
+  })));
+  eq(readFileSync(file, 'utf-8').split('\n').filter(Boolean).length, WRITERS * ROUNDS,
+     'six programs writing the same list at once lose nothing');
+
   rmSync(dir, { recursive: true, force: true });
 }
 

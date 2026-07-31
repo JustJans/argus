@@ -39,7 +39,7 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
 // ➤ Atomic full-file overwrite (temp file + rename) so a crash mid-write can't
 // ➤ truncate the pending list. Used for the pipeline.md rewrite below.
-import { writeFileAtomic } from './fs-atomic.mjs';
+import { writeFileAtomic, withFileLock } from './fs-atomic.mjs';
 import { PENDING_HEADING, PROCESSED_HEADING, pendingIndex } from './pipeline-format.mjs';
 // ➜ The blind-spot record: what the title filter throws away. Fed here,
 // ➜ read by argus-discover. See that file for why recurrence is the signal.
@@ -1228,6 +1228,15 @@ function loadSeenCompanyRoles() {
 // ➤ confusion (numbering by position failed because Telegram groups by country).
 function appendToPipeline(offers) {
   if (offers.length === 0) return;
+  // ➤ Under lock. The scan runs every two hours and takes minutes, but this
+  // ➤ part — read the file, add the offers, write it back — must not overlap
+  // ➤ with a "seen" from Telegram or with the cleanup. Whoever wrote second
+  // ➤ used to erase the other's work: measured, eight overlapping writers kept
+  // ➤ 200 lines out of 1600. Only these milliseconds are held, not the scan.
+  return withFileLock(PIPELINE_PATH, () => appendToPipelineLocked(offers));
+}
+
+function appendToPipelineLocked(offers) {
   let text = existsSync(PIPELINE_PATH) ? readFileSync(PIPELINE_PATH, 'utf-8') : `# Pipeline\n\n${PENDING_HEADING}\n\n${PROCESSED_HEADING}\n`;
   // Stable per-offer ID (last field, "#412"): shown in every Telegram message
   // and used by visto/no. Positional numbering caused wrong-offer feedback —

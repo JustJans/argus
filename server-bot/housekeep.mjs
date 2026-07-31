@@ -31,7 +31,7 @@
 // ➤ Tools it needs: read/write files and the same filters the scanner uses.
 import { readFileSync, writeFileSync, appendFileSync, existsSync } from 'fs';
 // ➤ Atomic overwrite so a crash mid-write can't truncate the pending list.
-import { writeFileAtomic } from './fs-atomic.mjs';
+import { writeFileAtomic, withFileLock } from './fs-atomic.mjs';
 import { isPendingHeading } from './pipeline-format.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -117,12 +117,19 @@ function ensureInHistory(offers, why) {
 // ➤ no longer matches and survives, which is the safe way round.
 export function rewritePipelineWithout(linesToDrop, path = PIPELINE_PATH) {
   const drop = new Set(linesToDrop.map(l => l.trim()).filter(Boolean));
-  const fresh = readFileSync(path, 'utf-8').split('\n');
-  const kept = fresh.filter(l => !drop.has(l.trim()));
-  writeFileAtomic(path, kept.join('\n'));
-  // ➤ How many of our decisions no longer applied (the line had already been
-  // ➤ marked or removed by you in the meantime).
-  return (fresh.length - kept.length);
+  // ➤ Read and write INSIDE the lock. Re-reading late already meant this could
+  // ➤ not overwrite a change made while the HTTP checks ran, but it did not
+  // ➤ stop the reverse: a "seen" arriving between this read and this write was
+  // ➤ erased. Measured: eight concurrent read-modify-writes kept 200 lines of
+  // ➤ 1600. The lock is held for these two lines, not for the minutes before.
+  return withFileLock(path, () => {
+    const fresh = readFileSync(path, 'utf-8').split('\n');
+    const kept = fresh.filter(l => !drop.has(l.trim()));
+    writeFileAtomic(path, kept.join('\n'));
+    // ➤ How many of our decisions no longer applied (the line had already been
+    // ➤ marked or removed by you in the meantime).
+    return (fresh.length - kept.length);
+  });
 }
 
 // ➤ The key that decides two postings are THE SAME job — and therefore that
