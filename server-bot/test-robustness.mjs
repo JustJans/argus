@@ -262,6 +262,40 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ok(scanSrc.includes('process.argv[1]') && /scan\\\.mjs\$/.test(scanSrc), 'scan.mjs guards its main() too');
 }
 
+// ── 11a) The two headings that divide the pipeline ───────────────────────
+// ➤ Four modules need them: the scanner writes, the list reads, "seen" edits,
+// ➤ housekeep deletes. Each used to spell them out for itself — four copies of
+// ➤ one decision, which drift the moment anybody changes one of them.
+// ➤ One place, one spelling, and these tests hold the four to it.
+{
+  const { PENDING_HEADING, PROCESSED_HEADING, isPendingHeading, isProcessedHeading, pendingIndex } =
+    await import('./pipeline-format.mjs');
+
+  eq(PENDING_HEADING, '## Pending', 'the pending heading is English');
+  eq(PROCESSED_HEADING, '## Processed', 'and so is the other one');
+  ok(isPendingHeading(PENDING_HEADING) && isProcessedHeading(PROCESSED_HEADING), 'each recognises its own');
+  ok(pendingIndex(`# Pipeline\n\n${PENDING_HEADING}\n\n- [ ] x\n`) > 0, 'and is found inside a file');
+
+  // ➤ A heading with something after it still counts ("## Pending (12)").
+  ok(isPendingHeading('## Pending (12)'), 'a heading with a count after it still counts');
+  // ➤ And nothing else does: an offer line is not a heading.
+  ok(!isPendingHeading('- [ ] https://a/1 | ACME | Engineer | #1'), 'an offer line is not a heading');
+  ok(!isPendingHeading('# Pipeline'), 'nor the title of the file');
+  ok(!isPendingHeading(''), 'nor an empty line');
+  ok(!isPendingHeading('## Pendiente'), 'and nothing that merely looks like it');
+  eq(pendingIndex('# Pipeline\n\nno headings here\n'), -1, 'a file without the heading says so, rather than guessing');
+  eq(pendingIndex(''), -1, 'and so does an empty file');
+
+  // ➤ NOBODY SPELLS THEM OUT AGAIN. This is the rule the file exists for, and
+  // ➤ a stray literal in one module is exactly how the two copies drifted.
+  const readers = ['scan.mjs', 'seen.mjs', 'housekeep.mjs', 'list-offers.mjs'];
+  for (const r of readers) {
+    const src = readFileSync(new URL(`./${r}`, import.meta.url), 'utf-8')
+      .split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+    ok(!/'## Pend|"## Pend|'## Proc|"## Proc/.test(src), `${r} asks pipeline-format for the heading instead of writing it out`);
+  }
+}
+
 // ── 11b) What housekeep DELETES ──────────────────────────────────────────
 // ➤ The block above only checks that importing housekeep does not run it. An
 // ➤ audit asked the harder question — what does it delete? — and the answer
@@ -344,6 +378,10 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ].join('\n'), 'utf-8');
   const mod = join(dir, 'server-bot', 'list-offers.mjs');
   copyFileSync(new URL('./list-offers.mjs', import.meta.url), mod);
+  // ➤ Its own imports have to travel with it. The module reads the two section
+  // ➤ headings from pipeline-format.mjs, and without that file next door the
+  // ➤ copy cannot even load — which is how this line came to exist.
+  copyFileSync(new URL('./pipeline-format.mjs', import.meta.url), join(dir, 'server-bot', 'pipeline-format.mjs'));
   const { pendingOffers } = await import(pathToFileURL(mod).href);
   const got = pendingOffers();
 

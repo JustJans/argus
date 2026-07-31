@@ -12,6 +12,7 @@
 import { readFileSync, existsSync } from 'fs';
 // ➤ Atomic overwrite so a crash mid-write can't truncate the pending list.
 import { writeFileAtomic } from './fs-atomic.mjs';
+import { isPendingHeading } from './pipeline-format.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -27,13 +28,13 @@ export function parseIds(argv) {
   return [...new Set(argv.map(s => Number(String(s).replace(/^#/, ''))).filter(n => Number.isInteger(n) && n > 0))];
 }
 
-// ➤ Index of offer number -> line, built ONLY from the "## Pending" section
+// ➤ Index of offer number -> line, built ONLY from the pending section
 // ➤ and only from lines still unchecked ("- [ ] ").
 export function indexPending(lines) {
   let inPending = false;
   const byId = new Map();
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].startsWith('## Pending')) { inPending = true; continue; }
+    if (isPendingHeading(lines[i])) { inPending = true; continue; }
     if (lines[i].startsWith('## ') && inPending) { inPending = false; }
     if (!inPending || !/^- \[ \] /.test(lines[i])) continue;
     const m = lines[i].match(/\|\s*#(\d+)\s*$/);

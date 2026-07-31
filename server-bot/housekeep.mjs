@@ -32,6 +32,7 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync } from 'fs';
 // ➤ Atomic overwrite so a crash mid-write can't truncate the pending list.
 import { writeFileAtomic } from './fs-atomic.mjs';
+import { isPendingHeading } from './pipeline-format.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
@@ -379,11 +380,11 @@ async function main() {
   const lines = readFileSync(PIPELINE_PATH, 'utf-8').split('\n');
 
   // ➤ Goes through pipeline.md and notes each pending offer (lines "- [ ]") from
-  // ➤ the "## Pending" section, with its URL, company and title.
+  // ➤ the pending section, with its URL, company and title.
   let inPending = false;
   const pending = []; // {lineIdx, url, company, title}
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].startsWith('## Pending')) { inPending = true; continue; }
+    if (isPendingHeading(lines[i])) { inPending = true; continue; }
     if (lines[i].startsWith('## ') && inPending) inPending = false;
     if (!inPending) continue;
     // ➤ Splits the offer line: link | company | title (ignores anything after).
