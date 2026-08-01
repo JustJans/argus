@@ -17,7 +17,7 @@ import { classifyLiveness } from './liveness-core.mjs';
 import { stripHtml } from './requirements.mjs';
 import { looksLikeAnOutage } from './housekeep.mjs';
 import { seenReply } from './telegram-listener.mjs';
-import { buildCountryFilter, parseGreenhouse, parseAshby, parseLever, greenhouseUrlWithContent, loadIdHighWater } from './scan.mjs';
+import { buildCountryFilter, parseGreenhouse, parseAshby, parseLever, greenhouseUrlWithContent, loadIdHighWater, capJobs } from './scan.mjs';
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync, copyFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, dirname } from 'path';
@@ -362,6 +362,34 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(greenhouseUrlWithContent('https://x/jobs?content=true'), 'https://x/jobs?content=true',
      'asking twice does not double the flag');
   eq(greenhouseUrlWithContent(''), '', 'an empty URL is left alone');
+}
+
+// ── 6c) One broken board must not fill the whole list ────────────────────
+// ➤ Workday and Oracle already had a ceiling; the other boards took whatever
+// ➤ the feed said. Provoked with a feed answering 20,000 postings: all 20,000
+// ➤ went into the pending list — a 2.2 MB file and, with Telegram on, about 450
+// ➤ messages over nine minutes (audit 2026-07-31).
+{
+  const said = [];
+  const log = m => said.push(String(m));
+  const many = n => Array.from({ length: n }, (_, i) => ({ title: `Job ${i}` }));
+
+  eq(capJobs(many(5), 'ACME', 10, log).length, 5, 'a normal board passes through untouched');
+  eq(said.length, 0, 'and nothing is said about it');
+
+  const big = capJobs(many(20000), 'ACME', 500, log);
+  eq(big.length, 500, 'a runaway board is cut to the ceiling');
+  eq(big[0].title, 'Job 0', 'and it keeps the first ones, in order');
+  ok(said.some(m => /20000/.test(m) && /ACME/.test(m)), 'the cut is announced, never silent');
+
+  // ➤ Exactly at the ceiling is not a runaway.
+  said.length = 0;
+  eq(capJobs(many(500), 'ACME', 500, log).length, 500, 'exactly the ceiling is fine');
+  eq(said.length, 0, 'and says nothing');
+
+  // ➤ Rubbish in must not throw: a broken feed is the case this exists for.
+  eq(capJobs(null, 'ACME', 500, log), [], 'a feed that returned nothing yields an empty list');
+  eq(capJobs(undefined, 'ACME', 500, log), [], 'and so does no feed at all');
 }
 
 // ── 6b) A hostile page must not freeze the bot ────────────────────────────

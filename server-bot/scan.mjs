@@ -1306,6 +1306,22 @@ function loadSeenCompanyRoles() {
 // ➤ Writing results: these functions record the new offers
 // ➤ in the pending list (pipeline.md) and the history.
 
+// ➤ A CEILING ON WHAT ONE EMPLOYER CAN ADD IN ONE RUN (audit 2026-07-31).
+// ➤ Workday and Oracle already had one; the other boards took whatever the feed
+// ➤ said. Provoked with a feed answering 20,000 postings: all 20,000 went into
+// ➤ the pending list — a 2.2 MB file and, with Telegram on, about 450 messages
+// ➤ over nine minutes. The cap sits far above any real board, so it only ever
+// ➤ fires on a broken or hostile feed, and it SAYS SO rather than truncating in
+// ➤ silence.
+// ➤ Exported so it can be tested: written inline it was a rule no test could
+// ➤ reach, and it survived a mutation that removed it entirely.
+export function capJobs(jobs, name, max = MAX_JOBS_PER_COMPANY, log = console.log) {
+  const list = Array.isArray(jobs) ? jobs : [];
+  if (list.length <= max) return list;
+  log(`  ! ${name} returned ${list.length} postings; reading the first ${max}. That is not a normal board — check the feed.`);
+  return list.slice(0, max);
+}
+
 // ➤ Adds the new offers to the "Pending" section of pipeline.md.
 // ➤ Each one is assigned a fixed number (#412...) that appears in the Telegram
 // ➤ messages; that way, when the user replies "seen 412", there's no possible
@@ -1667,10 +1683,7 @@ async function main() {
       // ➤ with Telegram on, about 450 messages over nine minutes. The cap sits
       // ➤ far above any real board, so it only ever fires on a broken or hostile
       // ➤ feed, and it SAYS SO rather than truncating in silence.
-      if (jobs.length > MAX_JOBS_PER_COMPANY) {
-        console.log(`  ! ${c.name} returned ${jobs.length} postings; reading the first ${MAX_JOBS_PER_COMPANY}. That is not a normal board — check the feed.`);
-        jobs = jobs.slice(0, MAX_JOBS_PER_COMPANY);
-      }
+      jobs = capJobs(jobs, c.name);
       sourcesOk++;
       found += jobs.length;
       for (const job of jobs) admit(job, `${c._api.type}-api`);
