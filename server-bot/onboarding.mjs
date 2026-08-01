@@ -11,7 +11,7 @@
 // ➤ button taps arrive as callback_query (routed here by telegram-listener.mjs).
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
-import { readFileSync, writeFileSync, existsSync, chmodSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, chmodSync, copyFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -21,6 +21,19 @@ import { dirname, join } from 'path';
 function writePrivate(path, data) {
   writeFileSync(path, data, 'utf-8');
   try { chmodSync(path, 0o600); } catch { /* not POSIX — ignore */ }
+}
+
+// ➤ Keep the old version before replacing a document you could not retype from
+// ➤ memory. Exactly ONE backup is kept (<file>.bak): enough to undo an accident,
+// ➤ and it can never pile up copies of a private file over the months.
+// ➤ Best-effort on purpose — if the backup fails the setup carries on, because
+// ➤ refusing to save the CV you just pasted would be the worse outcome.
+function backupBeforeOverwrite(path) {
+  try {
+    if (!existsSync(path)) return;
+    copyFileSync(path, `${path}.bak`);
+    try { chmodSync(`${path}.bak`, 0o600); } catch { /* not POSIX — ignore */ }
+  } catch { /* nothing to keep, or nowhere to keep it */ }
 }
 import {
   sendTelegram, sendTelegramButtons, editTelegramButtons, answerCallback,
@@ -170,23 +183,53 @@ function buttonRows(q, selected) {
 async function askCurrent(s) {
   const q = s.mode === 'edit' ? Q_BY_KEY[s.editKey] : QUESTIONS[s.step];
   if (!q) return finish(s);
+  // ➤ Every TYPED question says on screen how to get out. While the setup is
+  // ➤ waiting for text your normal commands stop working — whatever you type is
+  // ➤ taken as the answer — so the way out has to be written where you're looking.
+  const prompt = (q.kind === 'single' || q.kind === 'multi') ? q.prompt : `${q.prompt}\n\n(or type "cancel" to stop)`;
   if (q.kind === 'single' || q.kind === 'multi') {
-    const msgId = await sendTelegramButtons(q.prompt, buttonRows(q, s.answers[q.key]));
+    const msgId = await sendTelegramButtons(prompt, buttonRows(q, s.answers[q.key]));
     s.msgId = msgId;
     saveState(s);
   } else {
     s.msgId = null;
     saveState(s);
-    await sendTelegram(q.prompt);
+    await sendTelegram(prompt);
   }
 }
 
 // ── Public entry points ─────────────────────────────────────────────────
 // ➤ `/start` → begin the full setup from question 0.
-export async function startOnboarding() {
+// ➤ IT ASKS FIRST IF YOU ALREADY HAVE A PROFILE (audit 2026-07-31). Question 0
+// ➤ is "paste your CV", and the listener hands any text you type to the setup
+// ➤ BEFORE it looks for a command — so with the setup already running, typing
+// ➤ "list" wrote the word "list" over your entire CV. There was no confirmation,
+// ➤ nothing to cancel with, and cv.md is the only copy: it is what your cover
+// ➤ letters are built from. `settings` already refuses to run without a profile;
+// ➤ this is the same guard pointing the other way.
+export async function startOnboarding(force = false) {
+  if (!force && loadAnswers()) {
+    await sendTelegram([
+      'You already have a profile set up.',
+      '',
+      'Starting again REPLACES your CV and every answer.',
+      'To change one thing instead, type <code>settings</code>.',
+      '',
+      'To go ahead anyway, type <code>/start yes</code>.',
+    ].join('\n'), { html: true });
+    return;
+  }
   const s = { active: true, mode: 'setup', step: 0, answers: {}, msgId: null };
   saveState(s);
   await askCurrent(s);
+}
+
+// ➤ A way out. Without this the only escape from the setup was answering all
+// ➤ twelve questions or hand-editing a state file over SSH — and every message
+// ➤ you typed meanwhile was being written into your profile.
+export async function cancelOnboarding() {
+  clearState();
+  await sendTelegram('Setup cancelled. Nothing else was changed.');
 }
 
 // ➤ `settings` → show a menu to edit ANY single answer later.
@@ -218,11 +261,23 @@ function labelFor(key) {
 export async function handleOnboardingText(text) {
   const s = loadState();
   if (!s || !s.active) return false;
+  // ➤ CANCEL IS CHECKED FIRST, before the question is even looked at — and
+  // ➤ before anything is stored. That is the whole point: while the setup runs
+  // ➤ every text you send is kept as an answer, so there has to be one word
+  // ➤ that never is.
+  if (/^(cancel|cancelar)$/i.test(String(text || '').trim())) {
+    await cancelOnboarding();
+    return true;
+  }
   const q = s.mode === 'edit' ? Q_BY_KEY[s.editKey] : QUESTIONS[s.step];
   if (!q || !(q.kind === 'text' || q.kind === 'cv' || q.kind === 'skip-text')) return false;
 
   const value = String(text || '').trim();
   if (q.kind === 'cv') {
+    // ➤ Keep the previous CV before overwriting it. Your copy is not a git repo
+    // ➤ and nothing else holds this file, so without the backup a single
+    // ➤ mistyped message costs you the document every cover letter starts from.
+    backupBeforeOverwrite(CV_PATH);
     writePrivate(CV_PATH, value + '\n');
     s.answers.cv = 'saved';
   } else if (q.kind === 'skip-text') {
@@ -345,6 +400,13 @@ function reEscape(s) {
 
 export function buildProfileYaml(a) {
   const contact = splitList(a.contact);
+  // ➤ AN EMPTY LIST OF ROLES SWITCHES THE TITLE FILTER OFF (audit 2026-07-31).
+  // ➤ An answer that is only spaces or only commas comes out as [], and the
+  // ➤ title filter reads an empty positive list as "no keyword required" — so
+  // ➤ every job title in the world passes and the only thing left between you
+  // ➤ and the entire market is the deal-breaker list. That is the opposite of
+  // ➤ what a blank answer means. So when there is nothing usable the key is
+  // ➤ left out of the file altogether and the rules already in force stay.
   const roles = splitList(a.roles);
   // ➤ Fields become regexes downstream, so each typed word is escaped to match
   // ➤ literally (roles do NOT need it — scan.mjs escapes title terms itself).
@@ -390,8 +452,7 @@ search:
 
   home_city: ${quote(homeCity)}
   countries:${countries.length ? countries.map(c => `\n    - { name: ${c.name}, label: ${c.label}${c.adzuna ? `, adzuna: ${c.adzuna}` : ''} }`).join('') : ' []'}
-
-  positive_titles:${yamlList(roles)}
+${roles.length ? `\n  positive_titles:${yamlList(roles)}` : '\n  # positive_titles: not written — the setup was given no usable job titles,\n  # and an empty list here would switch the title filter off completely.'}
   negative_titles:${yamlList(negatives)}
 
   fields:${yamlList(fields)}

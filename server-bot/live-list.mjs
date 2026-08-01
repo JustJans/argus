@@ -73,7 +73,10 @@ export function saveSeenIds(ids, path = SEEN_PATH) {
 // ➤                    its ping IS the new-offers alert). Default silent.
 // ➤   markSeen= true → YOU viewed the list (a command of yours), so the current
 // ➤                    offers stop being "new". Offers not yet seen show [NEW].
-// ➤ Returns how many offers there are (or null if Telegram is not configured).
+// ➤ It answers one of THREE things, and the difference matters to whoever calls it:
+// ➤   null   → Telegram is not configured, so nothing was even attempted.
+// ➤   false  → it tried and FAILED; no list reached your chat.
+// ➤   number → it worked, and this is how many offers are pending.
 // ➤ It never throws: if something fails, it logs it but doesn't take down its
 // ➤ caller (scanner or listener).
 // ➤ `deps` exists so the ORDER below can be tested. It is the whole point of
@@ -115,23 +118,37 @@ export async function refreshList({ alert = false, markSeen = false, deps } = {}
       ids = id != null ? [id] : [];
     }
 
-    // 4) Remember the list message ids (to delete next time). And if YOU viewed
-    //    the list (markSeen), the current offers stop being new.
+    // 4) Save the new list's ids FIRST, so they can never be lost, and only then
+    //    remove the old list. If the send above failed, ids is empty and the old
+    //    list stays put rather than leaving your chat with nothing at all.
     if (ids.length) {
       d.saveListIds(ids);
       for (const id of oldIds) await d.deleteTelegramMessage(id);
     } else {
       console.log(`[${new Date().toISOString()}] live-list: the new list could not be sent; the previous one is kept.`);
+      // ➤ FIX (audit 2026-07-31): SAY OUT LOUD THAT IT FAILED. This used to hand
+      // ➤ back the offer count anyway, so the caller had no way to tell "the list
+      // ➤ is on your phone" from "nothing was sent". The scan would then report
+      // ➤ that Telegram was NOT SET UP, while those offers had already been
+      // ➤ written into the pending file and into the anti-repeat history — so
+      // ➤ they were never offered again, and you were never told about them once.
+      if (markSeen) d.saveSeenIds(pendingIds);
+      return false;
     }
     if (markSeen) d.saveSeenIds(pendingIds);
     return offers.length;
   } catch (e) {
     console.log(`[${new Date().toISOString()}] refreshList failed: ${String(e.message).slice(0, 200)}`);
-    return null;
+    // ➤ A crash is a FAILURE, not "Telegram is not configured". Only the config
+    // ➤ check at the top of the function is allowed to answer null.
+    return false;
   }
 }
 
 // ➤ Allows refreshing the list by hand from the terminal: node live-list.mjs
 if (process.argv[1] && /(^|[\\/])live-list\.mjs$/.test(process.argv[1])) {
-  refreshList().then(n => console.log(n == null ? 'Telegram not configured.' : `List updated: ${n} pending.`));
+  refreshList().then(n => console.log(
+    n === null ? 'Telegram not configured.'
+    : n === false ? 'The list could NOT be sent (see the message above).'
+    : `List updated: ${n} pending.`));
 }

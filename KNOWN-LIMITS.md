@@ -91,5 +91,8 @@ never been seen to misfire.
 move is the shape — nearly every test is the only witness of its rule.)
 
 ### `fs-atomic.mjs` has as much comment as code
-Six comment lines against seven of code, in a fifteen-line file. The reason the
-file exists *is* the comment. Trimmed no further on purpose.
+Roughly two comment lines for every line of code, in a hundred-line file. The
+reason the file exists *is* the comment: it holds the safe overwrite AND the
+lock that stops two scheduled jobs erasing each other's work, and both are the
+kind of thing a later reader would otherwise "simplify" away. Trimmed no
+further on purpose.

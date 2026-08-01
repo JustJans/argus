@@ -64,6 +64,17 @@ export function formatStatus(status) {
   const out = [];
 
   out.push(`<b>Applications — ${apps.length}</b>`);
+  // ➤ NOTHING MAY FALL BETWEEN THE STATES (audit 2026-07-31). The states this
+  // ➤ report knows about are the ones listed above; an application in any other
+  // ➤ state appeared in no section AND in no count, while the header line right
+  // ➤ here still added it to the total — so the numbers quietly contradicted
+  // ➤ each other and one of your applications was nowhere on the screen. It is
+  // ➤ an easy state to reach: rename a state in one file and forget the other.
+  // ➤ A report that admits it is confused is better than one that hides an
+  // ➤ application, so it now says so out loud, with the unknown names.
+  const KNOWN = new Set(STATES.flatMap(s => s.keys));
+  const stray = apps.filter(a => !KNOWN.has(a.state));
+  if (stray.length) out.push(`⚠️ ${stray.length} application(s) in an unknown state: ${[...new Set(stray.map(a => a.state))].join(', ')}`);
   // ➤ A state nobody is in says nothing worth a line — "0 never arrived · 0
   // ➤ ghosted" was most of the count and none of the information. The one
   // ➤ exception is the interview: that is what all of this is for, so its

@@ -187,7 +187,21 @@ async function main() {
   // ➤ --limit N (optional, for manual testing): cap on offers to judge.
   const args = process.argv.slice(2);
   const li = args.indexOf('--limit');
-  const limit = li !== -1 ? parseInt(args[li + 1], 10) : Infinity;
+  // ➤ A FLAG WITH NO NUMBER MUST NOT MEAN "NO LIMIT" (audit 2026-07-31).
+  // ➤ parseInt of a missing or non-numeric value gives NaN, Number.isFinite(NaN)
+  // ➤ is false, and the cap below was then skipped altogether — so typing
+  // ➤ "--limit" with nothing after it, or with a word instead of a number,
+  // ➤ quietly judged the WHOLE queue and spent the AI calls to match. This flag
+  // ➤ is the documented way to try a small run by hand, so getting it wrong has
+  // ➤ to stop with a message rather than run wild.
+  let limit = Infinity;
+  if (li !== -1) {
+    limit = parseInt(args[li + 1], 10);
+    if (!Number.isFinite(limit) || limit < 0) {
+      console.error('--limit needs a number, e.g. --limit 3. Nothing was judged.');
+      process.exit(1);
+    }
+  }
 
   // ➤ 1) The PRESENTED ones: the pending offers Argus showed (they carry URL and id).
   const presented = pendingOffers().map(o => ({ ...o, source: 'pending', botDecision: 'presented' }));

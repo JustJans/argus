@@ -49,9 +49,32 @@ export function classifyDrop(why) {
   return /no keyword from your field/i.test(String(why || '')) ? NO_FIELD : RULE;
 }
 
+// ➤ How long an entry may go unseen before it is forgotten. This is the real
+// ➤ bound on the file: a blind spot is something that KEEPS coming back, so one
+// ➤ nothing has thrown away for two months is not one any more.
+export const STALE_DAYS = 60;
+
+// ➤ The date N days before the given YYYY-MM-DD, as YYYY-MM-DD. Returns ''
+// ➤ when there is no date to work from, and every comparison then passes.
+export function daysBefore(today, days) {
+  const t = Date.parse(`${today}T00:00:00Z`);
+  if (!Number.isFinite(t) || !Number.isFinite(days)) return '';
+  return new Date(t - days * 86_400_000).toISOString().slice(0, 10);
+}
+
+// ➤ THE CEILING. It used to be 4,000, and a record that had been running a
+// ➤ while sat exactly on it with every single slot held by a title already seen
+// ➤ twice — so nothing new could ever be counted a second time and the record
+// ➤ had quietly stopped learning. Measured against a real file: at 4,000 a new
+// ➤ title never reaches n=2; at 10,000 it does. 20,000 is that with room to
+// ➤ spare, and still only a few megabytes on disk. The real bound here is the
+// ➤ 60-day window above, not this number — the cap is only a backstop in case
+// ➤ something goes wrong.
+export const MAX_TITLES = 20000;
+
 // ➤ Folds this run's drops into the standing record. Pure: give it the old
 // ➤ store and the new drops, get the new store — no disk, so it is testable.
-export function mergeDrops(store, drops, { today = '', cap = 4000 } = {}) {
+export function mergeDrops(store, drops, { today = '', cap = MAX_TITLES, staleDays = STALE_DAYS } = {}) {
   const titles = { ...(store?.titles || {}) };
   for (const d of drops) {
     const k = key(d.title);
@@ -75,7 +98,27 @@ export function mergeDrops(store, drops, { today = '', cap = 4000 } = {}) {
   }
   // ➤ Bounded on purpose: a scan every two hours would grow this forever.
   // ➤ What survives a cull is what recurs, which is exactly what we are after.
+  // ➤
+  // ➤ BUT A FULL STORE STOPS LEARNING (audit 2026-07-31). Sorting by count
+  // ➤ alone means every entry that has ever been seen twice outranks every
+  // ➤ newcomer for ever. Measured on a real record: 3,905 of the 4,000 slots
+  // ➤ were held by entries at n>=2, leaving 95 for the ~1,250 distinct new
+  // ➤ titles a single cycle throws away. A role that only started appearing
+  // ➤ last week was evicted before it could ever be counted twice — and being
+  // ➤ counted twice is the entire definition of the thing this file exists to
+  // ➤ find. Two changes, and deliberately NOT a third. Ranking newcomers ahead
+  // ➤ of proven ones was tried and rejected: with a tight ceiling a wave of
+  // ➤ one-offs would evict the very titles the record exists to surface, which
+  // ➤ is a worse fault than the one being fixed.
+  const stale = daysBefore(today, staleDays);
   const kept = Object.entries(titles)
+    // ➤ 1. FORGET WHAT STOPPED COMING BACK. An entry nothing has thrown away
+    // ➤ for two months is history, not a blind spot, and it is holding a slot a
+    // ➤ live one needs. This, not the ceiling, is what really bounds the file.
+    // ➤ Entries with no date are kept: they predate this rule.
+    .filter(([, t]) => !t.last || !stale || String(t.last) >= stale)
+    // ➤ 2. And a ceiling high enough that there are slots left over — see
+    // ➤ MAX_TITLES above for the measurement.
     .sort((a, b) => b[1].n - a[1].n || String(b[1].last).localeCompare(String(a[1].last)))
     .slice(0, cap);
   return { updated: today, titles: Object.fromEntries(kept) };

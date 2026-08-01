@@ -62,7 +62,33 @@ export const INTERVIEW = /\binterview\b|entrevista|\bgesprek\b|vorstellungsgespr
 // ➤ These are the words that turn the sentence into a maybe. They are about
 // ➤ THE COMPANY still deciding — deliberately NOT "if you are available" or
 // ➤ "if it suits you", which is how a real invitation is worded politely.
-export const CONDITIONAL = /\bwhether\b|in case|if (we|selected|successful|shortlisted|there is|your (application|profile|cv|candidacy|background))|should (we|there|your (application|profile))|si (tu|su) (perfil|candidatura|solicitud)|en caso de|si (encajas|resultas|eres seleccionad)|indien (we|wij|uw)|mocht (u|je|uw)|falls (wir|ihre)|wenn wir/;
+// ➤ IT DOES NOT MATTER WHO THE CONDITION IS ABOUT (audit 2026-07-31). This list
+// ➤ only knew how to spot a condition attached to the COMPANY — "if WE", "if
+// ➤ SELECTED", "wenn WIR" — and walked straight past the commoner way of
+// ➤ writing the very same sentence, which puts YOU in it: "if you are selected,
+// ➤ we will invite you for an interview". Tested against ordinary hand-written
+// ➤ receipts, that phrasing was announced as a real interview in English,
+// ➤ German and Dutch — you would have been told to expect a call that nobody
+// ➤ had decided to make. What makes the sentence a maybe is the word
+// ➤ "selected / shortlisted / successful", not the person it is hung on, so a
+// ➤ few words are now allowed in between.
+const PICKED = '(selected|shortlisted|successful|chosen|a match|the right fit)';
+export const CONDITIONAL = new RegExp([
+  '\\bwhether\\b', 'in case',
+  // ➤ "if we ... / if your application ... / if you are selected ..."
+  `if (we|there is|your (application|profile|cv|candidacy|background))`,
+  `if [a-z ]{0,12}(is |are |were )?${PICKED}`,
+  `when [a-z ]{0,12}(is |are |were )?${PICKED}`,
+  'should (we|there|your (application|profile))',
+  // ➤ Spanish
+  'si (tu|su) (perfil|candidatura|solicitud)', 'en caso de', 'si (encajas|resultas|eres seleccionad|es seleccionad)',
+  // ➤ Dutch: "als je/u wordt geselecteerd", "indien wij/uw", "mocht u/je"
+  'indien (we|wij|u|uw|je)', 'mocht (u|je|uw)', 'als (je|u|uw)[a-z ]{0,15}(geselecteerd|geschikt)',
+  // ➤ German: "falls wir/Ihre", "wenn wir", "wenn Sie ausgewählt werden"
+  'falls (wir|ihre|sie)', 'wenn wir', 'wenn (sie|du)[a-z ]{0,15}(ausgewahlt|ausgewaehlt|passen)',
+  // ➤ French: "si vous êtes retenu / sélectionné"
+  'si (vous|votre)[a-z ]{0,15}(retenu|selectionn)',
+].join('|'));
 
 // ➤ Does some sentence say this OUTRIGHT, rather than as a possibility?
 // ➤ Sentence by sentence, and only what comes BEFORE the phrase counts: the
@@ -83,7 +109,18 @@ export function saidOutright(pattern, text) {
 // ➤ "guides"), so once whole bodies started being read, this cancelled a real
 // ➤ interview invitation. A message declares what it IS in its subject; its
 // ➤ footer only declares that a marketing department exists.
-export const ADVICE = /tips|how to|guide|prepare for|consejos|curso|webinar|blog|article|newsletter/;
+// ➤ WHOLE WORDS ONLY (audit 2026-07-31). Written as bare fragments, these words
+// ➤ hid inside longer, innocent ones and quietly threw real invitations away:
+// ➤ "curso" sits inside "reCURSOs humanos" and inside "proceso en curso";
+// ➤ "guide" sits inside "guidelines", which is exactly what a company writes
+// ➤ when it attaches joining instructions to a genuine interview invitation.
+// ➤ All three were reproduced, and each time the mail was filed as nothing at
+// ➤ all: the application stayed on "no reply" and was written off two months
+// ➤ later. Missing an interview is the most expensive mistake this file can
+// ➤ make, so anything with the power to cancel one has to match exactly.
+// ➤ Bare "curso" is gone for good — on its own it is ordinary Spanish for
+// ➤ "under way". Only the plural and "curso de" mean a training course.
+export const ADVICE = /\btips\b|\bhow to\b|\bguides?\b|\bprepare for\b|\bconsejos\b|\bcursos\b|\bcurso de\b|\bwebinars?\b|\bblog\b|\barticles?\b|\bnewsletters?\b/;
 
 // ➤ The automated receipt. Almost every ATS sends one, which is why it is by
 // ➤ far the most common outcome in the mailbox.
@@ -147,9 +184,25 @@ export function classifyMessage({ subject = '', snippet = '', body = '', from = 
   // ➤ and every other pattern here would happily read them.
   if (BOUNCED.test(text)) return 'bounced';
 
+  // ➤ A MAILSHOT IS SPOTTED BEFORE ANY MEANING IS READ INTO IT (audit
+  // ➤ 2026-07-31). This test used to sit at the very bottom, where it could
+  // ➤ only ever catch a digest that had already failed to match anything else
+  // ➤ — while the note on ALERT above claimed it kept mailshots from
+  // ➤ "poisoning everything downstream". It did not. A jobs digest carries the
+  // ➤ advertising text of every vacancy it lists, so it says "apply now", "we
+  // ➤ cannot take this further", "invite you for an interview"; reproduced,
+  // ➤ one digest was filed as a rejection and another as an interview, both
+  // ➤ against real applications you had made elsewhere.
+  // ➤ ON THE OPENING ONLY, and that is deliberate. "Unsubscribe" lives in the
+  // ➤ footer of nearly every company mail ever sent, so running this over the
+  // ➤ whole text would throw away genuine replies — the same mistake pointing
+  // ➤ the other way.
+  if (ALERT.test(opening)) return 'alert';
+
   if (saidOutright(REJECTED, text)) return 'rejected';
   if (saidOutright(INTERVIEW, text) && !ADVICE.test(opening)) return 'interview';
   if (ACKNOWLEDGED.test(text)) return 'acknowledged';
+  // ➤ Still a last resort, for a digest that only owns up to what it is further down.
   if (ALERT.test(text)) return 'alert';
   return null;
 }

@@ -77,10 +77,15 @@ function loadApplications() {
     .map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
 }
 
-// ➤ How many messages to look at. Gmail caps a page at 500 and that is several
-// ➤ months of a normal mailbox, which is more than enough: an application older
-// ➤ than that has already told you its answer, one way or another.
-const PAGE = 500;
+// ➤ How many messages the mail run will look at in total. Gmail hands back at
+// ➤ most 500 per page and listMessageIds now walks the pages, so this number is
+// ➤ a real ceiling rather than a page size (audit 2026-07-31). It used to be
+// ➤ both, and that quietly cut the scan short at the first page: the window
+// ➤ starts at your oldest application and only ever grows, Gmail answers
+// ➤ newest-first, so it was the OLDEST messages that fell off the end — the
+// ➤ applications they answered sat on "no reply" for ever, however many
+// ➤ rejections or interview invitations had actually arrived.
+const PAGE = 2000;
 
 async function main() {
   if (!gmailConfigured()) {

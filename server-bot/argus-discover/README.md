@@ -20,7 +20,7 @@ and the fourth watches what is being lost while you decide.
 
 ## The problem they exist for
 
-`config/profile.yml` holds a `positive:` list of the words that make a title
+`portals.yml` holds a `title_filter.positive` list of the words that make a title
 worth looking at — and it is written by hand. It therefore encodes what you
 **already know** to look for. Anything outside it is not rejected; it is never
 seen at all.

@@ -180,6 +180,58 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(c('Update', 'We will let you know whether there is a fit. We would like to invite you for an interview on Monday'),
     'interview', 'a conditional sentence does not silence the one after it');
 
+  // ➤ THE CONDITION CAN NAME YOU INSTEAD OF THEM (audit 2026-07-31). The list
+  // ➤ used to spell out only the company's side — "if we", "if selected",
+  // ➤ "wenn wir" — and missed the commoner phrasing that names the candidate.
+  // ➤ All four of these were reported as real interviews.
+  eq(c('Application received', '', 'Thank you for applying. If you are selected, we will invite you for an interview.'),
+    'acknowledged', 'EN: "if YOU are selected" is a maybe, not an interview');
+  eq(c('Sollicitatie ontvangen', '', 'Bedankt voor je sollicitatie. Als je wordt geselecteerd nodigen we je uit voor een gesprek.'),
+    'acknowledged', 'NL: "als je wordt geselecteerd" is a maybe');
+  eq(c('Ihre Bewerbung', '', 'Vielen Dank für Ihre Bewerbung. Wenn Sie ausgewählt werden, laden wir Sie zu einem Interview ein.'),
+    'acknowledged', 'DE: "wenn Sie ausgewählt werden" is a maybe');
+  eq(c('Solicitud recibida', '', 'Gracias por tu solicitud. Si eres seleccionado te invitaremos a una entrevista.'),
+    'acknowledged', 'ES: "si eres seleccionado" is a maybe');
+  eq(c('We got your application', '', 'Thank you for your application. When you are shortlisted we will invite you to an interview.'),
+    'acknowledged', '"when you are shortlisted" is a maybe too');
+  // ➤ And with no receipt wording at all the honest answer is "not about an
+  // ➤ application" — never an interview.
+  eq(c('Process', '', 'When you are shortlisted we will invite you to an interview.'),
+    null, 'a bare conditional with no receipt wording is nothing, not an invitation');
+
+  // ➤ THE ADVICE GUARD MUST NOT EAT A REAL INVITATION (audit 2026-07-31). It
+  // ➤ was written as bare substrings, so "curso" inside "reCURSOs humanos" and
+  // ➤ "guide" inside "guidelines" cancelled genuine invitations — the message
+  // ➤ then became nothing at all and the application sat on "no reply" until it
+  // ➤ was given up for lost. Losing an interview is the most expensive mistake
+  // ➤ this file can make.
+  eq(c('Entrevista', 'Le escribe el departamento de recursos humanos. Queremos agendar una entrevista el jueves.'),
+    'interview', '"recursos humanos" does not cancel an invitation');
+  eq(c('Proceso', 'Su proceso está en curso. Nos gustaría invitarle a una entrevista la semana que viene.'),
+    'interview', '"en curso" (under way) does not cancel an invitation');
+  eq(c('Interview', 'Please read the attached guidelines. We would like to invite you to an interview on Monday.'),
+    'interview', '"guidelines" does not cancel an invitation');
+  // ➤ And the guard still does its job: real advice about interviews is not one.
+  eq(c('5 tips to prepare for your interview', 'Read our tips on how to prepare for an interview.'),
+    null, 'a newsletter of interview tips is still not an interview');
+  eq(c('Cursos de preparación', 'Nuestros cursos te ayudan a preparar una entrevista.'),
+    null, 'a training-course mailshot is still not an interview');
+
+  // ➤ A MAILSHOT IS READ AS A MAILSHOT FIRST (audit 2026-07-31). The alert test
+  // ➤ used to run last, so it could only catch a digest that matched nothing
+  // ➤ else — while a digest carries the text of the jobs it advertises and
+  // ➤ therefore says "we cannot proceed" and "invite you for an interview".
+  eq(c('New jobs for you', '', 'New roles matching your search at ACME. Apply now. Unfortunately we cannot proceed with some searches. Unsubscribe here.'),
+    'alert', 'a digest quoting a refusal is a digest');
+  eq(c('New jobs for you', '', 'Jobs for you at ACME. Companies invite you for an interview when they like your profile. Apply now. Unsubscribe.'),
+    'alert', 'a digest quoting an invitation is a digest');
+  // ➤ But the footer of a GENUINE reply must not turn it into one: "unsubscribe"
+  // ➤ sits at the bottom of almost every company mail ever sent, which is why
+  // ➤ the early test reads the opening only.
+  eq(c('Invitation to interview', 'We would like to invite you for an interview on Monday.',
+    'We would like to invite you for an interview on Monday. --- To stop receiving these emails, unsubscribe here.'),
+    'interview', 'an "unsubscribe" footer does not turn a real invitation into a mailshot');
+
   // ➤ ── REAL INVITATIONS ──────────────────────────────────────────────────
   // ➤ Not invented. These are the shapes the only genuine interview process in
   // ➤ this mailbox actually took, and they are here because the morning was
@@ -246,6 +298,29 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(t.links.length, 0, 'two roles at one employer are not guessed between');
   eq(t.ties.length, 1, 'the email is reported as a tie');
   eq(t.ties[0].candidates.length, 2, 'with both candidates named, so you can decide');
+
+  // ➤ THE SAME TIE, BUT APPLIED TO ON DIFFERENT DAYS (audit 2026-07-31). This
+  // ➤ is the case the test above could never reach: both applications were half
+  // ➤ an hour apart, so they earned the same date bonus and the totals matched.
+  // ➤ Three weeks apart, the bonuses differ — and the old rule accepted a
+  // ➤ better TOTAL as proof of identity, so a rejection naming only the
+  // ➤ employer was filed against whichever role was applied to more recently.
+  // ➤ Timing cannot say which vacancy an email is about. It never could.
+  const farApart = [
+    { id: 9, company: 'ATEXIS', title: 'Design Engineer', location: 'Madrid', ts: '2026-06-05T09:00:00Z' },
+    { id: 10, company: 'ATEXIS', title: 'Systems Engineer', location: 'Madrid', ts: '2026-06-28T09:00:00Z' },
+  ];
+  const far = linkOutcomes([at('Unfortunately we will not proceed', '"ATEXIS" <noreply@ats.com>', '2026-07-01T12:00:00Z')], farApart);
+  eq(far.links.length, 0, 'a more recent application does not win a rejection');
+  eq(far.ties.length, 1, 'it is still a tie');
+  eq(far.ties[0].candidates.map(x => x.application.id).sort((a, b) => a - b), [9, 10], 'and BOTH roles are named, not just the recent one');
+
+  // ➤ What still resolves it: something that says WHICH role. The title in the
+  // ➤ subject raises one side's identity, and identity is the only thing
+  // ➤ allowed to break the tie.
+  const named = linkOutcomes([at('Your application for the Systems Engineer role', '"ATEXIS" <noreply@ats.com>', '2026-07-01T12:00:00Z')], farApart);
+  eq(named.links.length, 1, 'naming the role does resolve it');
+  eq(named.links[0].application.id, 10, 'and it lands on that role');
 
   // ➤ Mail predating the application cannot be about it.
   const d = linkOutcomes([at('Your application to Van Oord', 'x@y.com', '2026-06-01T12:00:00Z')], apps);
@@ -733,6 +808,28 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
     ok(typeof out === 'string' && out.includes('No applications on record'),
       `a malformed status file is answered, not thrown at: ${JSON.stringify(junk)}`);
   }
+}
+
+// ── 8) No application may fall between the states ───────────────────────
+// ➤ The report knows six states. One in any OTHER state appeared in no section
+// ➤ AND in no count, while the header kept printing the full total — so the
+// ➤ figures silently disagreed and an application was simply not on the screen.
+// ➤ It happened for real: a state was renamed in one file and not the other
+// ➤ (audit 2026-07-31).
+{
+  const base = { applications: [
+    { id: 1, company: 'ACME', title: 'Mooring Engineer', state: 'noreply', ts: '2026-07-01T09:00:00Z' },
+    { id: 2, company: 'BETA', title: 'Survey Engineer', state: 'acknowledged', ts: '2026-07-02T09:00:00Z' },
+  ] };
+  const clean = formatStatus(base);
+  ok(!/unknown state/.test(clean), 'a report with only known states says nothing about unknown ones');
+
+  const odd = { applications: [...base.applications,
+    { id: 3, company: 'GAMMA', title: 'Design Engineer', state: 'waiting', ts: '2026-07-03T09:00:00Z' }] };
+  const txt = formatStatus(odd);
+  ok(/unknown state/.test(txt), 'an application in an unrecognised state is reported, not hidden');
+  ok(/waiting/.test(txt), 'and the state is named so it can be tracked down');
+  ok(/Applications . 3/.test(txt), 'the header still counts it');
 }
 
 if (fail) { console.log(`\n${fail}/${pass + fail} mail tests FAILED.`); process.exit(1); }

@@ -196,11 +196,25 @@ export function linkOutcomes(messages, applications, { margin = 1 } = {}) {
       .sort((x, y) => (y.identity - x.identity) || (y.score - x.score));
 
     if (!ranked.length) { orphans.push(m); continue; }
+    // ➤ IDENTITY ALONE DECIDES WHICH VACANCY (audit 2026-07-31). There used to
+    // ➤ be a third route to "clear": identity level and a better total. But the
+    // ➤ only ingredients of the total that are not identity are the date bonus
+    // ➤ and the city — so when you had two applications at the SAME employer and
+    // ➤ an email that named nothing but the company, the one you applied to most
+    // ➤ recently won on its date bonus, and a rejection was filed against a
+    // ➤ vacancy that had not rejected you. That flatly contradicts what this file
+    // ➤ says twice over: timing corroborates an identity, it never outranks one.
+    // ➤ Level identity is now a TIE, which is the honest answer — the email is
+    // ➤ shown to you and you say which one it was. A gap costs you a question;
+    // ➤ a wrong link costs you the truth.
     const clear = ranked.length === 1
-      || (ranked[0].identity - ranked[1].identity) >= margin
-      || (ranked[0].identity === ranked[1].identity && (ranked[0].score - ranked[1].score) >= margin);
+      || (ranked[0].identity - ranked[1].identity) >= margin;
     if (!clear) {
-      const tied = ranked.filter(r => r.identity === ranked[0].identity && r.score === ranked[0].score);
+      // ➤ The tie list is built on identity too, for the same reason. Demanding
+      // ➤ an equal total as well would drop every candidate whose date bonus
+      // ➤ happened to differ, so the bot would announce a tie and then name only
+      // ➤ one side of it — which reads exactly like a decision it did not make.
+      const tied = ranked.filter(r => r.identity === ranked[0].identity);
       // ➤ A BOUNCE IS THE ONE THING THAT LINKS TO ALL OF THEM. Every other kind
       // ➤ of message is about ONE vacancy, so guessing between two would put a
       // ➤ rejection on the wrong job. A bounce is not about a vacancy at all —

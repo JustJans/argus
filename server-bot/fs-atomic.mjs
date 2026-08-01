@@ -2,7 +2,7 @@
 // ➤ pending list and the judges' journal. writeFileSync killed halfway leaves
 // ➤ them truncated; writing aside and renaming does not, a rename being atomic.
 
-import { writeFileSync, renameSync, mkdirSync, rmdirSync, statSync } from 'fs';
+import { writeFileSync, renameSync, mkdirSync, rmdirSync, statSync, unlinkSync } from 'fs';
 import { randomBytes } from 'crypto';
 
 // ➤ The scratch name to write to before renaming. UNIQUE per write (audit
@@ -20,10 +20,24 @@ export function tempNameFor(path) {
 // ➤ it leaves behind: a plain writeFileSync to the target passes any test that
 // ➤ checks the final content, which is exactly how a rewrite could quietly
 // ➤ remove the protection this file exists to give.
-export function writeFileAtomic(path, data, encoding = 'utf-8', io = { writeFileSync, renameSync }) {
+export function writeFileAtomic(path, data, encoding = 'utf-8', io = { writeFileSync, renameSync, unlinkSync }) {
   const tmp = tempNameFor(path);
-  io.writeFileSync(tmp, data, encoding);
-  io.renameSync(tmp, path);
+  try {
+    io.writeFileSync(tmp, data, encoding);
+    io.renameSync(tmp, path);
+  } catch (err) {
+    // ➤ SWEEP UP THE SCRATCH FILE WHEN THE WRITE FAILS (audit 2026-07-31). Your
+    // ➤ real file is safe whatever happens — that is the whole point of writing
+    // ➤ aside first — but until now a failed write abandoned its scratch file,
+    // ➤ and nothing anywhere in the project ever deleted one. Provoked in
+    // ➤ testing: three kills between the write and the rename left three orphans
+    // ➤ sitting in the data folder; a full disk left one behind per attempt. So
+    // ➤ the litter piled up hardest exactly when the disk was already full.
+    // ➤ The error is re-thrown untouched: tidying up must not hide the failure
+    // ➤ from the caller.
+    try { (io.unlinkSync || unlinkSync)(tmp); } catch { /* never got created, or already gone */ }
+    throw err;
+  }
 }
 
 // ➤ ── READ, DECIDE, WRITE — WITHOUT LOSING SOMEBODY ELSE'S WORK ───────────

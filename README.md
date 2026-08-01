@@ -322,7 +322,7 @@ The engine lives in `server-bot/`:
 Every part can be run by hand, and each one prints why it failed:
 
 ```bash
-npm test                                    # 1106 tests; run this first
+npm test                                    # 1250 tests; run this first
 node server-bot/scan.mjs --dry-run          # scan without writing or notifying
 node server-bot/scan.mjs --explain          # why each offer was dropped → data/scan-explain.txt
 node server-bot/telegram-listener.mjs       # process pending commands once
@@ -349,7 +349,8 @@ wrong is knowingly left alone. Both are written down, with the reasoning, in
 
 - **Secrets** (Telegram/Claude tokens, API keys) and **activity data** (offers,
   applications, feedback) are NOT in the repository.
-- Everything is plain Node with two dependencies (`js-yaml`, `playwright`), no
+- Everything is plain Node with three dependencies (`js-yaml`, `playwright`,
+  `html-to-text`), no
   database and no service to sign up for beyond the portals themselves.
 - The scan costs zero AI tokens: it is HTTP and JSON. Only `cover N` and the
   optional Council call a model.

@@ -213,25 +213,46 @@ function detectApi(company) {
 // ➤ "translator" functions convert each portal's response into the
 // ➤ same common format: title, link, company and location.
 
-function parseGreenhouse(json, name) {
+// ➤ THE ADVERT TEXT COMES ACROSS TOO (audit 2026-07-31). These three parsers
+// ➤ kept only the title, link, company and place, so fetchOfferDescription had
+// ➤ nothing to hand back and the years, the degree and the body-language screens
+// ➤ all ran against an empty body — every offer from these boards walked
+// ➤ straight through, unread. All three send the text along with the list, so
+// ➤ reading it costs no extra request. Greenhouse only includes it when the URL
+// ➤ asks for it, which is done in greenhouseUrlWithContent below.
+export function parseGreenhouse(json, name) {
   return (json.jobs || []).map(j => ({
     title: j.title || '', url: j.absolute_url || '', company: name,
     location: j.location?.name || '',
+    description: j.content || '',
   }));
 }
-function parseAshby(json, name) {
+export function parseAshby(json, name) {
   return (json.jobs || []).map(j => ({
     title: j.title || '', url: j.jobUrl || '', company: name,
     location: j.location || '',
+    description: j.descriptionHtml || j.descriptionPlain || '',
   }));
 }
-function parseLever(json, name) {
+export function parseLever(json, name) {
   if (!Array.isArray(json)) return [];
   return json.map(j => ({
     title: j.text || '', url: j.hostedUrl || '', company: name,
     location: j.categories?.location || '',
+    description: j.descriptionPlain || j.description || '',
   }));
 }
+
+// ➤ Greenhouse leaves the advert text out unless the URL asks for it. Adding the
+// ➤ flag here rather than in portals.yml means it cannot be forgotten when a
+// ➤ board is added, and re-adding it to a URL that already carries it does
+// ➤ nothing.
+export function greenhouseUrlWithContent(url) {
+  const u = String(url || '');
+  if (!u || /[?&]content=true\b/.test(u)) return u;
+  return u + (u.includes('?') ? '&' : '?') + 'content=true';
+}
+
 // ➤ Workday translator. Important detail: when an offer says
 // ➤ "2 Locations" (several locations without saying which), the
 // ➤ location is left empty so as not to discard it by mistake; further below there is a step
@@ -280,6 +301,9 @@ const PARSERS = { greenhouse: parseGreenhouse, ashby: parseAshby, lever: parseLe
 // ➤ pages at most, so as not to request endless old offers.
 const WORKDAY_PAGE = 20;          // Workday returns 20 per page
 const WORKDAY_MAX_PER_TERM = 60;  // cap pages per search term (3 pages)
+// (see the dispatch below) The most postings one employer may contribute in a
+// single run. Well above any real board, so it never touches normal traffic.
+const MAX_JOBS_PER_COMPANY = 500;
 const ORACLE_PAGE = 50;           // Oracle finder page size
 const ORACLE_MAX = 150;           // 3 pages, newest first
 
@@ -329,6 +353,12 @@ async function fetchJsonRetry(url, opts = {}, tries = 3) {
 async function collectWorkday(api, name, searchTerms) {
   const terms = searchTerms.length ? searchTerms : [''];
   const byUrl = new Map();
+  // ➤ DID THIS BOARD ANSWER AT ALL? (audit 2026-07-31) Every request error used
+  // ➤ to be swallowed and an empty list returned, so a board that could not be
+  // ➤ reached looked exactly like one with no matching jobs. Measured with the
+  // ➤ network cut: nine boards reported as scanned, five errors, and seven
+  // ➤ failures invisible — the run read as an ordinary quiet one.
+  let answered = false, lastError = null;
   for (const term of terms) {
     for (let offset = 0; offset < WORKDAY_MAX_PER_TERM; offset += WORKDAY_PAGE) {
       let json;
@@ -338,7 +368,9 @@ async function collectWorkday(api, name, searchTerms) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ appliedFacets: {}, limit: WORKDAY_PAGE, offset, searchText: term }),
         });
-      } catch {
+        answered = true;
+      } catch (err) {
+        lastError = err;
         break; // move to next term on error
       }
       const jobs = parseWorkday(json, name, api.meta);
@@ -346,6 +378,9 @@ async function collectWorkday(api, name, searchTerms) {
       if (offset + WORKDAY_PAGE >= (json.total || 0)) break; // no more pages
     }
   }
+  // ➤ One good answer is enough: a board really can have nothing today. Not a
+  // ➤ single one is a failure, and the caller records it like any other.
+  if (!answered) throw lastError || new Error('no response from the board');
   return [...byUrl.values()];
 }
 
@@ -354,18 +389,22 @@ async function collectWorkday(api, name, searchTerms) {
 async function collectOracle(api, name) {
   const { host, site } = api.meta;
   const byUrl = new Map();
+  let answered = false, lastError = null;
   for (let offset = 0; offset < ORACLE_MAX; offset += ORACLE_PAGE) {
     const url = `https://${host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions`
       + `?onlyData=true&expand=requisitionList`
       + `&finder=findReqs;siteNumber=${site},limit=${ORACLE_PAGE},offset=${offset},sortBy=POSTING_DATES_DESC`;
     let json;
-    try { json = await fetchJson(url); } catch { break; }
+    // ➤ Same as Workday above (audit 2026-07-31): a board that never answered is
+    // ➤ a failure to report, not an employer with nothing on offer.
+    try { json = await fetchJson(url); answered = true; } catch (err) { lastError = err; break; }
     const jobs = parseOracle(json, name, api.meta);
     if (jobs.length === 0) break;
     for (const j of jobs) if (j.url) byUrl.set(j.url, j);
     const total = json.items?.[0]?.TotalJobsCount || 0;
     if (offset + ORACLE_PAGE >= total) break;
   }
+  if (!answered) throw lastError || new Error('no response from the board');
   return [...byUrl.values()];
 }
 
@@ -534,14 +573,26 @@ export function parseLinkedInCards(html) {
     if (!id) continue;
     // ➤ These three lines extract title, company and location by looking for
     // ➤ the tags LinkedIn uses to mark each piece of data on the page.
-    const title = c.match(/base-search-card__title[^>]*>\s*([^<]+)/)?.[1]?.trim() || '';
-    const company = c.match(/base-search-card__subtitle[^>]*>\s*<a[^>]*>\s*([^<]+)/)?.[1]?.trim()
-      || c.match(/base-search-card__subtitle[^>]*>\s*([^<]+)/)?.[1]?.trim() || 'LinkedIn';
-    const location = c.match(/job-search-card__location[^>]*>\s*([^<]+)/)?.[1]?.trim() || '';
+    // ➤ THE "REST OF THE TAG" PART IS BOUNDED (audit 2026-07-31). It used to be
+    // ➤ "anything that is not a >", which happily runs across the rest of the
+    // ➤ document looking for a closing bracket that a malformed or hostile page
+    // ➤ simply never provides — and then backtracks over all of it, once per
+    // ➤ card. Measured on a page built to provoke it: 43 seconds for 500 KB, and
+    // ➤ the whole scan sits there waiting. Forbidding "<" as well means the
+    // ➤ search cannot leave the tag it started in, so a bad page costs a missed
+    // ➤ field instead of the run. Real LinkedIn markup matches exactly as before.
+    const title = c.match(/base-search-card__title[^<>]*>\s*([^<]+)/)?.[1]?.trim() || '';
+    const company = c.match(/base-search-card__subtitle[^<>]*>\s*<a[^<>]*>\s*([^<]+)/)?.[1]?.trim()
+      || c.match(/base-search-card__subtitle[^<>]*>\s*([^<]+)/)?.[1]?.trim() || 'LinkedIn';
+    const location = c.match(/job-search-card__location[^<>]*>\s*([^<]+)/)?.[1]?.trim() || '';
     out.push({ id, title, company, location, url: `https://www.linkedin.com/jobs/view/${id}` });
   }
   return out;
 }
+
+// ➤ How long LinkedIn is left alone after it answers 429. Named, because it is
+// ➤ now used twice: once to set the pause and once to sanity-check it.
+const LINKEDIN_COOLDOWN_MS = 24 * 3600_000;
 
 // ➤ Queries LinkedIn respecting its limits: first it checks whether it's time
 // ➤ to rest (24h penalty, or the hours between queries haven't
@@ -553,6 +604,16 @@ async function collectLinkedIn(cfg) {
     : {};
   const now = Date.now();
   // ➤ Are we in a penalty period for having received a "429"? Wait.
+  // ➤ A COOLDOWN CANNOT BE LONGER THAN A COOLDOWN (audit 2026-07-31). The rest
+  // ➤ is stored as an absolute moment, so one excursion of the machine's clock —
+  // ➤ a dead battery, a bad time sync — writes a date months away, and after
+  // ➤ that LinkedIn stays switched off until then with nothing said anywhere.
+  // ➤ Anything further ahead than the cooldown length is not a cooldown, it is a
+  // ➤ wrong clock, so it is ignored and said out loud.
+  if (state.cooldown_until && state.cooldown_until - now > LINKEDIN_COOLDOWN_MS) {
+    console.log('  ! LinkedIn cooldown is dated far in the future (a clock problem?) — ignoring it.');
+    state.cooldown_until = 0;
+  }
   if (state.cooldown_until && now < state.cooldown_until) {
     return { offers: [], calls: 0, status: `cooldown until ${new Date(state.cooldown_until).toISOString().slice(0, 16)}` };
   }
@@ -597,7 +658,7 @@ async function collectLinkedIn(cfg) {
   // ➤ Records when it was queried and, if LinkedIn complained, schedules
   // ➤ the 24-hour rest for the next scan.
   const newState = { last_run: now };
-  if (rateLimited) newState.cooldown_until = now + 24 * 3600_000;
+  if (rateLimited) newState.cooldown_until = now + LINKEDIN_COOLDOWN_MS;
   // ➤ --dry-run must touch NO file (audit 2026-07-25): this one slipped through
   // ➤ and a dry run silently moved the LinkedIn cursor forward.
   if (!process.argv.includes('--dry-run')) writeFileSync(LI_STATE_PATH, JSON.stringify(newState), 'utf-8');
@@ -947,6 +1008,17 @@ export async function detectTitleLang(title) {
 // ➤ The details below avoid real mistakes that already happened: "GIS"
 // ➤ matching inside "Logistiek", or "Intern" blocking "International".
 
+// ➤ HOW A WORD IS COMPARED: lower case AND without accents, on both sides.
+// ➤ The accents are the point. A French job board writes "Electromécanicien
+// ➤ Naval" while a veto list says "Électromécanicien" — the same word, but a
+// ➤ different first letter as far as a computer is concerned, so the offer walks
+// ➤ straight past the rule. The usual patch is to add both spellings by hand,
+// ➤ once per word, for ever. Folding here fixes the whole class at once,
+// ➤ including the words nobody has hit yet.
+// ➤ It must be used on BOTH the list term and the text being tested, or accented
+// ➤ terms stop matching accented text and the filter quietly opens instead.
+export const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
 // ➤ Builds the search pattern of a "bounded" word: it requires
 // ➤ the word to appear whole, not hidden inside another. If the word
 // ➤ starts with "*", it counts as the end of a compound word (useful in Dutch
@@ -958,8 +1030,9 @@ function boundaryRegex(term, optionalPlural) {
   // forms: Technikerin, Projektmanagerin.
   const suffixMode = term.startsWith('*');
   const raw = suffixMode ? term.slice(1) : term;
-  // ➤ Escapes special symbols so they're searched literally.
-  const esc = raw.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // ➤ Escapes special symbols so they're searched literally. Folded first, so
+  // ➤ the pattern is accent-free and only ever meets accent-free text.
+  const esc = norm(raw).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const lead = (!suffixMode && /^\w/.test(raw)) ? '\\b' : '';
   // ➤ Optionally allows the plural and the German female forms
   // ➤ (Technikerin, Projektmanagerinnen) without opening the door to other words.
@@ -979,8 +1052,8 @@ const ACRONYM = /^[A-Z0-9.&-]{2,6}$/; // GIS, PLC, SCADA, FPSO, ROV...
 // ➤ true if the company PASSES; .explain() says which term blocked it (--explain).
 export function buildCompanyFilter(cf) {
   const vetoes = (cf?.blocked || []).map(t => ({ label: String(t), re: boundaryRegex(String(t), false) }));
-  const fn = (company) => !vetoes.some(v => v.re.test(String(company || '')));
-  fn.explain = (company) => vetoes.find(v => v.re.test(String(company || '')))?.label || null;
+  const fn = (company) => !vetoes.some(v => v.re.test(norm(company)));
+  fn.explain = (company) => vetoes.find(v => v.re.test(norm(company)))?.label || null;
   return fn;
 }
 
@@ -992,7 +1065,7 @@ export function buildTitleFilter(tf) {
       const re = boundaryRegex(term, false);
       return (s) => re.test(s);
     }
-    const k = term.toLowerCase();
+    const k = norm(term);
     return (s) => s.includes(k);
   });
   // ➤ Negatives take two shapes in the YAML: a plain "Term" blocks always,
@@ -1015,7 +1088,7 @@ export function buildTitleFilter(tf) {
     return { label: String(t), test: (s) => re.test(s) };
   });
   const fn = (title) => {
-    const lower = String(title || '').toLowerCase();
+    const lower = norm(title);
     const hasPos = positives.length === 0 || positives.some(p => p(lower));
     if (!hasPos) return false;
     return !negatives.some(neg => neg.test(lower));
@@ -1024,7 +1097,7 @@ export function buildTitleFilter(tf) {
   // ➤ for the discard as text (for the "why each offer was discarded" list,
   // ➤ --explain mode). If the offer passes the title, it returns null.
   fn.explain = (title) => {
-    const lower = String(title || '').toLowerCase();
+    const lower = norm(title);
     const hasPos = positives.length === 0 || positives.some(p => p(lower));
     if (!hasPos) return 'the title has no keyword from your field';
     const hit = negatives.find(neg => neg.test(lower));
@@ -1051,7 +1124,7 @@ function buildBlockMatcher(blockTerms) {
   });
   return (text) => {
     if (!text) return false;
-    const lower = text.toLowerCase();
+    const lower = norm(text);
     return matchers.some(m => m(lower));
   };
 }
@@ -1061,13 +1134,13 @@ function buildBlockMatcher(blockTerms) {
 // ➤ An empty location always passes (it'll be resolved later).
 export function buildLocationFilter(lf) {
   if (!lf) return Object.assign(() => true, { blockHit: () => false });
-  const allow = (lf.allow || []).map(k => k.toLowerCase());
+  const allow = (lf.allow || []).map(norm);
   const blockHit = buildBlockMatcher(lf.block);
   const fn = (loc) => {
     if (!loc) return true;
     if (blockHit(loc)) return false;
     if (allow.length === 0) return true;
-    const lower = loc.toLowerCase();
+    const lower = norm(loc);
     return allow.some(k => lower.includes(k));
   };
   // ➤ The blocked-country detector is exposed separately so it can also be
@@ -1084,7 +1157,10 @@ export function buildLocationFilter(lf) {
 // ➤ file by hand) and builds the filter: if an offer mentions a country that's
 // ➤ off (or one of its aliases, like "Deutschland" for Germany),
 // ➤ it's discarded.
-function buildCountryFilter() {
+// ➤ EXPORTED so a test can reach it (audit 2026-07-31). It was a local, and the
+// ➤ accent bug below — every accented alias silently ignored — lived here for as
+// ➤ long as it did precisely because nothing could call it.
+export function buildCountryFilter() {
   if (!existsSync(COUNTRIES_PATH)) return { fn: () => true, off: [] };
   const cfg = parseYaml(readFileSync(COUNTRIES_PATH, 'utf-8')) || {};
   const countries = cfg.countries || {};
@@ -1106,7 +1182,15 @@ function buildCountryFilter() {
     fn: (loc) => {
       if (!loc) return true;
       for (const country of off) {
-        if ((matchers.get(country) || []).some(re => re.test(loc))) return false;
+        // ➤ FOLD THE TEXT TOO (audit 2026-07-31). boundaryRegex folds the TERM —
+        // ➤ "Zürich" becomes "zurich" — so testing it against the raw location
+        // ➤ could never match the accented spelling, and every accented alias in
+        // ➤ countries.yml was dead: "Zurich" was correctly dropped while
+        // ➤ "Zürich" walked through the gate. Every sibling matcher in this file
+        // ➤ folds both sides, and the note above boundaryRegex says so in as
+        // ➤ many words. Measured on real scan history with one country switched
+        // ➤ off, 110 of its 141 locations leaked through this rule.
+        if ((matchers.get(country) || []).some(re => re.test(norm(loc)))) return false;
       }
       return true;
     },
@@ -1295,11 +1379,37 @@ function appendToPipelineLocked(offers) {
 // ➤ data/last-id.json simply holds the biggest #id ever assigned. It exists
 // ➤ because pipeline.md (where the ids live) has lines DELETED from it.
 const LAST_ID_PATH = join(ROOT, 'data', 'last-id.json');
-function loadIdHighWater() {
+// ➤ The highest offer number ever handed out. Reading it is deliberately
+// ➤ paranoid, because getting it wrong gives two different jobs the same number:
+// ➤ answering "no 412" from an older message would then hit the wrong one, and
+// ➤ the rejection history would mix them up.
+// ➤ IT NO LONGER TRUSTS ONE FILE (audit 2026-07-31). If data/last-id.json is
+// ➤ lost or corrupt it used to fall back to zero, leaving the pipeline — a file
+// ➤ housekeep DELETES from — as the only source, so the counter walked backwards
+// ➤ over every number whose line had been removed. Provoked: deleting the
+// ➤ counter and the top lines handed #4 to a second, different job.
+// ➤ So it also reads every other place a number was ever written down. Those
+// ➤ files are append-only records, which makes them a floor the counter can
+// ➤ never fall below.
+// ➤ The paths are arguments so a test can prove this on files of its own, never
+// ➤ on yours.
+export function loadIdHighWater(counterPath = LAST_ID_PATH, recordPaths = [join(ROOT, 'data', 'applications.jsonl'), join(SCRIPT_DIR, 'feedback.jsonl')]) {
+  let mark = 0;
   try {
-    const n = JSON.parse(readFileSync(LAST_ID_PATH, 'utf-8'))?.lastId;
-    return Number.isInteger(n) && n > 0 ? n : 0;
-  } catch { return 0; }        // no file yet → the pipeline itself decides
+    const n = JSON.parse(readFileSync(counterPath, 'utf-8'))?.lastId;
+    if (Number.isInteger(n) && n > 0) mark = n;
+  } catch { /* missing or corrupt: the records below still know */ }
+  // ➤ The applications you sent, and the offers you rejected with a reason. Both
+  // ➤ are only ever appended to, so nothing here can shrink.
+  for (const p of recordPaths) {
+    try {
+      for (const line of readFileSync(p, 'utf-8').split('\n')) {
+        if (!line.trim()) continue;
+        try { const id = JSON.parse(line)?.id; if (Number.isInteger(id) && id > mark) mark = id; } catch { /* corrupt line */ }
+      }
+    } catch { /* no such record yet */ }
+  }
+  return mark;
 }
 function saveIdHighWater(n) {
   if (!Number.isInteger(n) || n <= 0) return;
@@ -1534,6 +1644,9 @@ async function main() {
 
   // ➤ Prepares one task per company: each queries its portal with the
   // ➤ right recipe and passes its offers through the entry gate.
+  // ➤ How many sources answered at all. Used at the end to tell "a quiet week"
+  // ➤ from "nothing could be reached", which look identical otherwise.
+  let sourcesOk = 0;
   const tasks = targets.map(c => async () => {
     try {
       let jobs;
@@ -1542,9 +1655,23 @@ async function main() {
       } else if (c._api.type === 'oracle') {
         jobs = await collectOracle(c._api, c.name);
       } else {
-        const json = await fetchJson(c._api.url);
+        // ➤ Greenhouse withholds the advert text unless asked; see above.
+        const url = c._api.type === 'greenhouse' ? greenhouseUrlWithContent(c._api.url) : c._api.url;
+        const json = await fetchJson(url);
         jobs = PARSERS[c._api.type](json, c.name);
       }
+      // ➤ A CEILING ON WHAT ONE EMPLOYER CAN ADD IN ONE RUN (audit 2026-07-31).
+      // ➤ Workday and Oracle already had one; Greenhouse, Lever and Ashby took
+      // ➤ whatever the feed said. Provoked with a feed answering 20,000
+      // ➤ postings: all 20,000 went into the pending list — a 2.2 MB file and,
+      // ➤ with Telegram on, about 450 messages over nine minutes. The cap sits
+      // ➤ far above any real board, so it only ever fires on a broken or hostile
+      // ➤ feed, and it SAYS SO rather than truncating in silence.
+      if (jobs.length > MAX_JOBS_PER_COMPANY) {
+        console.log(`  ! ${c.name} returned ${jobs.length} postings; reading the first ${MAX_JOBS_PER_COMPANY}. That is not a normal board — check the feed.`);
+        jobs = jobs.slice(0, MAX_JOBS_PER_COMPANY);
+      }
+      sourcesOk++;
       found += jobs.length;
       for (const job of jobs) admit(job, `${c._api.type}-api`);
     } catch (err) {
@@ -1797,7 +1924,14 @@ async function main() {
       try {
         const { refreshList } = await import(new URL('./live-list.mjs', import.meta.url));
         const n = await refreshList({ alert: true });
-        telegram = n == null ? 'not-configured' : 'sent';
+        // ➤ THREE DIFFERENT ANSWERS, not two (audit 2026-07-31). refreshList
+        // ➤ returns null when Telegram is not set up and false when the send
+        // ➤ FAILED, and both used to be written down as "not-configured": the
+        // ➤ summary a human reads said the bot was not set up when it was, while
+        // ➤ the new offers had already been written to the pending list and to
+        // ➤ the anti-repeat history — so they could never be offered again, and
+        // ➤ you were never told about them once.
+        telegram = n === null ? 'not-configured' : n === false ? 'SEND FAILED' : 'sent';
       } catch (e) {
         telegram = 'error';
         console.log('Live list refresh failed:', e.message);
@@ -1871,6 +2005,37 @@ async function main() {
   if (errors.length) {
     console.log(`\nErrors (${errors.length}):`);
     for (const e of errors) console.log(`  ✗ ${e.company}: ${e.error}`);
+  }
+
+  // ➤ ── SAY WHEN THE RUN DID NOTHING AT ALL ────────────────────────────────
+  // ➤ (audit 2026-07-31) Argus's normal failure is to find nothing, which looks
+  // ➤ exactly like a quiet week. Three different breakages produced a clean exit
+  // ➤ and total silence: no network (every source failed), a config that parses
+  // ➤ but selects no sources, and a config that lists sources none of which
+  // ➤ answered. The scan wrote down the error count and NOTHING read it.
+  // ➤ These lines cost nothing when all is well and are the difference between
+  // ➤ "no new jobs this week" and "the bot has been dead since Tuesday".
+  const anySourceConfigured = targets.length > 0 || adzunaWanted || liCfg.enabled;
+  const nothingToScan = !anySourceConfigured;
+  const everythingFailed = anySourceConfigured && sourcesOk === 0 && adzunaCalls === 0 && liCalls === 0 && errors.length > 0;
+  if (nothingToScan) {
+    console.log('\n! NOTHING WAS SEARCHED. No employer, no aggregator and no LinkedIn are switched on —');
+    console.log('  portals.yml and config/profile.yml between them select no sources at all.');
+    console.log('  This run did nothing, and so will every run until that is changed.');
+  } else if (everythingFailed) {
+    console.log(`\n! EVERY SOURCE FAILED — not one of them answered (${errors.length} error(s)).`);
+    console.log('  That is a network or configuration problem, not a quiet week: no offer could');
+    console.log('  have been found today whatever was published.');
+  }
+  // ➤ And say it where you would actually see it, not only in a log file nobody
+  // ➤ opens. Once per run, and never on a dry run.
+  if ((nothingToScan || everythingFailed) && !dryRun && !process.env.ARGUS_SKIP_LIST_REFRESH) {
+    try {
+      const { sendTelegram } = await import(new URL('./notify.mjs', import.meta.url));
+      await sendTelegram(nothingToScan
+        ? 'Argus searched nothing this run: no employer, aggregator or LinkedIn is switched on. Nothing will arrive until that is fixed.'
+        : `Argus could not reach a single source this run (${errors.length} error(s)). That is a network or configuration problem, not a quiet week.`);
+    } catch { /* if Telegram is down too, the log above is what is left */ }
   }
   if (newOffers.length) {
     console.log('\nNew offers:');
