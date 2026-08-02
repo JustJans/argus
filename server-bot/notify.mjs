@@ -85,7 +85,12 @@ const HOME_GROUP = HOME_CITY.toUpperCase();
 
 // ➤ Order in which the country groups appear in the Telegram message: home city
 // ➤ first, then your countries in priority order, then the catch-all groups.
-const GROUP_ORDER = [HOME_GROUP, ..._COUNTRIES.map(c => c.label), 'REMOTE', 'OTHER', 'NO LOCATION'];
+// ➤ DE-DUPLICATED, because the list is walked to build the message and a label
+// ➤ appearing twice sends its offers twice. The onboarding offers "Remote" as a
+// ➤ country to tick, so anyone who ticks it gets REMOTE from their own list AND
+// ➤ the fixed one below. A home city named like one of the countries would do
+// ➤ the same.
+const GROUP_ORDER = [...new Set([HOME_GROUP, ..._COUNTRIES.map(c => c.label), 'REMOTE', 'OTHER', 'NO LOCATION'])];
 
 // ➤ From the English country name (as it arrives from the job portals) to the
 // ➤ group label shown in the message.

@@ -841,6 +841,20 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   };
   const p = yaml.load(buildProfileYaml(accountant)).search;
   ok(Array.isArray(p.queries) && p.queries.length > 0, 'the profile carries its own search queries');
+
+  // ➤ TICKING "REMOTE" MUST NOT SEND EVERY REMOTE OFFER TWICE. The onboarding
+  // ➤ offers it as a country, so it lands in the user's country list AND in the
+  // ➤ fixed group order the message is built from — and that list is walked, so
+  // ➤ a label in it twice emits its offers twice.
+  {
+    const remoto = yaml.load(buildProfileYaml({ ...accountant, countries: ['Germany', 'Remote'] })).search;
+    const labels = remoto.countries.map(c => c.label);
+    const order = [...new Set(['BERLIN', ...labels, 'REMOTE', 'OTHER', 'NO LOCATION'])];
+    eq(order.filter(x => x === 'REMOTE').length, 1, 'onboarding: REMOTE appears once in the group order');
+    // ➤ And the allowed places do not carry the same word twice in two cases.
+    const bajas = remoto.locations.allow.map(x => String(x).toLowerCase());
+    eq(bajas.length, new Set(bajas).size, 'onboarding: no place is listed twice');
+  }
   ok(p.queries.includes('financial accountant'), 'the queries are built from the roles');
   ok(p.queries.includes('accounting'), 'the queries also include the fields');
   ok(!p.queries.some(q => /offshore|marine|mooring/.test(q)), 'no marine term leaks into a non-marine search');
