@@ -25,7 +25,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
-import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, roleKey, parseLinkedInCards, titleDemandsForeignLanguage, bodyLanguageBlock, pipelineRoleKey, hasApplySignal, overrideDeadIfApply, formatSalary, normUrl } from './scan.mjs';
+import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, roleKey, slugTitle, parseJobPostingLd, parseLinkedInCards, titleDemandsForeignLanguage, bodyLanguageBlock, pipelineRoleKey, hasApplySignal, overrideDeadIfApply, formatSalary, normUrl } from './scan.mjs';
 import { offerAffinity } from './notify.mjs';
 import { extractRequiredYears, stripHtml, experienceScreen, extractAdzunaJd, degreeScreen } from './requirements.mjs';
 
@@ -930,6 +930,59 @@ for (const [name, ok] of COMPANY) {
   // ➤ A non-acronym positive stays a plain substring, which is what makes
   // ➤ "engineer" match "engineering".
   check(t('Engineering Manager'), 'a normal keyword still matches inside a longer word', 'Engineering');
+}
+
+// ➤ ── A WAY OF WORKING IS NOT A PLACE ────────────────────────────────────
+// ➤ "Hybrid" sat in the list of allowed PLACES, so "Nationwide, Hybrid, US"
+// ➤ cleared the geography gate on the strength of that one word — and hybrid
+// ➤ means the opposite: you have to be near that office, so the country matters
+// ➤ more, not less. Run against the live config, because the hole was in the
+// ➤ config and a fixture of my own would not have found it.
+{
+  check(!location('Nationwide, Hybrid, US'), 'a US hybrid job does not pass as a place', 'US hybrid');
+  check(!location('Remote, United States'), 'nor does a US remote one', 'US remote');
+  check(location('Rotterdam (Hybrid)'), 'while a hybrid job in an allowed city still does', 'Rotterdam hybrid');
+  check(location('Madrid, Hybrid'), 'and so does one in Madrid', 'Madrid hybrid');
+  // ➤ "Remote" on its own stays allowed: a remote role may genuinely be doable
+  // ➤ from here, and a false drop costs an offer while a false keep costs a tap.
+  check(location('Remote'), 'a plain remote job is still worth showing', 'Remote');
+}
+
+// ➤ ── CAREERS SITES WITH NO API AT ALL ───────────────────────────────────
+// ➤ Van Oord and Boskalis run theirs in the browser, so a fetch gets an empty
+// ➤ shell — and both are on the tracked list. Their sitemaps name every vacancy
+// ➤ and each vacancy page carries a schema.org JobPosting block.
+{
+  // ➤ The slug is what the title filter reads, so that only the handful of
+  // ➤ relevant pages are ever downloaded. It has to survive the id on the end.
+  check(slugTitle('https://careers.vanoord.com/vacancies/production-automation-system-engineer-rotterdam-2807en')
+    === 'production automation system engineer rotterdam', 'sitemap: the slug gives up the title', 'van oord');
+  check(slugTitle('https://careers.boskalis.com/vacancy/2361/projectleider-wegenbouw')
+    === 'projectleider wegenbouw', 'sitemap: and does so with the id in front too', 'boskalis');
+  check(slugTitle('https://x.com/vacancies/mooring-engineer/?utm=1') === 'mooring engineer',
+    'sitemap: a trailing slash and a tracking tail are not part of the title', 'tail');
+  check(slugTitle('') === '' && slugTitle(null) === '', 'sitemap: no url, no title, no crash', 'empty');
+
+  const page = `<html><head>
+    <script type="application/ld+json">{"@type":"Organization","name":"Van Oord"}</script>
+    <script type="application/ld+json">{"@type":"JobPosting","title":"Lifting Supervisor Offshore Wind",
+      "description":"<p>Rigging &amp; <b>lifting</b> plans.</p>",
+      "jobLocation":[{"@type":"Place","address":{"addressLocality":"Rotterdam","addressCountry":"NL"}}]}</script>
+    </head></html>`;
+  const job = parseJobPostingLd(page, 'https://careers.vanoord.com/vacancies/x-1', 'Van Oord');
+  check(job.title === 'Lifting Supervisor Offshore Wind', 'sitemap: the vacancy block is the one read, not the company one', job.title);
+  check(job.location === 'Rotterdam, NL', 'sitemap: where', job.location);
+  check(/lifting plans/.test(job._jd) && !/<b>|&amp;/.test(job._jd),
+    'sitemap: the advert comes through as plain text', job._jd);
+  check(job.company === 'Van Oord', 'sitemap: the employer is the one being scanned, never one the page names', job.company);
+
+  // ➤ A page that stops publishing the block must go quiet, not fill the list
+  // ➤ with blank offers.
+  check(parseJobPostingLd('<html>nothing here</html>', 'u', 'X') === null, 'sitemap: no block, no offer', 'null');
+  check(parseJobPostingLd('<script type="application/ld+json">{oops</script>', 'u', 'X') === null,
+    'sitemap: broken JSON is skipped, not thrown', 'null');
+  check(parseJobPostingLd('<script type="application/ld+json">{"@type":"JobPosting"}</script>', 'u', 'X') === null,
+    'sitemap: a block with no title is not an offer', 'null');
 }
 
 // ➤ Final tally: reports the result and returns an exit code (0 = all good)

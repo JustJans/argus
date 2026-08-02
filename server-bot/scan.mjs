@@ -183,6 +183,13 @@ function detectApi(company) {
     return { type: 'greenhouse', url: company.api };
   }
 
+  // ➤ A careers site with no API, read through its sitemap. The exact sitemap is
+  // ➤ named in the config rather than guessed: Boskalis splits its into one file
+  // ➤ per kind of page, and following an index would be code guessing which.
+  if (company.sitemap?.url && company.sitemap?.match) {
+    return { type: 'sitemap', url: company.sitemap.url, meta: { match: company.sitemap.match } };
+  }
+
   const url = company.careers_url || '';
 
   // ➤ Checks whether the company's careers site is the "Ashby" type
@@ -333,7 +340,12 @@ const WORKDAY_PAGE = 20;          // Workday returns 20 per page
 const WORKDAY_MAX_PER_TERM = 60;  // cap pages per search term (3 pages)
 // (see the dispatch below) The most postings one employer may contribute in a
 // single run. Well above any real board, so it never touches normal traffic.
-const MAX_JOBS_PER_COMPANY = 500;
+// ➤ 500 was set when the biggest board tracked published 368. Connecting the
+// ➤ large consultancies broke that: Bureau Veritas publishes 1,985 and Indra
+// ➤ 663, both real, and both were cut to 500 — three quarters of Bureau Veritas
+// ➤ went unread every run. It still catches the flood it exists for (the feed
+// ➤ that answered 20,000).
+export const MAX_JOBS_PER_COMPANY = 3000;
 const ORACLE_PAGE = 50;           // Oracle finder page size
 const ORACLE_MAX = 150;           // 3 pages, newest first
 
@@ -412,6 +424,70 @@ async function collectWorkday(api, name, searchTerms) {
   // ➤ single one is a failure, and the caller records it like any other.
   if (!answered) throw lastError || new Error('no response from the board');
   return [...byUrl.values()];
+}
+
+// ── Career sites with no API at all ─────────────────────────────────
+// ➤ Some employers run their careers site entirely in the browser, so a fetch
+// ➤ gets an empty shell — Van Oord and Boskalis among them, and both are on the
+// ➤ tracked list. But their SITEMAP lists every vacancy, and each vacancy page
+// ➤ carries a schema.org JobPosting block: the same fields an ATS would hand
+// ➤ over, published for search engines.
+
+// ➤ The title lives in the last part of the vacancy URL, minus its id:
+// ➤ "…/vacancies/production-automation-system-engineer-rotterdam-2807en".
+// ➤ Good enough for the title filter, which is all it is used for.
+export function slugTitle(url) {
+  const last = decodeURIComponent(String(url || '').split(/[?#]/)[0].replace(/\/+$/, '').split('/').pop() || '');
+  return last.replace(/-\d+[a-z]*$/i, '').replace(/[-_]+/g, ' ').trim();
+}
+
+// ➤ Reads the JobPosting block out of a vacancy page. Returns null when the page
+// ➤ has none, so a site that stops publishing it goes quiet rather than filling
+// ➤ the list with blanks.
+export function parseJobPostingLd(html, url, name) {
+  for (const m of String(html || '').matchAll(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+    let parsed;
+    try { parsed = JSON.parse(m[1]); } catch { continue; }
+    for (const node of [].concat(parsed?.['@graph'] || parsed || [])) {
+      if (node?.['@type'] !== 'JobPosting') continue;
+      const address = [].concat(node.jobLocation || []).map(l => l?.address).find(Boolean) || {};
+      const location = [address.addressLocality, address.addressRegion, address.addressCountry]
+        .map(v => (typeof v === 'string' ? v.trim() : '')).filter(Boolean).join(', ');
+      const title = String(node.title || node.name || '').trim();
+      if (title) return { title, url, company: name, location, _jd: stripHtml(node.description || '') };
+    }
+  }
+  return null;
+}
+
+// ➤ How many vacancy pages one site may be asked for in a run. Two stages keep
+// ➤ this tiny: the slug carries the title, so the filter runs on it first and
+// ➤ only the survivors are downloaded. Measured on the two real boards: 164
+// ➤ vacancies listed, 5 downloaded. The ceiling is here for the day a filter is
+// ➤ widened and suddenly everything matches.
+const SITEMAP_MAX_PAGES = 40;
+
+// ➤ `titleFilter` is passed in rather than reached for: it is what makes this
+// ➤ cheap, and a version that downloaded everything first would still work,
+// ➤ which is exactly the kind of regression a test cannot see.
+async function collectSitemap(api, name, titleFilter, log = console.log) {
+  const res = await fetch(api.url, { headers: { 'User-Agent': DESC_UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const listed = [...(await res.text()).matchAll(/<loc>([^<]+)<\/loc>/g)].map(m => m[1].trim());
+  const vacancies = listed.filter(u => u.includes(api.meta.match));
+  const wanted = vacancies.filter(u => titleFilter(slugTitle(u)));
+  const reading = wanted.slice(0, SITEMAP_MAX_PAGES);
+  if (wanted.length > reading.length) {
+    log(`  ! ${name}: ${wanted.length} vacancies match the title filter; reading the first ${reading.length}.`);
+  }
+  const jobs = [];
+  await parallel(reading.map(u => async () => {
+    const page = await fetch(u, { headers: { 'User-Agent': DESC_UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (!page.ok) return;
+    const job = parseJobPostingLd(await page.text(), u, name);
+    if (job) jobs.push(job);
+  }), 3);
+  return jobs;
 }
 
 // ➤ Collects a company's offers on Oracle: it requests the most recent ones
@@ -1352,7 +1428,7 @@ function loadSeenCompanyRoles() {
 export function capJobs(jobs, name, max = MAX_JOBS_PER_COMPANY, log = console.log) {
   const list = Array.isArray(jobs) ? jobs : [];
   if (list.length <= max) return list;
-  log(`  ! ${name} returned ${list.length} postings; reading the first ${max}. That is not a normal board — check the feed.`);
+  log(`  ! ${name} returned ${list.length} postings; reading the first ${max}. The rest are NOT looked at this run.`);
   return list.slice(0, max);
 }
 
@@ -1704,6 +1780,8 @@ async function main() {
         jobs = await collectWorkday(c._api, c.name, workdayTerms);
       } else if (c._api.type === 'oracle') {
         jobs = await collectOracle(c._api, c.name);
+      } else if (c._api.type === 'sitemap') {
+        jobs = await collectSitemap(c._api, c.name, titleFilter);
       } else {
         // ➤ Greenhouse withholds the advert text unless asked; see above.
         const url = c._api.type === 'greenhouse' ? greenhouseUrlWithContent(c._api.url) : c._api.url;

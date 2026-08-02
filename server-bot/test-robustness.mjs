@@ -17,7 +17,7 @@ import { classifyLiveness } from './liveness-core.mjs';
 import { stripHtml } from './requirements.mjs';
 import { looksLikeAnOutage } from './housekeep.mjs';
 import { seenReply } from './telegram-listener.mjs';
-import { buildCountryFilter, norm, buildTitleFilter, buildCompanyFilter, buildLocationFilter, parseGreenhouse, parseAshby, parseLever, greenhouseUrlWithContent, loadIdHighWater, capJobs } from './scan.mjs';
+import { buildCountryFilter, norm, buildTitleFilter, buildCompanyFilter, buildLocationFilter, parseGreenhouse, parseAshby, parseLever, greenhouseUrlWithContent, loadIdHighWater, capJobs, MAX_JOBS_PER_COMPANY } from './scan.mjs';
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync, copyFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, dirname } from 'path';
@@ -417,6 +417,17 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   // ➤ Rubbish in must not throw: a broken feed is the case this exists for.
   eq(capJobs(null, 'ACME', 500, log), [], 'a feed that returned nothing yields an empty list');
   eq(capJobs(undefined, 'ACME', 500, log), [], 'and so does no feed at all');
+
+  // ➤ THE DEFAULT HAS TO CLEAR THE REAL BOARDS. Every check above passes its own
+  // ➤ ceiling, so the shipped one could drift anywhere. It was 500, set when the
+  // ➤ biggest board tracked published 368 — and connecting the consultancies put
+  // ➤ Bureau Veritas at 1,985, three quarters of it unread every run.
+  said.length = 0;
+  ok(Number.isFinite(MAX_JOBS_PER_COMPANY), 'the shipped ceiling is a real number');
+  ok(MAX_JOBS_PER_COMPANY >= 2000, 'and clears the largest board actually tracked (1,985)');
+  ok(MAX_JOBS_PER_COMPANY < 20000, 'while still catching the runaway feed it exists for');
+  eq(capJobs(many(1985), 'Bureau Veritas', undefined, log).length, 1985, 'so a real board passes whole');
+  eq(said.length, 0, 'and is not accused of being broken');
 }
 
 // ── 6b) A hostile page must not freeze the bot ────────────────────────────

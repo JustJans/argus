@@ -80,7 +80,12 @@ location_filter:
     - "Linz"
     - "Europe"
     - "EMEA"
-    - "Hybrid"
+    # ➤ "Hybrid" USED TO BE HERE and it is not a place. This list decides WHERE a
+    # ➤ job is, and hybrid says the opposite of what it was doing: you have to be
+    # ➤ near that office, so the country matters more, not less. It let
+    # ➤ "Nationwide, Hybrid, US" through. "Remote" stays: a remote role may
+    # ➤ genuinely be doable from here. Checked against 432 real locations before
+    # ➤ removing it — not one of them needed the word to pass.
     # ➤ CITIES without a country (over-block hunt 2026-07-18): many offers carry
     # ➤ the location as a bare city ("Hamburg", "Rotterdam") and the list
     # ➤ only knew the countries → they were dropped silently. Real case: the
