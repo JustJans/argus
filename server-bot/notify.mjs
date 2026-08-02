@@ -512,7 +512,6 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
   const label = headerLabel === 'new' ? 'new' : headerLabel;
   const headerTxt = `${date} — ${offers.length} ${label} offer${plural}`;
   let chunk = esc(headerTxt) + '\n\n';
-  let visible = headerTxt.length + 2;
   let currentGroup = null;
 
   let sentAny = false;
@@ -529,14 +528,12 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
       sentAny = true;
     }
     chunk = '';
-    visible = 0;
   };
 
   // ➤ Adds the country header to the message in bold (e.g. "SPAIN").
   const addGroupHeader = (name) => {
     const txt = name;
     chunk += `<b>${esc(txt)}</b>\n\n`;
-    visible += txt.length + 2;
   };
 
   // ➤ Step 4: walk through the countries in their priority order and keep
@@ -545,7 +542,7 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
     const list = groups.get(groupName);
     if (!list?.length) continue;
     // ➤ If the country header no longer fits, send what's accumulated first.
-    if (visible + groupName.length + 4 > MAX_CHUNK) await flush();
+    if (chunk.length + groupName.length + 12 > MAX_CHUNK) await flush();
     addGroupHeader(groupName);
     currentGroup = groupName;
 
@@ -571,16 +568,20 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
       const newTag = isNew ? '[NEW] ' : '';
       const idTag = o.id ? `#${o.id} ` : '';
       const lineTxt = `- ${newTag}${idTag}${parts.join(' - ')}`;
-      // ➤ If this line no longer fits, send the current message and open
-      // ➤ another one, repeating the header of the country we were in.
-      if (visible + lineTxt.length + 2 > MAX_CHUNK) {
+      // ➤ Build the line FIRST, then ask whether it fits. What goes to
+      // ➤ Telegram is the markup, not the words: every line carries
+      // ➤ <a href="the whole URL">, and measuring only the visible text made
+      // ➤ the real message 1.8x the size counted — about 6,300 characters
+      // ➤ against a 4,096 limit, so past roughly thirty offers in one country
+      // ➤ the list simply stopped being sent.
+      const lineHtml = `- ${isNew ? '<b>[NEW]</b> ' : ''}${esc(idTag)}<a href="${escAttr(o.url)}">${esc(parts.join(' - '))}</a>\n\n`;
+      if (chunk.length + lineHtml.length > MAX_CHUNK) {
         await flush();
         addGroupHeader(currentGroup);
       }
       // ➤ The line is added as a link: tapping it on the phone opens the offer.
       // ➤ [NEW] (in bold) goes first when the offer is new.
-      chunk += `- ${isNew ? '<b>[NEW]</b> ' : ''}${esc(idTag)}<a href="${escAttr(o.url)}">${esc(parts.join(' - '))}</a>\n\n`;
-      visible += lineTxt.length + 2;
+      chunk += lineHtml;
     }
   }
   await flush();
