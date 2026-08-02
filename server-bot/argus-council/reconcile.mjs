@@ -19,7 +19,7 @@
 // ➤ feedback.jsonl, pipeline.md. It only writes data/judge-shadow.jsonl.
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
-import { readFileSync, existsSync, writeFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 // ➤ Atomic overwrite so a crash mid-write can't truncate the judges' journal.
 import { writeFileAtomic } from '../fs-atomic.mjs';
 import { fileURLToPath } from 'url';

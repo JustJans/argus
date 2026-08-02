@@ -54,6 +54,9 @@ export function claudeErrorKind(out) {
 // ➤ A human sentence for each failure, to send over Telegram.
 export function claudeErrorMessage(kind, raw) {
   if (kind === 'limit') return 'the Claude account is at its usage limit — try again when it resets';
+  // ➤ Named apart from a plain error because the fix is different: nothing is
+  // ➤ broken, it simply did not finish in time, and asking again often works.
+  if (kind === 'timeout') return 'Claude ran out of time before finishing — ask again, it usually works second time';
   if (kind === 'auth') return 'Claude is not authenticated on this machine (run: claude setup-token, then save it to server-bot/claude-token.json)';
   // ➤ "ENOENT" = the claude program is not installed here. Worth saying plainly:
   // ➤ cover letters and the Council are the only features that need it, so this
@@ -77,10 +80,16 @@ export function runClaudeCli(prompt, { tokenPath, cwd, model = 'sonnet', timeout
       { cwd, env, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 },
       (err, stdout, stderr) => {
         const outText = String(stdout || '').trim();
-        // ➤ 1) It errored and said nothing usable → failure (as before).
-        if (err && !outText) {
-          const raw = (stderr || err.message || '').slice(0, 500);
-          const kind = claudeErrorKind(raw) || 'error';
+        // ➤ 1) IT ERRORED AT ALL → failure, even with output already on screen.
+        // ➤ This used to read "errored AND said nothing", so a run killed by the
+        // ➤ six-minute timeout half-way through a letter came back as a SUCCESS
+        // ➤ carrying half a letter: rendered into a PDF, sent, and cut off
+        // ➤ mid-sentence. The CLI exits 0 when it has finished, so a non-zero
+        // ➤ exit means the answer is not finished, whatever is on screen.
+        if (err) {
+          const raw = (outText || stderr || err.message || '').slice(0, 500);
+          const kind = claudeErrorKind(raw)
+            || (err.killed ? 'timeout' : 'error');
           console.log(`[${new Date().toISOString()}] ${label} FAILED (${kind}): ${raw.replace(/\s+/g, ' ').slice(0, 300)}`);
           resolve({ ok: false, out: raw, kind });
           return;

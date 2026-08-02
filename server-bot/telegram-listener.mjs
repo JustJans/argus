@@ -41,13 +41,12 @@ import { writeFileAtomic } from './fs-atomic.mjs';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { sendTelegram, sendTelegramDocument, esc } from './notify.mjs';
+import { sendTelegram, esc } from './notify.mjs';
 import { pendingOffers } from './list-offers.mjs';
 // ➤ The "live list": deletes the previous list and re-sends the updated one to the
 // ➤ bottom of the chat every time it changes (after list/seen/no/applied).
 import { refreshList } from './live-list.mjs';
 // ➤ The PDF cover-letter generator (the "cover N" command).
-import { makeCoverLetter } from './cover-letter.mjs';
 // ➤ The one-time setup / settings flow (CV + profile questions, some with
 // ➤ buttons). It writes config/profile.yml + cv.md.
 import {
@@ -233,29 +232,24 @@ function runScan() {
   });
 }
 
-// ➤ The "cover N" command: generates the cover-letter PDF for offer
-// ➤ number N and sends it to you in this same chat. It notifies you when it starts (it takes a few
-// ➤ minutes: it has to download the offer, write the letter and assemble the PDF).
-async function coverCommand(n) {
-  // ➤ Find the offer by its fixed number (#N, the one shown in the list).
+// ➤ The "cover N" command. It checks the offer exists, says it has started, and
+// ➤ HANDS THE WORK TO A SEPARATE PROGRAM — cover-letter.mjs sends you the PDF
+// ➤ itself when it is done.
+// ➤ WAITING HERE COST EVERYTHING ELSE. Claude takes minutes to write a letter,
+// ➤ this listener runs once a minute under a lock, and the next run is skipped
+// ➤ while this one is busy — so for those minutes "seen", "list" and "no" did
+// ➤ nothing at all, with no sign of why.
+function coverCommand(n) {
   const off = pendingOffers().find(o => o.id === n);
   if (!off) {
-    await sendTelegram(`There's no pending offer with the number #${n}. The numbers appear next to each offer in the list.`);
-    return;
+    return sendTelegram(`There's no pending offer with the number #${n}. The numbers appear next to each offer in the list.`);
   }
-  await sendTelegram(`Generating the cover letter for #${n}: ${off.title} — ${off.company}. This may take a few minutes.`);
-  const res = await makeCoverLetter(off);
-  if (!res.ok) {
-    await sendTelegram(`Couldn't generate the cover letter: ${res.error}`);
-    return;
-  }
-  // ➤ Sends the PDF as an attachment; if the send fails, it tells you where it ended up.
-  // ➤ Warn if the portal gave no text: the letter is then written from the title
-  // ➤ and company alone, so it will be generic. Better you know before sending.
-  const caption = `Cover letter #${n}: ${off.title} — ${off.company}`
-    + (res.thin ? '\n⚠️ The portal gave no offer text, so this one is generic — worth a read before sending.' : '');
-  const sent = await sendTelegramDocument(res.pdfPath, caption);
-  if (!sent) await sendTelegram(`The cover letter was generated but couldn't be attached. File on the server: ${res.pdfPath}`);
+  // ➤ detached + unref + ignored streams: the child outlives this process, so
+  // ➤ the lock is released the moment we finish, not when the letter is written.
+  const child = execFile('node', [join(SCRIPT_DIR, 'cover-letter.mjs'), '--offer', String(n)],
+    { cwd: ROOT, detached: true, stdio: 'ignore' });
+  child.unref();
+  return sendTelegram(`Generating the cover letter for #${n}: ${off.title} — ${off.company}. It takes a few minutes and arrives on its own; the bot stays free meanwhile.`);
 }
 
 // ➤ The "search" command: launches a job search RIGHT now (without waiting for the

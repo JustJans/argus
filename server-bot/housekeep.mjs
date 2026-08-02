@@ -29,7 +29,7 @@
  */
 
 // ➤ Tools it needs: read/write files and the same filters the scanner uses.
-import { readFileSync, writeFileSync, appendFileSync, existsSync } from 'fs';
+import { readFileSync, appendFileSync, existsSync } from 'fs';
 // ➤ Atomic overwrite so a crash mid-write can't truncate the pending list.
 import { writeFileAtomic, withFileLock } from './fs-atomic.mjs';
 import { isPendingHeading } from './pipeline-format.mjs';

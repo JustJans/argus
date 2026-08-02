@@ -16,7 +16,7 @@
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 import { convert } from 'html-to-text';
-import { readFileSync, writeFileSync, existsSync, chmodSync } from 'fs';
+import { readFileSync, writeFileSync, chmodSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 

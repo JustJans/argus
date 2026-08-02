@@ -13,7 +13,7 @@
 // ➤ RUN: node server-bot/argus-mail/listen.mjs [--dry-run]
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { listMessageIds, messageSummary, accessToken, gmailConfigured } from '../gmail.mjs';

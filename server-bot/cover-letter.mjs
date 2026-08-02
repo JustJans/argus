@@ -24,7 +24,7 @@
  * All failures return { ok:false, error } with an honest, human message.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { writeFileAtomic } from './fs-atomic.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -360,4 +360,55 @@ export async function makeCoverLetter(offer) {
     return { ok: false, error: `the PDF failed (${String(e.message).slice(0, 120)}); the text letter is at ${txtPath}`, txtPath };
   }
   return { ok: true, pdfPath, txtPath, thin };
+}
+
+// ── Run on its own, for the "cover N" command ───────────────────────────
+// ➤ WHY THIS EXISTS AS A PROGRAM AND NOT JUST A FUNCTION. Claude takes minutes
+// ➤ to write a letter, and the listener used to wait for it. The listener runs
+// ➤ once a minute under a lock, so while it waited NOTHING else worked: a
+// ➤ "seen", a "list", a "no" — all of them queued behind a PDF. Now the
+// ➤ listener starts this and lets go; this finishes the job and reports here
+// ➤ itself. Kept pure of the listener so it can also be run by hand:
+// ➤   node server-bot/cover-letter.mjs --offer 412
+export async function coverToTelegram(id, deps = {}) {
+  const { pendingOffers, sendTelegram, sendTelegramDocument } = deps;
+  const offer = pendingOffers().find(o => o.id === id);
+  if (!offer) {
+    await sendTelegram(`There's no pending offer with the number #${id}. The numbers appear next to each offer in the list.`);
+    return false;
+  }
+  const res = await makeCoverLetter(offer);
+  if (!res.ok) {
+    await sendTelegram(`Couldn't generate the cover letter for #${id}: ${res.error}`);
+    return false;
+  }
+  // ➤ Warn if the portal gave no text: the letter is then written from the title
+  // ➤ and company alone, so it will be generic. Better you know before sending.
+  const caption = `Cover letter #${id}: ${offer.title} — ${offer.company}`
+    + (res.thin ? '\n⚠️ The portal gave no offer text, so this one is generic — worth a read before sending.' : '');
+  if (!await sendTelegramDocument(res.pdfPath, caption)) {
+    await sendTelegram(`The cover letter was generated but couldn't be attached. File on the server: ${res.pdfPath}`);
+  }
+  return true;
+}
+
+if (process.argv[1] && /(^|[\\/])cover-letter\.mjs$/.test(process.argv[1])) {
+  const at = process.argv.indexOf('--offer');
+  const id = at === -1 ? NaN : parseInt(process.argv[at + 1], 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    console.error('Usage: cover-letter.mjs --offer <id>   (the # number shown in the list)');
+    process.exit(1);
+  }
+  const [{ pendingOffers }, { sendTelegram, sendTelegramDocument }] = await Promise.all([
+    import('./list-offers.mjs'), import('./notify.mjs'),
+  ]);
+  coverToTelegram(id, { pendingOffers, sendTelegram, sendTelegramDocument })
+    .then(ok => process.exit(ok ? 0 : 1))
+    .catch(async e => {
+      // ➤ Nothing is watching this program, so a crash has to reach the chat or
+      // ➤ it is a "generating…" message that never gets an answer.
+      console.error(e);
+      try { await sendTelegram(`The cover letter for #${id} failed: ${String(e.message).slice(0, 200)}`); } catch { /* offline too */ }
+      process.exit(1);
+    });
 }
