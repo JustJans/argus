@@ -75,6 +75,38 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   // ➤ verdict it already had. The guarantee moved rather than disappeared —
   // ➤ it is read and dropped, never written. Block 7 holds it to that.
   ok(seen[1].url.includes('format=full'), 'the message is fetched in full');
+  // ➤ IT FOLLOWS THE PAGES (audit 2026-07-31). Gmail returns at most 500 ids
+  // ➤ and a token for the next page; that token was discarded, so the search
+  // ➤ silently stopped at one page. Because Gmail answers newest-first and the
+  // ➤ search window starts at the OLDEST application, the messages that fell
+  // ➤ off were the oldest — and those applications stayed on "no reply" for
+  // ➤ ever with nothing said.
+  {
+    const pages = [
+      { messages: [{ id: 'a' }, { id: 'b' }], nextPageToken: 'p2' },
+      { messages: [{ id: 'c' }], nextPageToken: 'p3' },
+      { messages: [{ id: 'd' }] },                       // no token: the end
+    ];
+    const urls = [];
+    let i = 0;
+    const paged = async (url) => { urls.push(String(url)); return { ok: true, status: 200, json: async () => pages[i++] }; };
+    const ids = await listMessageIds('q', { token: 'x', fetchImpl: paged, max: 100 });
+    eq(ids, ['a', 'b', 'c', 'd'], 'every page is read, not just the first');
+    eq(urls.length, 3, 'and it stops as soon as there is no next page');
+    ok(urls[1].includes('pageToken=p2'), 'the second call asks for the second page');
+
+    // ➤ The total wanted is respected, so a huge mailbox cannot run away.
+    let k = 0;
+    const endless = async () => { k++; return { ok: true, status: 200, json: async () => ({ messages: [{ id: `m${k}` }], nextPageToken: 'more' }) }; };
+    const capped = await listMessageIds('q', { token: 'x', fetchImpl: endless, max: 3 });
+    eq(capped.length, 3, 'it stops at the number asked for');
+
+    // ➤ And a query that never ends cannot loop for ever.
+    let n = 0;
+    const forever = async () => { n++; return { ok: true, status: 200, json: async () => ({ messages: [{ id: `x${n}` }], nextPageToken: 'more' }) }; };
+    await listMessageIds('q', { token: 'x', fetchImpl: forever, max: 1e9, maxPages: 4 });
+    eq(n, 4, 'the number of pages is bounded');
+  }
   ok(!seen[1].url.includes('format=raw'), 'but never as raw MIME');
   // ➤ Bounded — still. The ceiling went up with the HTML fallback (converted
   // ➤ markup runs far longer than a text alternative) but "bounded" is the

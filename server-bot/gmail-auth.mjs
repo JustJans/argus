@@ -138,7 +138,8 @@ async function main() {
     grant_type: 'authorization_code',
     redirect_uri: redirectUri,
   });
-  if (oauth.client_secret) body.set('client_secret', oauth.client_secret);
+  // ➤ Always sent: the check above already refused to start without it.
+  body.set('client_secret', oauth.client_secret);
 
   const res = await fetch(TOKEN_ENDPOINT, {
     method: 'POST',

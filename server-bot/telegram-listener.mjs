@@ -37,16 +37,16 @@
  */
 
 import { readFileSync, writeFileSync } from 'fs';
+import { writeFileAtomic } from './fs-atomic.mjs';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { sendTelegram, sendTelegramDocument } from './notify.mjs';
+import { sendTelegram, esc } from './notify.mjs';
 import { pendingOffers } from './list-offers.mjs';
 // ➤ The "live list": deletes the previous list and re-sends the updated one to the
 // ➤ bottom of the chat every time it changes (after list/seen/no/applied).
 import { refreshList } from './live-list.mjs';
 // ➤ The PDF cover-letter generator (the "cover N" command).
-import { makeCoverLetter } from './cover-letter.mjs';
 // ➤ The one-time setup / settings flow (CV + profile questions, some with
 // ➤ buttons). It writes config/profile.yml + cv.md.
 import {
@@ -64,6 +64,27 @@ const OFFSET_PATH = join(SCRIPT_DIR, 'telegram-offset.json');
 // ➤ returns the fallback value instead of breaking the program.
 function loadJson(path, fallback) {
   try { return JSON.parse(readFileSync(path, 'utf-8')); } catch { return fallback; }
+}
+
+// ➤ Works out "where we got to" again WITHOUT running anything. Used when the
+// ➤ position file is missing or unreadable: asking Telegram with offset -1 hands
+// ➤ back only the most recent update, so we learn the current position and write
+// ➤ it down. Nothing is handled on this tick — that is the point. The
+// ➤ alternative, starting from zero, replays every command of the last 24 hours.
+// ➤ On the very first run there are no updates at all and there is nothing to
+// ➤ record; the next tick then starts from zero with an empty backlog, which
+// ➤ comes to the same thing and is harmless.
+async function resyncOffset(cfg) {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${cfg.bot_token}/getUpdates?offset=-1&timeout=0`,
+      { signal: AbortSignal.timeout(15_000) });
+    const j = await res.json().catch(() => null);
+    const last = (j?.result || []).at(-1);
+    if (last) {
+      writeFileAtomic(OFFSET_PATH, JSON.stringify({ offset: last.update_id + 1 }));
+      console.log(`[${new Date().toISOString()}] telegram position was lost; resynchronised to ${last.update_id + 1} without replaying anything.`);
+    }
+  } catch { /* no network: the next tick tries again */ }
 }
 
 // ➤ Runs another of the bot's scripts (for example seen.mjs, the one that marks
@@ -99,6 +120,38 @@ const HELP =
 // ➤ File where your rejections are recorded with their reason, one per line.
 const FEEDBACK_PATH = join(SCRIPT_DIR, 'feedback.jsonl');
 
+// ➤ What to tell you after a "seen" command, given the ids you asked for and
+// ➤ everything seen.mjs printed.
+// ➤ HONEST reply (2026-07-25): it used to say "Marked as seen" even when the
+// ➤ number did not exist (already handled, or removed by the 07:30 clean-up),
+// ➤ so you believed you had filed an offer that was never touched.
+// ➤ IT NOW READS WHAT WAS MARKED, not what failed (audit 2026-07-31). The
+// ➤ reply was built by looking for "#N is not in pending" and calling
+// ➤ everything else a success — so any OTHER outcome (an empty pending
+// ➤ section, a failed write, the program dying) still answered "Marked as
+// ➤ seen", which is exactly the dishonesty the earlier fix set out to remove.
+// ➤ seen.mjs prints a "  ✓ #N ..." line for each id it really marked, and that
+// ➤ list is the only thing worth believing.
+// ➤ Exported and pure so it can be tested: the command surface of this file had
+// ➤ no test at all, which is why a reply could go on lying for a week.
+export function seenReply(ids, out) {
+  const text = String(out || '');
+  const marked = ids.filter(i => new RegExp(`^\\s*✓ #${i}\\b`, 'm').test(text));
+  const missing = ids.filter(i => !marked.includes(i));
+  const tag = list => list.map(i => `#${i}`).join(', ');
+  if (marked.length && missing.length) return `Marked as seen: ${tag(marked)}. Not found (already gone): ${tag(missing)}.`;
+  if (marked.length) return `Marked as seen: ${tag(marked)}.`;
+  // ➤ "ALREADY GONE" IS ALSO A CLAIM ABOUT YOUR LIST, and it is false when the
+  // ➤ write simply failed — a full disk, a folder gone read-only, the program
+  // ➤ killed. The offer is still there and still pending, and being told it is
+  // ➤ gone means you stop chasing it. If the output looks like a crash rather
+  // ➤ than an answer, say so instead.
+  if (/[A-Za-z]*Error[:\s]|EACCES|EPERM|ENOSPC|ENOTDIR|^\s+at .+:\d+/m.test(text)) {
+    return `Could not mark ${tag(missing)}: the list could not be written. Nothing was changed — try again.`;
+  }
+  return `Nothing marked: ${tag(missing)} ${missing.length > 1 ? 'are' : 'is'} not in the pending list (already removed?).`;
+}
+
 // ➤ Records that an application you already SENT is over, when you learnt it
 // ➤ somewhere the bot cannot read: the employer's own portal, a phone call, or
 // ➤ a bounced address they never fixed.
@@ -121,8 +174,13 @@ async function closeApplication(n, reason) {
   const rec = { ts: new Date().toISOString(), id: n, state: 'rejected', reason: reason || '' };
   writeFileSync(join(ROOT, 'data', 'application-verdicts.jsonl'), JSON.stringify(rec) + '\n', { flag: 'a' });
   console.log(`[${rec.ts}] closed application #${n} → ${app.title} — ${app.company}`);
-  await sendTelegram(`Closed #${n}: ${app.title} — ${app.company}. It now shows as rejected in <code>mail</code>.`
-    + (reason ? `\nReason: ${reason}` : ''), { html: true });
+  // ➤ ESCAPED (audit 2026-07-31). The title and the company come from a job
+  // ➤ portal and the reason is what you typed — none of it is ours. Sent as
+  // ➤ HTML without escaping, a title carrying "<" or "&" makes Telegram refuse
+  // ➤ the whole message, so the confirmation that the application was closed
+  // ➤ never arrives while the file has already changed.
+  await sendTelegram(`Closed #${n}: ${esc(app.title)} — ${esc(app.company)}. It now shows as rejected in <code>mail</code>.`
+    + (reason ? `\nReason: ${esc(reason)}` : ''), { html: true });
   return true;
 }
 
@@ -174,29 +232,24 @@ function runScan() {
   });
 }
 
-// ➤ The "cover N" command: generates the cover-letter PDF for offer
-// ➤ number N and sends it to you in this same chat. It notifies you when it starts (it takes a few
-// ➤ minutes: it has to download the offer, write the letter and assemble the PDF).
-async function coverCommand(n) {
-  // ➤ Find the offer by its fixed number (#N, the one shown in the list).
+// ➤ The "cover N" command. It checks the offer exists, says it has started, and
+// ➤ HANDS THE WORK TO A SEPARATE PROGRAM — cover-letter.mjs sends you the PDF
+// ➤ itself when it is done.
+// ➤ WAITING HERE COST EVERYTHING ELSE. Claude takes minutes to write a letter,
+// ➤ this listener runs once a minute under a lock, and the next run is skipped
+// ➤ while this one is busy — so for those minutes "seen", "list" and "no" did
+// ➤ nothing at all, with no sign of why.
+function coverCommand(n) {
   const off = pendingOffers().find(o => o.id === n);
   if (!off) {
-    await sendTelegram(`There's no pending offer with the number #${n}. The numbers appear next to each offer in the list.`);
-    return;
+    return sendTelegram(`There's no pending offer with the number #${n}. The numbers appear next to each offer in the list.`);
   }
-  await sendTelegram(`Generating the cover letter for #${n}: ${off.title} — ${off.company}. This may take a few minutes.`);
-  const res = await makeCoverLetter(off);
-  if (!res.ok) {
-    await sendTelegram(`Couldn't generate the cover letter: ${res.error}`);
-    return;
-  }
-  // ➤ Sends the PDF as an attachment; if the send fails, it tells you where it ended up.
-  // ➤ Warn if the portal gave no text: the letter is then written from the title
-  // ➤ and company alone, so it will be generic. Better you know before sending.
-  const caption = `Cover letter #${n}: ${off.title} — ${off.company}`
-    + (res.thin ? '\n⚠️ The portal gave no offer text, so this one is generic — worth a read before sending.' : '');
-  const sent = await sendTelegramDocument(res.pdfPath, caption);
-  if (!sent) await sendTelegram(`The cover letter was generated but couldn't be attached. File on the server: ${res.pdfPath}`);
+  // ➤ detached + unref + ignored streams: the child outlives this process, so
+  // ➤ the lock is released the moment we finish, not when the letter is written.
+  const child = execFile('node', [join(SCRIPT_DIR, 'cover-letter.mjs'), '--offer', String(n)],
+    { cwd: ROOT, detached: true, stdio: 'ignore' });
+  child.unref();
+  return sendTelegram(`Generating the cover letter for #${n}: ${off.title} — ${off.company}. It takes a few minutes and arrives on its own; the bot stays free meanwhile.`);
 }
 
 // ➤ The "search" command: launches a job search RIGHT now (without waiting for the
@@ -275,8 +328,11 @@ async function handle(text) {
     return;
   }
   // ➤ "/start" → the one-time setup (CV + profile questions).
-  if (/^\/?start$/i.test(t)) {
-    await startOnboarding();
+  // ➤ "/start yes" confirms replacing a profile you already have: the first
+  // ➤ question is "paste your CV", and from then on ANY text you type is stored
+  // ➤ as an answer — so starting again by accident used to cost you the CV.
+  if (/^\/?start(\s+yes)?$/i.test(t)) {
+    await startOnboarding(/\s+yes$/i.test(t));
     return;
   }
   // ➤ "settings" → edit any profile answer later (menu with buttons).
@@ -288,19 +344,7 @@ async function handle(text) {
   if (/^seen(\s+#?\d+)+$/i.test(t)) {
     const ids = t.split(/\s+/).slice(1).map(s => s.replace(/^#/, ''));
     const out = await runNode('seen.mjs', ids);
-    // ➤ HONEST reply (audit 2026-07-25): it used to say "Marked as seen" even
-    // ➤ when the number did not exist (already handled, or removed by the 07:30
-    // ➤ cleanup), so you believed you had filed an offer that was never touched.
-    const missing = ids.filter(i => new RegExp(`#${i} is not in pending`).test(out));
-    const marked = ids.filter(i => !missing.includes(i));
-    const tag = list => list.map(i => `#${i}`).join(', ');
-    if (marked.length && missing.length) {
-      await sendTelegram(`Marked as seen: ${tag(marked)}. Not found (already gone): ${tag(missing)}.`);
-    } else if (marked.length) {
-      await sendTelegram(`Marked as seen: ${tag(marked)}.`);
-    } else {
-      await sendTelegram(`Nothing marked: ${tag(missing)} ${missing.length > 1 ? 'are' : 'is'} not in the pending list (already removed?).`);
-    }
+    await sendTelegram(seenReply(ids, out));
     // ➤ The confirmation above stays; only the list refreshes (the previous one is
     // ➤ deleted and re-sent without those offers).
     await refreshList({ markSeen: true });
@@ -324,7 +368,12 @@ async function handle(text) {
   if (/^list$/i.test(t)) {
     // ➤ "list" now refreshes the live list: deletes the previous one and re-sends the
     // ➤ pending offers to the bottom of the chat (if there are none, it says "No pending offers").
-    await refreshList({ markSeen: true });
+    // ➤ AND IT ANSWERS WHEN IT CANNOT (audit 2026-07-31). If the send failed or
+    // ➤ Telegram was not configured, this command produced no list, no error and
+    // ➤ no reply of any kind — you were left staring at a chat that had simply
+    // ➤ ignored you, with no way to tell that from "there is nothing new".
+    const r = await refreshList({ markSeen: true });
+    if (r === false) await sendTelegram('The list could not be sent just now. Try again in a moment.');
     return;
   }
   // ➤ Is it "applied N"? → record that you SENT the application:
@@ -355,7 +404,12 @@ async function handle(text) {
   if (/^blind$/i.test(t)) {
     const { loadStore, formatReport } = await import('./argus-discover/blind-spots.mjs');
     const report = formatReport(loadStore(), { limit: 10 });
-    await sendTelegram(`<pre>${report.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</pre>`);
+    // ➤ WITH html:true (audit 2026-07-31). The report was wrapped in <pre> and
+    // ➤ carefully escaped, then sent with no parse mode — so Telegram delivered
+    // ➤ it verbatim and you read "<pre>" and "&amp;" on the screen. Escaping now
+    // ➤ goes through the same helper the rest of the bot uses, not a second
+    // ➤ hand-written copy of it that omitted ">".
+    await sendTelegram(`<pre>${esc(report)}</pre>`, { html: true });
     return;
   }
   if (/^longshot[\s,:]*#?\d+/i.test(t)) {
@@ -372,7 +426,10 @@ async function handle(text) {
     // ➤ normal application — but say so, and point at the command that keeps
     // ➤ the nuance.
     if (m[2].trim()) {
-      await sendTelegram(`Note: "${m[2].trim()}" was not saved — <code>applied</code> only reads the number.\nIf you meant you fall short of it, use <code>longshot ${n} ${m[2].trim()}</code> instead.`);
+      // ➤ WITH html:true, and the typed note escaped (audit 2026-07-31): this
+      // ➤ message is built out of <code> tags and was sent with no parse mode,
+      // ➤ so the tags arrived as literal text in the middle of the sentence.
+      await sendTelegram(`Note: "${esc(m[2].trim())}" was not saved — <code>applied</code> only reads the number.\nIf you meant you fall short of it, use <code>longshot ${n} ${esc(m[2].trim())}</code> instead.`, { html: true });
     }
     return;
   }
@@ -414,7 +471,21 @@ async function main() {
 
   // ➤ Asks Telegram for the pending messages starting from the last one already read,
   // ➤ with a maximum wait of 15 seconds so it doesn't hang.
-  const state = loadJson(OFFSET_PATH, { offset: 0 });
+  // ➤ WHERE WE GOT TO LAST TIME — the one thing stopping a command being run
+  // ➤ twice. Telegram keeps 24 hours of messages and hands back everything from
+  // ➤ the offset onwards, so "start from 0" does not mean "start fresh", it
+  // ➤ means REPLAY A WHOLE DAY: every `applied N`, every `no N`, every `cover N`
+  // ➤ you typed since yesterday, executed again.
+  // ➤ So a missing or unreadable file is NOT treated as zero (audit 2026-07-31).
+  // ➤ It resynchronises instead: ask Telegram for the latest update only, write
+  // ➤ that position down, and run nothing this tick. One tick's messages can be
+  // ➤ missed that way, which you would notice and could retype; a day of
+  // ➤ commands running themselves again is not something you could undo.
+  const state = loadJson(OFFSET_PATH, null);
+  if (!state || !Number.isInteger(state.offset)) {
+    await resyncOffset(cfg);
+    return;
+  }
   const res = await fetch(
     `https://api.telegram.org/bot${cfg.bot_token}/getUpdates?offset=${state.offset}&timeout=0`,
     { signal: AbortSignal.timeout(15_000) },
@@ -427,7 +498,12 @@ async function main() {
     // ➤ Save progress BEFORE running the command: if the program
     // ➤ crashed midway, on restart it wouldn't repeat commands already done.
     state.offset = u.update_id + 1;
-    writeFileSync(OFFSET_PATH, JSON.stringify(state), 'utf-8'); // persist BEFORE handling: a crash must not replay commands
+    // ➤ Persisted BEFORE handling, so a crash cannot replay the command — and
+    // ➤ written aside-then-renamed, so a crash cannot leave this file half
+    // ➤ written either. It was the only plain writeFileSync left in the project,
+    // ➤ on the one file whose corruption replays a day of commands rather than
+    // ➤ losing one (audit 2026-07-31).
+    writeFileAtomic(OFFSET_PATH, JSON.stringify(state));
     // ➤ Button taps (onboarding / settings) arrive as callback_query, not as a
     // ➤ message. Route them to the onboarding handler.
     const cb = u.callback_query;
@@ -455,4 +531,11 @@ async function main() {
 
 // ➤ Startup: runs the main routine; if something blows up, the program exits
 // ➤ quietly (the scheduled task will launch it again the next minute).
-main().catch(() => process.exit(0));
+// ➤ ONLY WHEN THIS FILE IS THE PROGRAM BEING RUN. It used to start on import,
+// ➤ so anything that so much as read a function out of this file started the
+// ➤ bot: a test importing it would have polled Telegram with the real token and
+// ➤ executed whatever commands were waiting. Every other module in the project
+// ➤ already guards its entry point this way (audit 2026-07-31).
+if (process.argv[1] && /(^|[\\/])telegram-listener\.mjs$/.test(process.argv[1])) {
+  main().catch(() => process.exit(0));
+}

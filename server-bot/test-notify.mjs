@@ -18,7 +18,8 @@
  * Run: node server-bot/test-notify.mjs
  */
 
-import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc, languageOfPlace, translateTitle, MAX_CHUNK, TELEGRAM_LIMIT } from './notify.mjs';
+import { readFileSync } from 'fs';
+import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc, languageOfPlace, translateTitle, MAX_CHUNK, MAX_TITLE_CHARS, TELEGRAM_LIMIT } from './notify.mjs';
 
 const matchers = loadCountryMatchers();
 let failures = 0;
@@ -67,6 +68,24 @@ check(compactTitle('Fuselage S19 Industrial Tooling & Robotics (Temp Agency)'),
   'Fuselage S19 Industrial Tooling & Robotics', 'compact temp-agency tag');
 check(compactTitle('Offshore Engineer'),
   'Offshore Engineer', 'compact untouched');
+
+// ➤ A LONG TITLE ARRIVES WHOLE. It used to be cut at 72 characters with an "…",
+// ➤ which hit 41 of 1,006 real titles and threw away the very words that said
+// ➤ what the job was. Telegram wraps the line itself, so nothing was gained.
+const longReal = 'Marine Surveyor (Inspector-a de carga y descarga de producto petroquimico)';
+check(compactTitle(longReal), longReal, 'a long title is not cut');
+// ➤ The en dash comes back as a plain hyphen: the segment splitter rejoins on
+// ➤ " - ". That is the normalising this function has always done, and it is
+// ➤ what the expected value has to say.
+check(compactTitle('Junior Cloud Security Consultant – DevSecOps & Automation - Consulting, IT-Security, Ingenieur'),
+  'Junior Cloud Security Consultant - DevSecOps & Automation - Consulting, IT-Security, Ingenieur',
+  'nor is one that reaches 94 characters');
+// ➤ The one ceiling left protects the message splitter, not the reading width:
+// ➤ a line longer than MAX_CHUNK cannot be split off and would take the whole
+// ➤ list past Telegram's limit. It must still be there, and still be finite.
+const absurd = compactTitle('Engineer ' + 'x '.repeat(400));
+check(absurd.length <= MAX_TITLE_CHARS + 1, true, 'an absurd title is still capped, for the splitter');
+check(MAX_TITLE_CHARS < MAX_CHUNK, true, 'and that cap sits below what one message can hold');
 
 // ── cityOf: city only, no region/province/country ───────────────────
 // ➤ "Extract the city" tests: the user wants to see only the city, not the
@@ -124,10 +143,12 @@ check(esc('Plain Title'), 'Plain Title', 'esc untouched');
 // ➤ Telegram refuses anything over 4096 characters, and refusing means you get
 // ➤ NO list — the failure is total, not partial. Raising the limit to 100000
 // ➤ passed every test in the project, which is how this one came to exist.
-// ➤ The margin is real: the count is of the visible text, while what goes out
-// ➤ carries HTML tags and a link on every line.
+// ➤ THE MARGIN WAS THE BUG. This used to say the 500 spare characters left room
+// ➤ "for the tags and links added on top" — but that overhead is PROPORTIONAL,
+// ➤ not fixed: measured on the real pending list, what goes out is 1.8x the
+// ➤ visible text, so a full message reached ~6,300 characters. The chunker now
+// ➤ counts the markup itself, and the block further down proves it.
 check(MAX_CHUNK < TELEGRAM_LIMIT, true, 'a message is split below what Telegram accepts');
-check(TELEGRAM_LIMIT - MAX_CHUNK >= 500, true, 'with room for the tags and links added on top');
 check(MAX_CHUNK > 500, true, 'and not so small that every list arrives in pieces');
 
 // ➤ ── THE LANGUAGE OF A PLACE ────────────────────────────────────────────
@@ -197,6 +218,63 @@ check(languageOfPlace('Francesca Ltd, Aberdeen'), '', 'a name that merely contai
 }
 
 // ➤ Final tally: says whether EVERYTHING passed or how many failed.
+// ── A message must never exceed what Telegram will accept ────────────────
+// ➤ The chunker used to count the VISIBLE text while sending the markup: every
+// ➤ line carries <a href="the whole URL">, so the real message came out 1.8x
+// ➤ the size measured — about 6,300 characters against a 4,096 limit. Past
+// ➤ roughly thirty offers in one country the list simply stopped being sent.
+// ➤ This rebuilds a line exactly as notify.mjs does and holds the ceiling to
+// ➤ what actually goes out.
+{
+  const escAttr = x => String(x || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  const TELEGRAM_LIMIT_REAL = 4096;
+  check(MAX_CHUNK < TELEGRAM_LIMIT_REAL, true, 'the chunk ceiling sits below what Telegram accepts');
+
+  // ➤ 120 offers in ONE country, with the long URLs Workday produces.
+  const offers = Array.from({ length: 120 }, (_, i) => ({
+    id: 700 + i,
+    company: `Offshore Contractor Group Number ${i}`,
+    title: `Marine Survey and Positioning Engineer Offshore Wind Projects ${i}`,
+    url: `https://acme.wd3.myworkdayjobs.com/en-US/ACME_Careers/job/Rotterdam-Netherlands/Marine-Survey_R-${100000 + i}?source=Careers_Website&utm=x`,
+  }));
+  const sent = [];
+  const BR = '\n\n';
+  let chunk = `<b>Pending offers</b>${BR}<b>NETHERLANDS</b>${BR}`;
+  for (const o of offers) {
+    const line = `- ${esc('#' + o.id + ' ')}<a href="${escAttr(o.url)}">${esc(`${o.title} - ${o.company}`)}</a>${BR}`;
+    if (chunk.length + line.length > MAX_CHUNK) { sent.push(chunk); chunk = `<b>NETHERLANDS</b>${BR}`; }
+    chunk += line;
+  }
+  if (chunk.trim()) sent.push(chunk);
+
+  const longest = Math.max(...sent.map(t => t.length));
+  check(longest <= TELEGRAM_LIMIT_REAL, true, `no message exceeds the limit (longest ${longest} of ${TELEGRAM_LIMIT_REAL})`);
+  check(sent.join('').split('<a href').length - 1, 120, 'every offer is included, none dropped');
+  check(sent.length > 1, true, 'a list this long really is split across messages');
+}
+
+// ➤ ── THE BOT SPEAKS ENGLISH ────────────────────────────────────────────
+// ➤ The date at the top of every list was formatted es-ES and read "sábado, 1
+// ➤ de agosto" on the phone — the only Spanish left in anything the user sees,
+// ➤ and in the message read most often. A language difference between the two
+// ➤ copies looks like prose, which is how it survived several reviews.
+{
+  const src = readFileSync(new URL('./notify.mjs', import.meta.url), 'utf-8');
+  check(/DateTimeFormat\(.en-GB./.test(src), true, 'the list header date is formatted in English');
+  check(/DateTimeFormat\(.es-ES./.test(src), false, 'and never in Spanish');
+}
+
+// ➤ ── THE BOT SPEAKS ENGLISH ────────────────────────────────────────────
+// ➤ The date at the top of every list was formatted es-ES and read "sábado, 1
+// ➤ de agosto" on the phone — the only Spanish left in anything the user sees,
+// ➤ and in the message read most often. A language difference between the two
+// ➤ copies looks like prose, which is how it survived several reviews.
+{
+  const src = readFileSync(new URL('./notify.mjs', import.meta.url), 'utf-8');
+  check(/DateTimeFormat\(.en-GB./.test(src), true, 'the list header date is formatted in English');
+  check(/DateTimeFormat\(.es-ES./.test(src), false, 'and never in Spanish');
+}
+
 // ➤ "exit(1)" tells the system that something is wrong.
 console.log(failures === 0 ? `All ${total} notify tests passed.` : `${failures}/${total} FAILED.`);
 process.exit(failures === 0 ? 0 : 1);

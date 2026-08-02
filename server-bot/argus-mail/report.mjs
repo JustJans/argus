@@ -42,7 +42,13 @@ const STATES = [
 
 // ➤ Which ones are worth reading one by one. A rejection is closed: it is
 // ➤ counted above and left there.
-const LISTED = ['bounced', 'noreply', 'acknowledged', 'interview'];
+// ➤ Which of those get a section of their own underneath, spelled out here as
+// ➤ the STATE KEYS of the entries above rather than as a second hand-written
+// ➤ list. Written out by hand, a state added to STATES and forgotten here would
+// ➤ be counted in the header and then never listed — and the stray-state guard
+// ➤ below would not notice, because it only checks against STATES.
+const LISTED_LABELS = ['Never arrived', 'N/A', 'Received', 'Interview'];
+const LISTED = STATES.filter(s => LISTED_LABELS.includes(s.title)).flatMap(s => s.keys);
 
 // ➤ The whole message, as one string of Telegram HTML: a count line, then a
 // ➤ section per state worth reading one by one. Takes the file the nightly run
@@ -64,6 +70,17 @@ export function formatStatus(status) {
   const out = [];
 
   out.push(`<b>Applications — ${apps.length}</b>`);
+  // ➤ NOTHING MAY FALL BETWEEN THE STATES (audit 2026-07-31). The states this
+  // ➤ report knows about are the ones listed above; an application in any other
+  // ➤ state appeared in no section AND in no count, while the header line right
+  // ➤ here still added it to the total — so the numbers quietly contradicted
+  // ➤ each other and one of your applications was nowhere on the screen. It is
+  // ➤ an easy state to reach: rename a state in one file and forget the other.
+  // ➤ A report that admits it is confused is better than one that hides an
+  // ➤ application, so it now says so out loud, with the unknown names.
+  const KNOWN = new Set(STATES.flatMap(s => s.keys));
+  const stray = apps.filter(a => !KNOWN.has(a.state));
+  if (stray.length) out.push(`⚠️ ${stray.length} application(s) in an unknown state: ${[...new Set(stray.map(a => a.state))].join(', ')}`);
   // ➤ A state nobody is in says nothing worth a line — "0 never arrived · 0
   // ➤ ghosted" was most of the count and none of the information. The one
   // ➤ exception is the interview: that is what all of this is for, so its
@@ -96,6 +113,20 @@ export function formatStatus(status) {
   if (status.unlinked?.ambiguous) {
     out.push('');
     out.push(`<i>${status.unlinked.ambiguous} email(s) fit more than one application and were left unassigned.</i>`);
+    // ➤ NAME THEM (audit 2026-08-01). A bare count is not something you can
+    // ➤ act on: it does not say which applications are tangled, nor whether
+    // ➤ the message was a refusal or an invitation — and an invitation left
+    // ➤ unassigned is the most expensive thing this whole module handles.
+    // ➤ With the numbers in front of you, "no N" settles a refusal and you
+    // ➤ know to go and read the mail yourself when it is an invitation.
+    const cases = status.unlinked.cases || [];
+    for (const t of cases.slice(0, 5)) {
+      const label = { interview: 'an interview', rejected: 'a refusal', acknowledged: 'a receipt', bounced: 'a bounce' }[t.kind] || 'a message';
+      out.push(`<i>  · ${label} that fits ${t.ids.map(i => '#' + i).join(' or ')}</i>`);
+    }
+    // ➤ SAY WHAT WAS LEFT OUT: stopping in silence reads as "that was all", and
+    // ➤ the sixth could be the interview invitation.
+    if (cases.length > 5) out.push(`<i>  · and ${cases.length - 5} more, in data/application-status.json</i>`);
   }
   return out.join('\n');
 }

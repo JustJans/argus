@@ -41,7 +41,10 @@ async function askAdzuna(creds, country, term, perPage) {
     results_per_page: String(perPage), max_days_old: '30',
     what: term, 'content-type': 'application/json',
   });
-  const res = await fetch(`https://api.adzuna.com/v1/api/jobs/${country}/search/1?${params}`);
+  // ➤ Bounded, like every other request here: this runs one query per skill in
+  // ➤ a loop, so a stalled connection would hang the whole harvest on the first.
+  const res = await fetch(`https://api.adzuna.com/v1/api/jobs/${country}/search/1?${params}`,
+    { signal: AbortSignal.timeout(20_000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json();
   return (json.results || []).map(r => String(r.title || '').trim()).filter(Boolean);
@@ -144,12 +147,14 @@ function main() {
       console.log('  Appears in   Term');
       for (const c of cands.slice(0, 12)) console.log(`  ${String(c.titles.size).padStart(9)}   ${c.term}`);
       console.log('\n  Example titles behind the top candidate:');
-      for (const t of [...cands[0].titles].slice(0, 5)) console.log(`    ${t.slice(0, 68)}`);
+      // ➤ Whole titles. These examples exist to be judged, and the judgement
+      // ➤ often turns on the words a 68-character cut removed.
+      for (const t of [...cands[0].titles].slice(0, 5)) console.log(`    ${t}`);
     }
 
     console.log('\n── TITLES DROPPED FOR HAVING NO FIELD KEYWORD ───────────────');
     const noKeyword = missed.filter(t => /no keyword/i.test(filter.explain(t))).slice(0, 10);
-    for (const t of noKeyword) console.log(`    ${t.slice(0, 68)}`);
+    for (const t of noKeyword) console.log(`    ${t}`);
     if (!noKeyword.length) console.log('    None — everything dropped hit a negative rule instead.');
 
     console.log('\n  Nothing has been changed. Before adopting any term, measure it:');

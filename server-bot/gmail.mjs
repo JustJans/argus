@@ -16,7 +16,7 @@
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 import { convert } from 'html-to-text';
-import { readFileSync, writeFileSync, existsSync, chmodSync } from 'fs';
+import { readFileSync, writeFileSync, chmodSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -109,10 +109,30 @@ async function get(path, params, token, fetchImpl = fetch) {
 
 // ➤ The ids of the messages matching a Gmail search query (the same syntax you
 // ➤ type in Gmail's own search box, e.g. 'label:Argus newer_than:30d').
-export async function listMessageIds(query, { max = 50, token, fetchImpl = fetch } = {}) {
+// ➤ IT FOLLOWS THE PAGES (audit 2026-07-31). Gmail hands back at most 500 ids at
+// ➤ a time plus a token for the next page, and that token used to be thrown
+// ➤ away — so the search stopped dead after one page, without saying so. The
+// ➤ search window starts at your OLDEST application and only ever gets longer,
+// ➤ and Gmail answers newest-first, so as soon as the window held more than a
+// ➤ page the OLDEST replies dropped off the end: those applications sat on "no
+// ➤ reply" for ever even though the answer was in the mailbox. `max` is now the
+// ➤ total number of ids wanted, not the size of one page.
+// ➤ The number of pages is capped too, so a query that somehow never runs out
+// ➤ cannot turn the mail run into a loop that never finishes.
+export async function listMessageIds(query, { max = 50, token, fetchImpl = fetch, maxPages = 20 } = {}) {
   const t = token || await accessToken({ fetchImpl });
-  const j = await get('/messages', [['q', query], ['maxResults', String(max)]], t, fetchImpl);
-  return (j.messages || []).map(m => m.id);
+  const ids = [];
+  let pageToken = '';
+  for (let page = 0; page < maxPages && ids.length < max; page++) {
+    // ➤ Only ask for what is still missing, so the last page is not oversized.
+    const params = [['q', query], ['maxResults', String(Math.min(500, max - ids.length))]];
+    if (pageToken) params.push(['pageToken', pageToken]);
+    const j = await get('/messages', params, t, fetchImpl);
+    for (const m of j.messages || []) ids.push(m.id);
+    pageToken = j.nextPageToken || '';
+    if (!pageToken) break;   // ➤ no next page: that was everything there is
+  }
+  return ids.slice(0, max);
 }
 
 // ➤ Walks the nested structure Gmail returns and decodes every part of one

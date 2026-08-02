@@ -10,7 +10,7 @@ import { parseVerdict } from './judges.mjs';
 import { runClaudeCli, claudeErrorMessage } from '../claude-cli.mjs';
 
 // ➤ Paths: this file lives in server-bot/argus-council/. From here:
-// ➤   SCRIPT_DIR  = .../server-bot/council
+// ➤   SCRIPT_DIR  = .../server-bot/argus-council
 // ➤   SERVERBOT   = .../server-bot   (where claude-token.json is)
 // ➤   ROOT        = .../argus   (where the model can Read cv.md, etc.)
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));

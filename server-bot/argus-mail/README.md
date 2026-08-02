@@ -27,8 +27,8 @@ The states, in the order the message shows them:
 
 | | State | Means |
 |---|---|---|
-| ⚪ | `noreply` | nothing came back at all |
 | ⚪ | `bounced` | the mail never arrived — worth applying again elsewhere |
+| ⚪ | `noreply` | nothing came back at all |
 | 🟡 | `acknowledged` | they acknowledged it, and that is all so far |
 | 🔴 | `rejected` / `ghosted` | they said no, or two months passed in silence |
 | 🟢 | `interview` | somebody proposed talking to you |

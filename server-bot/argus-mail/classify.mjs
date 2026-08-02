@@ -1,73 +1,71 @@
 #!/usr/bin/env node
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ WHAT IT IS: it reads a job email's sender and subject and says what KIND
-// ➤ of thing happened: they acknowledged your application, they turned you
-// ➤ down, or they want to talk. Nothing else here reads your mail; this only
-// ➤ receives a few lines of text and returns a word.
-// ➤ WHY IT IS WORD LISTS AND NOT A MODEL: measured on 500 real messages, these
-// ➤ patterns found 46 outcomes and only 2 false alarms. A model would cost
-// ➤ money per scan and be harder to correct when it is wrong.
-// ➤ EDIT THESE LISTS. They cover the languages the search covers; when a
-// ➤ company words a rejection in a way that is not here, the message is filed
-// ➤ as unknown rather than guessed at, and adding the phrase fixes it for good.
+// ➤ Given a job email's sender and subject, says what KIND of thing happened:
+// ➤ acknowledged, turned down, or they want to talk. It opens no mailbox — a
+// ➤ few lines in, one word out. Word lists, not a model: on 500 real messages
+// ➤ they found 46 outcomes with 2 false alarms, cost nothing per scan and are
+// ➤ easy to fix. EDIT THEM; wording missing from any of the languages here is
+// ➤ filed as unknown rather than guessed at.
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 // ➤ Accents removed and lowercased, so "recibí" and "recibi" are one thing.
 export const fold = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
-// ➤ ── A NOTE ON DUTCH ─────────────────────────────────────────────────────
-// ➤ Belgium and the Netherlands do not write the same Dutch, and this mailbox
-// ➤ gets both. The differences that matter here are not accents, they are
-// ➤ different words for the same thing:
-// ➤   Belgium              Netherlands           meaning
-// ➤   kandidatuur          sollicitatie          application
-// ➤   niet weerhouden      niet geselecteerd     not selected
-// ➤   opportuniteit        kans / mogelijkheid   opportunity
-// ➤   contactname          contact opnemen       getting in touch
-// ➤ Belgian mail also leans on the formal "u" where a Dutch company might use
-// ➤ "je". A real Belgian rejection matched nothing at all because only the
-// ➤ Netherlands wording was written down, so both are listed everywhere below.
+// ➤ ── DUTCH: BELGIUM AND THE NETHERLANDS ──────────────────────────────────
+// ➤ Both write here, and they differ in words, not accents — Belgian first:
+// ➤ kandidatuur/sollicitatie (application), niet weerhouden/niet geselecteerd
+// ➤ (not selected), opportuniteit/kans, contactname/contact opnemen, plus a
+// ➤ formal "u". A real Belgian rejection matched nothing, so both are listed.
 
-// ➤ A refusal. Checked FIRST: a rejection often opens by thanking you for
-// ➤ applying, so the polite acknowledgement wording is in there too and
-// ➤ whichever is tested first wins.
-// ➤ TWO WAYS OF SAYING IT, and both have to be here. The negative — "we will
-// ➤ not continue with you" — is the obvious one. The positive is just as
-// ➤ common and reads like good news until you finish the sentence: "we have
-// ➤ decided to continue with OTHER candidates". A real Dutch rejection said
-// ➤ exactly that ("verder te gaan met andere kandidaten") and was read as
-// ➤ nothing at all, because only "niet verder" was listed.
+// ➤ A refusal, and it has to be caught in both directions: the negative ("we
+// ➤ will not continue with you") and the positive, which reads like good news
+// ➤ until the sentence ends — "continue with OTHER candidates", "verder te
+// ➤ gaan met andere kandidaten".
 export const REJECTED = /unfortunately|we regret|regret to inform|not (be )?(moving|proceeding|selected|continuing)|other candidates|another candidate|no longer under consideration|unsuccessful|decided to (move|proceed|continue|go) (forward |ahead )?with (other|another)|lamentamos|no hemos podido|no continuaremos|no seguiremos|otros candidatos|otro candidato|hemos decidido continuar con|no ha sido seleccion|no encaja|helaas|niet verder|verder te gaan met andere|met andere kandidaten|niet geselecteerd|geen match|niet weerhouden|niet in aanmerking|kandidatuur niet|met een andere kandidaat|leider|absage|nicht beruck|haben wir uns fur (einen anderen|andere)|entschieden, mit anderen|nous ne donnerons pas suite|votre candidature n'a pas|d'autres candidat/;
 
-// ➤ Someone wants to speak to you. The strongest thing this can find, and the
-// ➤ easiest to get wrong.
-// ➤ WHAT IS NOT HERE, AND WHY: "next step(s)" and "siguiente paso" used to be.
-// ➤ They are the closing line of almost every automated receipt — "we will be
-// ➤ in touch about the next steps" — so once the whole body was being read
-// ➤ instead of the first 200 characters, three plain acknowledgements were
-// ➤ reported as interview invitations. A bare "invitation" went the same way:
-// ➤ systems invite you to complete profiles and confirm addresses.
-// ➤ What is left names a CONVERSATION: the word interview itself, or someone
-// ➤ proposing to talk to you.
+// ➤ Someone wants to speak to you: the strongest verdict and the easiest to
+// ➤ get wrong, so every phrase here names a CONVERSATION and nothing less.
+// ➤ ABSENT ON PURPOSE: "next step(s)" and "siguiente paso" close almost every
+// ➤ automated receipt and turned 3 of them into invitations; a bare
+// ➤ "invitation" goes the same way, systems inviting you to complete profiles.
 export const INTERVIEW = /\binterview\b|entrevista|\bgesprek\b|vorstellungsgesprach|schedule a (call|chat|meeting|conversation)|invite you (to|for) an? (interview|call|chat|conversation|meeting)|would like to (speak|talk|meet|arrange)|available for a (call|chat|meeting)|kennismaking|kennismakingsgesprek|een afspraak (in)?plannen|nos gustaria (hablar|conocerte|charlar)|te gustaria (hablar|charlar)|concertar una (llamada|entrevista|reunion)|agendar una (llamada|entrevista|reunion)|primera toma de contacto/;
 
-// ➤ ── THE HARDEST THING IN THIS FILE: A PROMISE IS NOT AN INVITATION ──────
-// ➤ A receipt very often describes the process that MIGHT follow, in the exact
-// ➤ words a real invitation uses. A real one:
-// ➤   "we will inform you whether we see the right fit TO INVITE YOU FOR AN
-// ➤    INTERVIEW"
-// ➤ — that is a company telling you they have not decided. Read without the
-// ➤ opening of the sentence it is indistinguishable from good news, and it was
-// ➤ reported as an interview until someone opened the mail and looked.
-// ➤ These are the words that turn the sentence into a maybe. They are about
-// ➤ THE COMPANY still deciding — deliberately NOT "if you are available" or
-// ➤ "if it suits you", which is how a real invitation is worded politely.
-export const CONDITIONAL = /\bwhether\b|in case|if (we|selected|successful|shortlisted|there is|your (application|profile|cv|candidacy|background))|should (we|there|your (application|profile))|si (tu|su) (perfil|candidatura|solicitud)|en caso de|si (encajas|resultas|eres seleccionad)|indien (we|wij|uw)|mocht (u|je|uw)|falls (wir|ihre)|wenn wir/;
+// ➤ ── A PROMISE IS NOT AN INVITATION ──────────────────────────────────────
+// ➤ Receipts describe what MIGHT follow in the words of a real invitation:
+// ➤ "we will inform you whether we see the right fit TO INVITE YOU FOR AN
+// ➤ INTERVIEW" is a company that has not decided, and it was read as one.
+// ➤ These words mark that pending decision — deliberately NOT "if you are
+// ➤ available" or "if it suits you", which is how a genuine invitation is
+// ➤ politely worded. WHO it hangs on is irrelevant ("if YOU are selected, we
+// ➤ will invite you" passed as a real interview in English, German and Dutch),
+// ➤ so the maybe is pinned to selected/shortlisted/successful, a few words
+// ➤ apart, and to nothing else — "a match" and "the right fit" describe the
+// ➤ OFFER suiting YOU, and binned real invitations.
+const PICKED = '(selected|shortlisted|successful|chosen)';
+export const CONDITIONAL = new RegExp([
+  '\\bwhether\\b', 'in case',
+  `if (we|there is|your (application|profile|cv|candidacy|background))`,
+  `if [a-z ]{0,12}(is |are |were )?${PICKED}`,
+  `when [a-z ]{0,12}(is |are |were )?${PICKED}`,
+  'should (we|there|your (application|profile))',
+  // ➤ Spanish
+  'si (tu|su) (perfil|candidatura|solicitud)', 'en caso de', 'si (encajas|resultas|eres seleccionad|es seleccionad)',
+  // ➤ Dutch: "indien wij" is the company deciding, but "indien u/je" also opens
+  // ➤ invitations, so that form must name a decision as the English clauses do.
+  'indien (we|wij)', 'mocht (u|je|uw)',
+  'indien (u|uw|je)[a-z ]{0,20}(geselecteerd|weerhouden|geschikt|in aanmerking)',
+  'als (je|u|uw)[a-z ]{0,15}(geselecteerd|geschikt)',
+  // ➤ German, same split: "falls Sie Interesse haben" opens an invitation.
+  'falls (wir|ihre)', 'wenn wir',
+  'falls (sie|du)[a-z ]{0,20}(ausgewahlt|ausgewaehlt|passen|geeignet)',
+  'wenn (sie|du)[a-z ]{0,15}(ausgewahlt|ausgewaehlt|passen)',
+  // ➤ French
+  'si (vous|votre)[a-z ]{0,15}(retenu|selectionn)',
+].join('|'));
 
-// ➤ Does some sentence say this OUTRIGHT, rather than as a possibility?
-// ➤ Sentence by sentence, and only what comes BEFORE the phrase counts: the
-// ➤ condition always leads ("whether we ... to invite you"), and a later
-// ➤ sentence about something else must not cancel a real invitation.
+// ➤ Does a sentence say this OUTRIGHT rather than as a possibility? One
+// ➤ sentence at a time, so a later one cannot cancel a real invitation, and
+// ➤ only what precedes the phrase counts: the condition always leads.
 export function saidOutright(pattern, text) {
   for (const sentence of String(text).split(/[.!?;·•]+/)) {
     const m = sentence.match(pattern);
@@ -76,80 +74,84 @@ export function saidOutright(pattern, text) {
   return false;
 }
 
-// ➤ Only advice ABOUT interviews, not an invitation to one. Without this,
-// ➤ every newsletter offering interview tips counts as good news.
-// ➤ READ ONLY IN THE OPENING — see classifyMessage. These words live in the
-// ➤ footer of almost every HTML mail ever sent ("read our blog", "articles",
-// ➤ "guides"), so once whole bodies started being read, this cancelled a real
-// ➤ interview invitation. A message declares what it IS in its subject; its
-// ➤ footer only declares that a marketing department exists.
-export const ADVICE = /tips|how to|guide|prepare for|consejos|curso|webinar|blog|article|newsletter/;
+// ➤ Advice ABOUT interviews, not an invitation to one: without this every
+// ➤ newsletter of interview tips reads as good news.
+// ➤ OPENING ONLY (see classifyMessage): these words fill the footer of almost
+// ➤ every HTML mail, a marketing department talking rather than the message,
+// ➤ and over a whole body they cancelled a real invitation.
+// ➤ WHOLE WORDS ONLY: as fragments they hide inside innocent ones and bin
+// ➤ invitations — "curso" in "recursos humanos", "guide" in "guidelines",
+// ➤ which is what a company attaches to a real one. Missing an interview is
+// ➤ the costliest mistake this file can make, so anything able to cancel one
+// ➤ must match exactly; "en curso" is out entirely, being ordinary Spanish
+// ➤ for "under way".
+export const ADVICE = /\btips\b|\bhow to\b|\bguides?\b|\bprepare for\b|\bconsejos\b|(?<!\ben )\bcursos?\b|\bwebinars?\b|\bblogs?\b|\barticles?\b|\bnewsletters?\b/;
 
-// ➤ The automated receipt. Almost every ATS sends one, which is why it is by
-// ➤ far the most common outcome in the mailbox.
-// ➤ "Thank you" and "Thanks" are both here on purpose: the pattern used to
-// ➤ spell out only the first, and "Thanks for applying" — as ordinary a way of
-// ➤ putting it as exists — was read as nothing at all.
-// ➤ FORMAL AND INFORMAL, in every language that has the distinction. Dutch
-// ➤ "wij hebben UW sollicitatie ontvangen" went unrecognised because only the
-// ➤ informal "we hebben JE sollicitatie" was written down. A company writing
-// ➤ to a stranger uses the formal form, which is most of this mailbox.
-// ➤ THE POLITE PADDING BREAKS IT, and that is why the middle group exists.
-// ➤ "Thank you SO MUCH for your interest in joining us" is as ordinary as
-// ➤ writing gets, and it matched nothing at all: the pattern wanted "thank you"
-// ➤ and "for" side by side. A real receipt sat in the no-reply pile for a week
-// ➤ because of two words of courtesy.
-// ➤ "Reviewing your application" is here for the same message: it says plainly
-// ➤ that the application arrived, which is the whole meaning of a receipt.
+// ➤ The automated receipt, the commonest outcome by far: nearly every ATS
+// ➤ sends one. Three things it must tolerate, each having swallowed a real
+// ➤ receipt — "Thanks" as well as "Thank you"; the formal as well as the
+// ➤ informal wherever a language has both (Dutch "uw sollicitatie": a company
+// ➤ writing to a stranger is formal, which is most of this mailbox); and
+// ➤ polite padding between the thanks and the "for" ("thank you SO MUCH for
+// ➤ your interest"), which the middle group absorbs. "Reviewing your
+// ➤ application" is here because it says the same thing plainly.
 export const ACKNOWLEDGED = /(we have|we've) received|thanks? (you )?(so much |very much |once again |again |kindly )?for (your )?(applying|application|interest|submitting)|(is |are |currently )?reviewing (your|all) applications?|application (has been )?received|received your application|hemos recibido (tu|su)|gracias por (tu|su) (candidatura|solicitud|interes|postulacion)|candidatura recibida|bedankt voor (je|uw|jouw) (sollicitatie|kandidatuur|interesse)|(we|wij) hebben (je|uw|jouw) (sollicitatie|kandidatuur)|(sollicitatie|kandidatuur) (goed )?ontvangen|goed ontvangen|nous avons (bien )?recu|merci de votre candidature|vielen dank fur (ihre|deine) bewerbung|danke fur (deine|ihre) bewerbung|eingang (ihrer|deiner) bewerbung/;
 
-// ➤ THE APPLICATION NEVER ARRIVED. Not a reply from anybody — the mail system
-// ➤ handing your own message back. It is the most useful thing this file can
-// ➤ find: everything else tells you how you did, this tells you that you did
-// ➤ not compete at all, and it is fixable by applying somewhere that works.
-// ➤ Found on a real mailbox: three bounces against two applications that had
-// ➤ been sitting in the no-reply pile looking like ordinary silence.
-// ➤ ONLY A FAILURE COUNTS, and this is the whole subtlety. The same sender
-// ➤ ("Mail Delivery Subsystem") writes "Delivery Status Notification (Delay)"
-// ➤ while it is still retrying, and a delay usually ends in delivery. Two of
-// ➤ the three notices in one real mailbox were delays. So the sender is
-// ➤ deliberately NOT part of this test — matching on it would have called all
-// ➤ three a failure and told you an application was lost when it was not.
+// ➤ THE APPLICATION NEVER ARRIVED — the mail system handing your own message
+// ➤ back, not a reply from anybody. The most useful verdict here: everything
+// ➤ else says how you did, this says you never competed and can apply again.
+// ➤ A real mailbox held 3.
+// ➤ ONLY A FAILURE COUNTS. The same sender also writes "Delivery Status
+// ➤ Notification (Delay)" while it is still retrying, and a delay usually ends
+// ➤ in delivery (2 of those 3 did), so the sender is no part of this test.
 export const BOUNCED = /undelivered mail returned|delivery status notification \(failure\)|address not found|recipient address rejected|user unknown|no such user|mailbox (is )?(unavailable|full)|550[ -]5\.|domain .{0,30}not found/;
 
-// ➤ Mailshots about jobs you have NOT applied to. They mention roles and
-// ➤ companies constantly, so without this they poison everything downstream.
+// ➤ Mailshots about jobs you have NOT applied to. They name roles and
+// ➤ companies constantly, so unspotted they poison everything downstream.
 export const ALERT = /job alert|new jobs|jobs for you|recommended for you|nuevas ofertas|ofertas para ti|empleos recomendados|vacatures voor jou|nieuwe vacatures|neue jobs|job digest|we found \d|hemos encontrado|apply now|postula ya|solliciteer nu|unsubscribe|darse de baja/;
 
-// ➤ Returns one of: 'bounced' | 'rejected' | 'interview' | 'acknowledged' | 'alert' | null.
-// ➤ null means "this is not about an application", and it is the honest answer
+// ➤ The part of the list above that can ONLY be a mailshot — wording no company
+// ➤ uses to one person about one application. The early test uses this set, and
+// ➤ the narrowing is not academic: "hemos encontrado" with no number after it
+// ➤ also opens a Spanish refusal ("... hemos encontrado otro candidato"), which
+// ➤ spent sixty days filed as advertising. Calls to action and "unsubscribe"
+// ➤ stay out too, genuine company mail carrying them; they still count in the
+// ➤ full test at the end, where a message has failed to be anything else.
+export const ALERT_DECLARED = /job alert|new jobs|jobs for you|recommended for you|nuevas ofertas|ofertas para ti|empleos recomendados|vacatures voor jou|nieuwe vacatures|neue jobs|job digest|we found \d|hemos encontrado \d/;
+
+// ➤ Returns 'bounced' | 'rejected' | 'interview' | 'acknowledged' | 'alert' |
+// ➤ null. null means "not about an application", and it is the honest answer
 // ➤ far more often than any of the others.
 export function classifyMessage({ subject = '', snippet = '', body = '', from = '' } = {}) {
-  // ➤ The body is included: measured, it found 3 outcomes whose wording sat
-  // ➤ past the ~200 characters of the snippet, and contradicted none.
+  // ➤ The body is included: it found 3 outcomes whose wording sat past the
+  // ➤ snippet's ~200 characters, and contradicted none.
   const text = fold(`${subject} ${snippet} ${body}`);
   if (!text.trim()) return null;
 
-  // ➤ The opening alone. What a message IS gets said here; the body below can
-  // ➤ run to a thousand words of navigation and legal boilerplate that describe
-  // ➤ the sender's website, not this email.
+  // ➤ The opening alone. A mail says what it IS here; the body can run to a
+  // ➤ thousand words of navigation and legal boilerplate about the sender.
   const opening = fold(`${subject} ${snippet}`);
 
-  // ➤ Order matters and is not arbitrary: a rejection thanks you for applying,
-  // ➤ an invitation may quote the acknowledgement it follows, and a newsletter
-  // ➤ says every one of those words while meaning none of them.
-  // ➤ Both of the verdicts that change what you would DO have to be said
-  // ➤ outright. A receipt describes both of them as possibilities — "should we
-  // ➤ continue with other candidates", "whether we invite you" — and those
-  // ➤ sentences are the single most common way to be told something wrong.
-  // ➤ A bounce is checked FIRST because it is not a reply at all. It quotes
-  // ➤ your own message back at you, so the words of your application are in it
-  // ➤ and every other pattern here would happily read them.
+  // ➤ The order is not arbitrary: a rejection thanks you for applying, an
+  // ➤ invitation may quote the acknowledgement it follows, and a newsletter
+  // ➤ says all of those words meaning none of them. The two verdicts that
+  // ➤ change what you would DO must be said outright, a receipt offering both
+  // ➤ as possibilities. The bounce leads because it is not a reply at all: it
+  // ➤ quotes your own application back, which every pattern below would read.
   if (BOUNCED.test(text)) return 'bounced';
+
+  // ➤ A MAILSHOT IS SPOTTED BEFORE ANY MEANING IS READ INTO IT: a digest
+  // ➤ carries the advertising text of every vacancy it lists, so from the
+  // ➤ bottom of the function one was filed as a rejection and another as an
+  // ➤ interview, against real applications made elsewhere.
+  // ➤ ON THE OPENING ONLY: "unsubscribe" sits in the footer of nearly every
+  // ➤ company mail, so over the whole text this would bin genuine replies.
+  if (ALERT_DECLARED.test(opening)) return 'alert';
 
   if (saidOutright(REJECTED, text)) return 'rejected';
   if (saidOutright(INTERVIEW, text) && !ADVICE.test(opening)) return 'interview';
   if (ACKNOWLEDGED.test(text)) return 'acknowledged';
+  // ➤ Last resort, for a digest that only owns up to what it is further down.
   if (ALERT.test(text)) return 'alert';
   return null;
 }
@@ -158,9 +160,8 @@ export function classifyMessage({ subject = '', snippet = '', body = '', from = 
 // ➤ Used to decide whether a message is worth trying to link at all.
 export const ATS_SENDER = /(no-?reply|do-?not-?reply|noreply|careers?|recruit|talent|jobs?|hiring|apply|sollicit|empleo|bewerbung)@|@(workday|myworkday|successfactors|greenhouse|lever|smartrecruiters|teamtailor|recruitee|personio|softgarden|jobvite|icims|taleo|talentclue|bizneo|factorial|workable|ashby|epreselec)/;
 
-// ➤ Did a recruiting system send this, or a person? Only the address is read,
-// ➤ never the text — a human writing from their own company address is a
-// ➤ different kind of message from a no-reply robot, and worth telling apart.
+// ➤ Only the address is read, never the text: a human writing from their own
+// ➤ company address is a different kind of message from a no-reply robot.
 export function looksAutomated(from) {
   return ATS_SENDER.test(fold(from));
 }

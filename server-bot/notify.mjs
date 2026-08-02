@@ -50,6 +50,10 @@ const COUNTRIES_PATH = join(SCRIPT_DIR, 'countries.yml');
 // ➤ mutation that raised it to 100000 passed every test there was.
 export const MAX_CHUNK = 3500;
 export const TELEGRAM_LIMIT = 4096;
+// ➤ A backstop for the splitter, not a reading width: a line that alone exceeds
+// ➤ MAX_CHUNK cannot be split off, so the whole message is refused. The longest
+// ➤ real title measured is 116 characters, so nothing real ever reaches this.
+export const MAX_TITLE_CHARS = 300;
 
 // ── Country grouping (the user's priority order) ────────────────────────
 // Barcelona first, then rest of Spain, France, Monaco, Belgium,
@@ -81,7 +85,12 @@ const HOME_GROUP = HOME_CITY.toUpperCase();
 
 // ➤ Order in which the country groups appear in the Telegram message: home city
 // ➤ first, then your countries in priority order, then the catch-all groups.
-const GROUP_ORDER = [HOME_GROUP, ..._COUNTRIES.map(c => c.label), 'REMOTE', 'OTHER', 'NO LOCATION'];
+// ➤ DE-DUPLICATED, because the list is walked to build the message and a label
+// ➤ appearing twice sends its offers twice. The onboarding offers "Remote" as a
+// ➤ country to tick, so anyone who ticks it gets REMOTE from their own list AND
+// ➤ the fixed one below. A home city named like one of the countries would do
+// ➤ the same.
+const GROUP_ORDER = [...new Set([HOME_GROUP, ..._COUNTRIES.map(c => c.label), 'REMOTE', 'OTHER', 'NO LOCATION'])];
 
 // ➤ From the English country name (as it arrives from the job portals) to the
 // ➤ group label shown in the message.
@@ -153,8 +162,6 @@ export function cleanTitle(title) {
 // ➤ Words that are only a country (not a city): if the "city" turns out to be
 // ➤ one of these, it isn't shown, because the message's group already says it.
 // ➤ Country names ONLY — never city aliases, or "Madrid" would stop showing.
-// ➤ Country names ONLY — never city aliases, or "Madrid" would stop showing.
-// ➤ Country names ONLY — never city aliases, or "Madrid" would stop showing.
 // ➤ Includes the multilingual base set AND the configured countries' names/labels.
 const COUNTRY_WORDS = new Set([
   'spain', 'españa', 'espana', 'france', 'monaco', 'mónaco', 'belgium',
@@ -164,11 +171,11 @@ const COUNTRY_WORDS = new Set([
   ..._COUNTRIES.flatMap(c => [String(c.name).toLowerCase(), String(c.label).toLowerCase()]),
 ]);
 
-// ➤ Shortens the title so it reads well on a phone. Four kinds of noise go:
-// ➤ contract parentheticals ("(Temp Agency)"), trailing acronym lists
-// ➤ ("... DWDM / MPLS-TP / TDM / radio link"), sector tags that say nothing
-// ➤ because every offer here is already from your sector ("- NAVAL Sector"),
-// ➤ and anything past 72 characters — cut at a space, never mid-word.
+// ➤ Takes the NOISE out of a title and nothing else: contract parentheticals
+// ➤ ("(Temp Agency)"), trailing acronym lists ("... DWDM / MPLS-TP / TDM") and
+// ➤ sector tags every offer here already carries ("- NAVAL Sector").
+// ➤ IT NO LONGER SHORTENS: a 72-character cut hit 41 of 1,006 real titles, and
+// ➤ Telegram wraps a long line by itself, so there was only a title to lose.
 export function compactTitle(title) {
   let t = String(title || '');
 
@@ -188,9 +195,10 @@ export function compactTitle(title) {
 
   t = t.replace(/\s{2,}/g, ' ').replace(/\s*[-–—|/]\s*$/g, '').trim();
 
-  // ➤ If still too long, cut at 72 characters right at a space and add "…".
-  if (t.length > 72) {
-    const cut = t.slice(0, 72);
+  // ➤ For the splitter, not for reading — see MAX_TITLE_CHARS. It fires only on
+  // ➤ a broken feed pasting a whole ad into the title.
+  if (t.length > MAX_TITLE_CHARS) {
+    const cut = t.slice(0, MAX_TITLE_CHARS);
     t = cut.slice(0, cut.lastIndexOf(' ')).replace(/[,;:\-–—/]\s*$/, '') + '…';
   }
   return t;
@@ -512,7 +520,6 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
   const label = headerLabel === 'new' ? 'new' : headerLabel;
   const headerTxt = `${date} — ${offers.length} ${label} offer${plural}`;
   let chunk = esc(headerTxt) + '\n\n';
-  let visible = headerTxt.length + 2;
   let currentGroup = null;
 
   let sentAny = false;
@@ -529,14 +536,12 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
       sentAny = true;
     }
     chunk = '';
-    visible = 0;
   };
 
   // ➤ Adds the country header to the message in bold (e.g. "SPAIN").
   const addGroupHeader = (name) => {
     const txt = name;
     chunk += `<b>${esc(txt)}</b>\n\n`;
-    visible += txt.length + 2;
   };
 
   // ➤ Step 4: walk through the countries in their priority order and keep
@@ -545,7 +550,7 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
     const list = groups.get(groupName);
     if (!list?.length) continue;
     // ➤ If the country header no longer fits, send what's accumulated first.
-    if (visible + groupName.length + 4 > MAX_CHUNK) await flush();
+    if (chunk.length + groupName.length + 12 > MAX_CHUNK) await flush();
     addGroupHeader(groupName);
     currentGroup = groupName;
 
@@ -571,16 +576,20 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
       const newTag = isNew ? '[NEW] ' : '';
       const idTag = o.id ? `#${o.id} ` : '';
       const lineTxt = `- ${newTag}${idTag}${parts.join(' - ')}`;
-      // ➤ If this line no longer fits, send the current message and open
-      // ➤ another one, repeating the header of the country we were in.
-      if (visible + lineTxt.length + 2 > MAX_CHUNK) {
+      // ➤ Build the line FIRST, then ask whether it fits. What goes to
+      // ➤ Telegram is the markup, not the words: every line carries
+      // ➤ <a href="the whole URL">, and measuring only the visible text made
+      // ➤ the real message 1.8x the size counted — about 6,300 characters
+      // ➤ against a 4,096 limit, so past roughly thirty offers in one country
+      // ➤ the list simply stopped being sent.
+      const lineHtml = `- ${isNew ? '<b>[NEW]</b> ' : ''}${esc(idTag)}<a href="${escAttr(o.url)}">${esc(parts.join(' - '))}</a>\n\n`;
+      if (chunk.length + lineHtml.length > MAX_CHUNK) {
         await flush();
         addGroupHeader(currentGroup);
       }
       // ➤ The line is added as a link: tapping it on the phone opens the offer.
       // ➤ [NEW] (in bold) goes first when the offer is new.
-      chunk += `- ${isNew ? '<b>[NEW]</b> ' : ''}${esc(idTag)}<a href="${escAttr(o.url)}">${esc(parts.join(' - '))}</a>\n\n`;
-      visible += lineTxt.length + 2;
+      chunk += lineHtml;
     }
   }
   await flush();

@@ -80,7 +80,12 @@ location_filter:
     - "Linz"
     - "Europe"
     - "EMEA"
-    - "Hybrid"
+    # ➤ "Hybrid" USED TO BE HERE and it is not a place. This list decides WHERE a
+    # ➤ job is, and hybrid says the opposite of what it was doing: you have to be
+    # ➤ near that office, so the country matters more, not less. It let
+    # ➤ "Nationwide, Hybrid, US" through. "Remote" stays: a remote role may
+    # ➤ genuinely be doable from here. Checked against 432 real locations before
+    # ➤ removing it — not one of them needed the word to pass.
     # ➤ CITIES without a country (over-block hunt 2026-07-18): many offers carry
     # ➤ the location as a bare city ("Hamburg", "Rotterdam") and the list
     # ➤ only knew the countries → they were dropped silently. Real case: the
@@ -1245,8 +1250,10 @@ title_filter:
     - "Tubero"
     - "Tuberos"
     - "Ventas"
-  # ➤ Words that ADD points when evaluating (junior, graduate...) — they
-  # ➤ don't filter, they just score better in the AI evaluations.
+  # ➤ NOT READ BY ANY CODE. This used to say the words "score better in the
+  # ➤ AI evaluations"; nothing reads the key, so editing it changes nothing.
+  # ➤ Kept because the list itself is a useful record of what junior looks
+  # ➤ like — the ordering that DOES happen lives in notify.mjs (offerAffinity).
   seniority_boost:
     - "Graduate"
     - "Junior"
@@ -1273,22 +1280,31 @@ tracked_companies:
   # -- Offshore wind developers (Spain) --
 
   - name: Iberdrola
-    careers_url: https://www.iberdrola.com/about-us/work-with-us/jobs-offers
-    scan_method: websearch
+    careers_url: https://www.iberdrola.com/careers
+    workday:
+      tenant: iberdrola
+      dc: wd3
+      site: Iberdrola
     scan_query: 'site:iberdrola.com/about-us/work-with-us "offshore" OR "marine" OR "eólico" engineer graduate OR junior'
     notes: "Bilbao. Major offshore wind developer. Spain's largest renewables company."
     enabled: true
 
   - name: Repsol
     careers_url: https://www.repsol.com/en/careers
-    scan_method: websearch
+    workday:
+      tenant: repsol
+      dc: wd3
+      site: Repsol
     scan_query: 'site:repsol.com/en/careers "offshore" OR "marine" OR "renewable" engineer graduate'
     notes: "Madrid. Oil & gas to renewables transition. Offshore projects."
     enabled: true
 
   - name: Acciona Energía
-    careers_url: https://jobs.acciona.com
-    scan_method: websearch
+    careers_url: https://acciona.wd3.myworkdayjobs.com/ACCIONA_Employment_Channel
+    workday:
+      tenant: acciona
+      dc: wd3
+      site: ACCIONA_Employment_Channel
     scan_query: 'site:jobs.acciona.com "offshore" OR "eólico marino" OR "marine" engineer graduate OR junior'
     notes: "Madrid. Offshore wind developer in Spain."
     enabled: true
@@ -1363,21 +1379,28 @@ tracked_companies:
 
   - name: DEME Offshore
     careers_url: https://www.deme-group.com/careers
-    scan_method: websearch
+    workday:
+      tenant: demegroup
+      dc: wd3
+      site: careers_external
     scan_query: 'site:deme-group.com/careers "offshore" OR "marine" OR "mooring" engineer graduate OR junior'
     notes: "Belgium (Zwijndrecht). Major offshore installation contractor. BE proximity relevant."
     enabled: true
 
   - name: Van Oord
-    careers_url: https://www.vanoord.com/careers
-    scan_method: websearch
+    careers_url: https://careers.vanoord.com/
+    sitemap:
+      url: https://careers.vanoord.com/sitemap.xml
+      match: "/vacancies/"
     scan_query: 'site:vanoord.com/careers "offshore" OR "marine" OR "engineering" graduate OR junior'
     notes: "Rotterdam NL. Dredging and offshore installation contractor."
     enabled: true
 
   - name: Boskalis
-    careers_url: https://www.boskalis.com/careers
-    scan_method: websearch
+    careers_url: https://careers.boskalis.com/
+    sitemap:
+      url: https://careers.boskalis.com/sitemap.vacancy.xml
+      match: "/vacancy/"
     scan_query: 'site:boskalis.com/careers "offshore" OR "marine" OR "engineering" graduate OR junior'
     notes: "Papendrecht NL. Marine contractor. Graduate programme available."
     enabled: true
@@ -1397,8 +1420,10 @@ tracked_companies:
     enabled: true
 
   - name: Technip Energies
-    careers_url: https://careers.technipenergies.com
-    scan_method: websearch
+    careers_url: https://www.ten.com/en/careers
+    oracle:
+      host: hcxg.fa.em2.oraclecloud.com
+      site: CX_1
     scan_query: 'site:careers.technipenergies.com "offshore" OR "mooring" OR "marine" engineer graduate OR junior'
     notes: "France/Netherlands. Offshore energy and LNG contractor."
     enabled: true

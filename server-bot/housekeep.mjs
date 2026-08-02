@@ -29,7 +29,7 @@
  */
 
 // ➤ Tools it needs: read/write files and the same filters the scanner uses.
-import { readFileSync, writeFileSync, appendFileSync, existsSync } from 'fs';
+import { readFileSync, appendFileSync, existsSync } from 'fs';
 // ➤ Atomic overwrite so a crash mid-write can't truncate the pending list.
 import { writeFileAtomic, withFileLock } from './fs-atomic.mjs';
 import { isPendingHeading } from './pipeline-format.mjs';
@@ -131,6 +131,38 @@ export function rewritePipelineWithout(linesToDrop, path = PIPELINE_PATH) {
     return (fresh.length - kept.length);
   });
 }
+
+// ➤ ── THE BRAKE ON A MASS DELETE ──────────────────────────────────────────
+// ➤ Deleting here is PERMANENT: the link goes to the anti-repeat history and
+// ➤ the scanner will never propose that job again. "Dead" is decided from a
+// ➤ single HTTP answer, and some of those answers (a 403 while a portal blocks
+// ➤ us, a 404 from a site that is down, our own rate-limiting) mean "not right
+// ➤ now", not "withdrawn". When MOST of the list dies at once, that is a portal
+// ➤ or network problem, not a dozen companies closing their vacancies in the
+// ➤ same minute — so nothing is deleted and the next run re-checks.
+// ➤ EXPORTED, and used by BOTH delete paths (audit 2026-07-31). It used to be a
+// ➤ local inside the daily check only: the Sunday full clean-up deletes strictly
+// ➤ more and had no brake at all. Measured against a portal answering 404 to
+// ➤ everything, the daily run stopped with 14 offers intact and the weekly run,
+// ➤ seconds later, left 0.
+// ➤ NO FLOOR ON THE LIST SIZE. The old version only protected lists of 5 or
+// ➤ more, which had it exactly backwards: a short list is where losing
+// ➤ everything hurts most, and "3 of 3 died in the same second" is just as
+// ➤ TWO WAYS TO TRIGGER, because a ratio alone gets it wrong at both ends.
+// ➤ A ratio with no floor made an ordinary short list impossible to clean: one
+// ➤ genuinely withdrawn offer out of two is half of them, so the brake fired
+// ➤ every single run and the dead link stayed for ever. A count alone would
+// ➤ miss "everything died at once" on a small list.
+// ➤ So: five or more dead AND at least half — many at once is an outage
+// ➤ whatever the list size — OR every single one dead, from three up, which
+// ➤ cannot be a coincidence either. One or two dead links get deleted, which
+// ➤ is what they are for.
+export function looksLikeAnOutage(pendingCount, deadCount) {
+  if (pendingCount <= 0 || deadCount <= 0) return false;
+  const half = deadCount >= Math.ceil(pendingCount * 0.5);
+  return (deadCount >= 5 && half) || (deadCount === pendingCount && deadCount >= 3);
+}
+
 
 // ➤ The key that decides two postings are THE SAME job — and therefore that
 // ➤ one of them gets deleted. Exported so the rule can be tested: it already
@@ -389,14 +421,23 @@ async function main() {
   // ➤ Goes through pipeline.md and notes each pending offer (lines "- [ ]") from
   // ➤ the pending section, with its URL, company and title.
   let inPending = false;
-  const pending = []; // {lineIdx, url, company, title}
+  const pending = []; // {lineIdx, url, company, title, location}
   for (let i = 0; i < lines.length; i++) {
     if (isPendingHeading(lines[i])) { inPending = true; continue; }
     if (lines[i].startsWith('## ') && inPending) inPending = false;
     if (!inPending) continue;
-    // ➤ Splits the offer line: link | company | title (ignores anything after).
-    const m = lines[i].match(/^- \[ \] (\S+)\s*\|\s*([^|\n]+?)\s*\|\s*([^|\n]+?)(?:\s*\|[^\n]*)?$/);
-    if (m) pending.push({ lineIdx: i, url: m[1], company: m[2].trim(), title: m[3].trim() });
+    // ➤ Splits the offer line: link | company | title | [location] | [y:N] |
+    // ➤ [s:salary] | #id.
+    // ➤ THE LOCATION IS READ TOO (audit 2026-07-31). It used to be thrown away
+    // ➤ with everything after the title, so the weekly re-check could not apply
+    // ➤ the geography rule at all: a country you had since switched off stayed
+    // ➤ in your list for ever. It is the first trailing field that is not one of
+    // ➤ the tagged ones, which is exactly how the scanner writes it.
+    const m = lines[i].match(/^- \[ \] (\S+)\s*\|\s*([^|\n]+?)\s*\|\s*([^|\n]+?)(\s*\|[^\n]*)?$/);
+    if (!m) continue;
+    const trailing = (m[4] || '').split('|').map(s => s.trim()).filter(Boolean);
+    const location = trailing.find(f => !/^y:/i.test(f) && !/^s:/i.test(f) && !/^#\d+$/.test(f) && !/^visto$/i.test(f)) || '';
+    pending.push({ lineIdx: i, url: m[1], company: m[2].trim(), title: m[3].trim(), location });
   }
 
   if (pending.length === 0) { console.log('Nothing pending — pipeline clean.'); return; }
@@ -414,14 +455,8 @@ async function main() {
       if (await isLikelyDead(p.url)) deadIdx.add(p.lineIdx);
     });
     await parallel(checks, LIVENESS_CONCURRENCY);
-    // ➤ BLAST-RADIUS GUARD (audit 2026-07-25). Deleting here is PERMANENT: the
-    // ➤ URL goes to scan-history and the scanner will never propose it again.
-    // ➤ "Dead" is decided from a single HTTP answer, and some answers (a 403, a
-    // ➤ portal outage, our own rate-limiting) mean "not right now", not
-    // ➤ "withdrawn". If MOST of the list dies at once, that is a portal problem,
-    // ➤ not every company closing its vacancy in the same minute.
-    const SUSPICIOUS = pending.length >= 5 && deadIdx.size >= Math.ceil(pending.length * 0.5);
-    if (SUSPICIOUS) {
+    // ➤ The brake on a mass delete — see looksLikeAnOutage above.
+    if (looksLikeAnOutage(pending.length, deadIdx.size)) {
       console.log(`Link check ABORTED: ${deadIdx.size} of ${pending.length} pending offers came back "dead" in one run.`);
       console.log('That looks like a portal or network problem, not real withdrawals. Nothing was deleted; it will be re-checked next run.');
       return;
@@ -461,8 +496,16 @@ async function main() {
     // ➤ The company blacklist is also re-applied here: if you veto a
     // ➤ company, its already-saved offers fall in the next cleanup.
     const companyOk = buildCompanyFilter(config.company_filter);
+    // ➤ GEOGRAPHY IS CHECKED ON BOTH HALVES, like the scanner (audit
+    // ➤ 2026-07-31). Only the TITLE was being tested here, so the offer's actual
+    // ➤ LOCATION was never re-checked and a country you switched off after the
+    // ➤ offer arrived kept it in your list for ever. The title check stays as
+    // ➤ well, because multi-location postings hide the country there
+    // ➤ ("Graduate Programme - Qatar").
     for (const p of pending) {
-      if (!companyOk(p.company) || !titleOk(p.title) || locFilter.blockHit(p.title) || titleDemandsForeignLanguage(p.title)) {
+      if (!companyOk(p.company) || !titleOk(p.title)
+          || (p.location && !locFilter(p.location)) || locFilter.blockHit(p.title)
+          || titleDemandsForeignLanguage(p.title)) {
         filteredIdx.add(p.lineIdx);
       }
     }
@@ -545,6 +588,19 @@ async function main() {
     if (await isLikelyDead(p.url)) deadIdx.add(p.lineIdx);
   });
   await parallel(checks, LIVENESS_CONCURRENCY);
+  // ➤ THE SAME BRAKE AS THE DAILY CHECK (audit 2026-07-31). This path deletes
+  // ➤ strictly more than the daily one and had no brake at all: with a portal
+  // ➤ answering 404 to everything, the daily run stopped with the list intact
+  // ➤ and this one, seconds later, emptied it. Only the DEAD verdicts are
+  // ➤ dropped — the filtered and duplicate ones are decided from text we
+  // ➤ already hold, so a network problem cannot make them wrong.
+  let deadAborted = 0;
+  if (looksLikeAnOutage(survivors.length, deadIdx.size)) {
+    deadAborted = deadIdx.size;
+    deadIdx.clear();
+    console.log(`Link check ABORTED: ${deadAborted} of ${survivors.length} offers came back "dead" in one run.`);
+    console.log('That looks like a portal or network problem, not real withdrawals. No link was deleted for being dead; the rest of the clean-up continues.');
+  }
 
   // ➤ Final step: prepares the summary and, unless it's a dry run, DELETES from
   // ➤ the file all the filtered/duplicate/dead ones (before they were hidden with
@@ -579,7 +635,9 @@ async function main() {
   console.log(`Degree-filtered (body): ${degIdx.size}`);
   console.log(`Language-required (body): ${langIdx.size}`);
   console.log(`Duplicates removed: ${dupIdx.size}`);
-  console.log(`Dead links removed: ${deadIdx.size}`);
+  // ➤ If the brake fired, say so here too — a plain "0 removed" would read as
+  // ➤ "every link is alive", which is the opposite of what happened.
+  console.log(`Dead links removed: ${deadIdx.size}${deadAborted ? ` (${deadAborted} looked dead but the check was aborted as an outage)` : ''}`);
   console.log(`Still pending: ${pending.length - hidden}`);
   if (report.length) console.log(report.join('\n'));
 }

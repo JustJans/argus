@@ -11,7 +11,7 @@
 
 /**
  * list-offers.mjs — OFFERS panel (plain-text list for the terminal).
- * The number is what you pass to `visto N` to remove an offer.
+ * The number is what you pass to `seen N` to remove an offer.
  * Pipeline line format: - [ ] url | company | title [| location]
  */
 

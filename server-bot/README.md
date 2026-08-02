@@ -18,8 +18,8 @@ offer, with the reason.
 ```
    PORTALS                       THE FILTER FUNNEL                        YOU
 ┌─────────────┐   ┌────────────────────────────────────────────────┐   ┌──────────┐
-│ Workday (7) │   │ 1 does the title fit? (positive/negative)      │   │ Telegram │
-│ Oracle (2)  │──▶│ 2 location/country allowed?                    │──▶│  phone   │
+│ Workday (6) │   │ 1 does the title fit? (positive/negative)      │   │ Telegram │
+│ Oracle (1)  │──▶│ 2 location/country allowed?                    │──▶│  phone   │
 │ Adzuna (7   │   │ 3 is the title in a language you work in?      │   │          │
 │  countries) │   │ 4 reads the WHOLE POSTING:                     │   │ search   │
 │ LinkedIn    │   │   · asks for more years than your cap? → out   │   │ list     │
@@ -69,7 +69,7 @@ offer, with the reason.
 | `test-robustness.mjs` | 204 tests — the parts that can LOSE DATA or answer wrongly |
 | `argus-council/test-council.mjs` | 57 tests — the judges and the vote reader |
 
-`npm test` runs all 829 of them.
+`npm test` runs all 1250 of them.
 
 ## 3. Configuration and data
 

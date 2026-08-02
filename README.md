@@ -45,8 +45,9 @@ not returned an estimated one, so you are unlikely to ever see it.
 
 ## Setup
 
-**Required:** Node.js 18 or newer (the code uses the built-in `fetch`) and a
-Telegram bot token. That is all the job search itself needs.
+**Required:** Node.js 20 or newer (the code uses the built-in `fetch`; the
+cover-letter printer needs 20) and a Telegram bot token. That is all the job
+search itself needs.
 
 **You do not need a server.** The engine is plain Node and runs natively on
 Windows, macOS and Linux — a laptop is fine. What it does need is to be awake
@@ -322,7 +323,7 @@ The engine lives in `server-bot/`:
 Every part can be run by hand, and each one prints why it failed:
 
 ```bash
-npm test                                    # 1106 tests; run this first
+npm test                                    # 1250 tests; run this first
 node server-bot/scan.mjs --dry-run          # scan without writing or notifying
 node server-bot/scan.mjs --explain          # why each offer was dropped → data/scan-explain.txt
 node server-bot/telegram-listener.mjs       # process pending commands once
@@ -349,7 +350,8 @@ wrong is knowingly left alone. Both are written down, with the reasoning, in
 
 - **Secrets** (Telegram/Claude tokens, API keys) and **activity data** (offers,
   applications, feedback) are NOT in the repository.
-- Everything is plain Node with two dependencies (`js-yaml`, `playwright`), no
+- Everything is plain Node with three dependencies (`js-yaml`, `playwright`,
+  `html-to-text`), no
   database and no service to sign up for beyond the portals themselves.
 - The scan costs zero AI tokens: it is HTTP and JSON. Only `cover N` and the
   optional Council call a model.

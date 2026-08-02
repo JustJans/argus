@@ -2,7 +2,7 @@
 // ➤ pending list and the judges' journal. writeFileSync killed halfway leaves
 // ➤ them truncated; writing aside and renaming does not, a rename being atomic.
 
-import { writeFileSync, renameSync, mkdirSync, rmdirSync, statSync } from 'fs';
+import { writeFileSync, renameSync, mkdirSync, rmdirSync, statSync, unlinkSync } from 'fs';
 import { randomBytes } from 'crypto';
 
 // ➤ The scratch name to write to before renaming. UNIQUE per write (audit
@@ -20,10 +20,24 @@ export function tempNameFor(path) {
 // ➤ it leaves behind: a plain writeFileSync to the target passes any test that
 // ➤ checks the final content, which is exactly how a rewrite could quietly
 // ➤ remove the protection this file exists to give.
-export function writeFileAtomic(path, data, encoding = 'utf-8', io = { writeFileSync, renameSync }) {
+export function writeFileAtomic(path, data, encoding = 'utf-8', io = { writeFileSync, renameSync, unlinkSync }) {
   const tmp = tempNameFor(path);
-  io.writeFileSync(tmp, data, encoding);
-  io.renameSync(tmp, path);
+  try {
+    io.writeFileSync(tmp, data, encoding);
+    io.renameSync(tmp, path);
+  } catch (err) {
+    // ➤ SWEEP UP THE SCRATCH FILE WHEN THE WRITE FAILS (audit 2026-07-31). Your
+    // ➤ real file is safe whatever happens — that is the whole point of writing
+    // ➤ aside first — but until now a failed write abandoned its scratch file,
+    // ➤ and nothing anywhere in the project ever deleted one. Provoked in
+    // ➤ testing: three kills between the write and the rename left three orphans
+    // ➤ sitting in the data folder; a full disk left one behind per attempt. So
+    // ➤ the litter piled up hardest exactly when the disk was already full.
+    // ➤ The error is re-thrown untouched: tidying up must not hide the failure
+    // ➤ from the caller.
+    try { (io.unlinkSync || unlinkSync)(tmp); } catch { /* never got created, or already gone */ }
+    throw err;
+  }
 }
 
 // ➤ ── READ, DECIDE, WRITE — WITHOUT LOSING SOMEBODY ELSE'S WORK ───────────
@@ -50,9 +64,18 @@ export function writeFileAtomic(path, data, encoding = 'utf-8', io = { writeFile
 // ➤ itself race, so two jobs could both get in — but only once a lock has sat
 // ➤ untouched for five seconds, which means a job was already killed mid-write.
 // ➤ A real hold lasts milliseconds, so in normal running it cannot arise.
+// ➤ A real pause inside synchronous code. This used to be a spin loop, which
+// ➤ burns a whole core: harmless for the milliseconds of normal contention, but
+// ➤ a permanent failure (a read-only data folder, a full disk) meant five
+// ➤ seconds at 100% CPU on EVERY write, from every job, for as long as the
+// ➤ machine stayed broken. Atomics.wait sleeps without a callback, so the four
+// ➤ callers stay synchronous.
+const SLEEP_BUF = new Int32Array(new SharedArrayBuffer(4));
+function sleepSync(ms) { Atomics.wait(SLEEP_BUF, 0, 0, ms); }
+
 export const LOCK_TIMEOUT_MS = 5000;
 
-export function withFileLock(path, fn, { timeoutMs = LOCK_TIMEOUT_MS, io = { mkdirSync, rmdirSync, statSync } } = {}) {
+export function withFileLock(path, fn, { timeoutMs = LOCK_TIMEOUT_MS, io = { mkdirSync, rmdirSync, statSync }, log = console.log } = {}) {
   const lock = `${path}.lock`;
   const started = Date.now();
   let held = false;
@@ -70,15 +93,22 @@ export function withFileLock(path, fn, { timeoutMs = LOCK_TIMEOUT_MS, io = { mkd
       if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR') break;
     }
     // ➤ A lock older than the timeout belonged to a job that died. Clear it.
+    // ➤ A lock dated in the FUTURE is abandoned too: a live one is milliseconds
+    // ➤ old, so a future stamp can only be a clock that jumped. Without this it
+    // ➤ is never reaped, and every writer then burns the whole timeout and runs
+    // ➤ unlocked — for ever, and there the writes do succeed.
     try {
       const age = Date.now() - io.statSync(lock).mtimeMs;
-      if (age > timeoutMs) { io.rmdirSync(lock); continue; }
+      if (age > timeoutMs || age < -timeoutMs) { io.rmdirSync(lock); continue; }
     } catch { /* it vanished: try again */ }
-    // ➤ Busy-wait on purpose: this is a synchronous path, the wait is
-    // ➤ milliseconds, and making it async would mean rewriting four callers.
-    const until = Date.now() + 15;
-    while (Date.now() < until) { /* spin */ }
+    sleepSync(15);
   }
+  // ➤ RUNNING UNLOCKED IS WORTH A LINE. Going ahead anyway is the right call —
+  // ➤ see above — but doing it in silence means a data folder that has gone
+  // ➤ read-only, or a lock nobody can clear, degrades every write from every job
+  // ➤ for ever with nothing to show for it. A real hold lasts milliseconds, so
+  // ➤ this line should never appear; if it does, it is the only warning there is.
+  if (!held) log(`[${new Date().toISOString()}] lock on ${path} could not be taken in ${timeoutMs}ms; going ahead without it.`);
   try {
     return fn();
   } finally {

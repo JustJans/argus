@@ -204,7 +204,9 @@ function main() {
   console.log(gaps.length
     ? '\n  "Not my field" titles the filter STILL lets through — real gaps:'
     : '\n  Every "not my field" rejection is already blocked by the filter.');
-  for (const g of gaps) console.log(`    #${g.id} ${String(g.title).slice(0, 62)}`);
+  // ➤ Whole titles: this list is what you read to decide whether a filter has a
+  // ➤ hole in it, and a title cut at 62 characters hides the end that says so.
+  for (const g of gaps) console.log(`    #${g.id} ${String(g.title)}`);
   console.log('\n  Nothing above has been changed. Decide what is worth acting on.\n');
 }
 

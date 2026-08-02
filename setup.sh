@@ -16,13 +16,16 @@ warn() { printf '  ! %s\n' "$*"; }
 say "Argus setup"
 
 # ── 1. Node ──────────────────────────────────────────────────────────────
+# ➤ 20, not 18: playwright (which prints the cover letters) requires it. On 18
+# ➤ this setup used to finish happily and the first "cover N" was the thing that
+# ➤ failed — long after anyone would connect the two.
 if ! command -v node >/dev/null 2>&1; then
-  warn "Node.js is not installed. Get it from https://nodejs.org (version 18 or newer) and run this again."
+  warn "Node.js is not installed. Get it from https://nodejs.org (version 20 or newer) and run this again."
   exit 1
 fi
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-if [ "$NODE_MAJOR" -lt 18 ]; then
-  warn "Node $(node -v) is too old. Argus needs 18 or newer."
+if [ "$NODE_MAJOR" -lt 20 ]; then
+  warn "Node $(node -v) is too old. Argus needs 20 or newer (playwright, which prints the cover letters, requires it)."
   exit 1
 fi
 ok "Node $(node -v)"

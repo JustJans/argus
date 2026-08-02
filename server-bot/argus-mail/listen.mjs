@@ -13,7 +13,7 @@
 // ➤ RUN: node server-bot/argus-mail/listen.mjs [--dry-run]
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { listMessageIds, messageSummary, accessToken, gmailConfigured } from '../gmail.mjs';
@@ -77,10 +77,15 @@ function loadApplications() {
     .map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
 }
 
-// ➤ How many messages to look at. Gmail caps a page at 500 and that is several
-// ➤ months of a normal mailbox, which is more than enough: an application older
-// ➤ than that has already told you its answer, one way or another.
-const PAGE = 500;
+// ➤ How many messages the mail run will look at in total. Gmail hands back at
+// ➤ most 500 per page and listMessageIds now walks the pages, so this number is
+// ➤ a real ceiling rather than a page size (audit 2026-07-31). It used to be
+// ➤ both, and that quietly cut the scan short at the first page: the window
+// ➤ starts at your oldest application and only ever grows, Gmail answers
+// ➤ newest-first, so it was the OLDEST messages that fell off the end — the
+// ➤ applications they answered sat on "no reply" for ever, however many
+// ➤ rejections or interview invitations had actually arrived.
+const PAGE = 2000;
 
 async function main() {
   if (!gmailConfigured()) {
@@ -142,7 +147,20 @@ async function main() {
     // ➤ yours is somebody else's business and there is no reason to keep it.
     // ➤ A tie is worth knowing about (you can settle it); an orphan inside
     // ➤ this window is simply mail that is not about your job search.
-    unlinked: { ambiguous: ties.length, unrelated: orphans.length },
+    unlinked: {
+      ambiguous: ties.length,
+      unrelated: orphans.length,
+      // ➤ WHAT the tie was about (audit 2026-08-01). Only the count used to
+      // ➤ survive, so the report could say "1 email fit more than one
+      // ➤ application" and nothing else — not the employer, not whether it was
+      // ➤ a refusal or an invitation, not which applications were tangled. That
+      // ➤ is not something anybody can act on, and the rule that produces ties
+      // ➤ promises you can. Ids and kind only: no subject, no sender, no text.
+      cases: ties.map(t => ({
+        kind: t.message?.kind || 'unknown',
+        ids: (t.candidates || []).map(c => c.application?.id).filter(id => id != null),
+      })).filter(x => x.ids.length),
+    },
     applications: records,
   };
 
@@ -160,7 +178,18 @@ async function main() {
   console.log(`  rejected:       ${summary.rejected}`);
   console.log(`  acknowledged:   ${summary.acknowledged}`);
   console.log(`  no reply:       ${summary.noreply}`);
+  // ➤ GHOSTED HAS TO BE ON THIS LIST. It was missing, so the lines added up only
+  // ➤ while no application had yet passed the 60-day mark — and the first one to
+  // ➤ pass it would have gone missing from the summary without a word.
+  console.log(`  ghosted:        ${summary.ghosted}`);
   console.log(`  ambiguous, for you to settle: ${ties.length}`);
+  // ➤ And the arithmetic is checked rather than assumed: a state added in
+  // ➤ status.mjs and forgotten here is exactly how the list above went stale.
+  const counted = summary.bounced + summary.interview + summary.rejected
+    + summary.acknowledged + summary.noreply + summary.ghosted;
+  if (counted !== summary.applications) {
+    console.log(`  ⚠️ the states above cover ${counted} of ${summary.applications} applications — one is missing from this summary.`);
+  }
 }
 
 if (process.argv[1] && /(^|[\\/])listen\.mjs$/.test(process.argv[1])) {

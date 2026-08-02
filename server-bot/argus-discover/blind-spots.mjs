@@ -42,16 +42,39 @@ const key = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 // ➤ print the rule rather than the prose around it.
 export function ruleOf(why) {
   const m = String(why || '').match(/blocked word "([^"]+)"/i);
-  return m ? m[1] : String(why || '').slice(0, 30);
+  return m ? m[1] : String(why || '');
 }
 
 export function classifyDrop(why) {
   return /no keyword from your field/i.test(String(why || '')) ? NO_FIELD : RULE;
 }
 
+// ➤ How long an entry may go unseen before it is forgotten. This is the real
+// ➤ bound on the file: a blind spot is something that KEEPS coming back, so one
+// ➤ nothing has thrown away for two months is not one any more.
+export const STALE_DAYS = 60;
+
+// ➤ The date N days before the given YYYY-MM-DD, as YYYY-MM-DD. Returns ''
+// ➤ when there is no date to work from, and every comparison then passes.
+export function daysBefore(today, days) {
+  const t = Date.parse(`${today}T00:00:00Z`);
+  if (!Number.isFinite(t) || !Number.isFinite(days)) return '';
+  return new Date(t - days * 86_400_000).toISOString().slice(0, 10);
+}
+
+// ➤ THE CEILING. It used to be 4,000, and a record that had been running a
+// ➤ while sat exactly on it with every single slot held by a title already seen
+// ➤ twice — so nothing new could ever be counted a second time and the record
+// ➤ had quietly stopped learning. Measured against a real file: at 4,000 a new
+// ➤ title never reaches n=2; at 10,000 it does. 20,000 is that with room to
+// ➤ spare, and still only a few megabytes on disk. The real bound here is the
+// ➤ 60-day window above, not this number — the cap is only a backstop in case
+// ➤ something goes wrong.
+export const MAX_TITLES = 20000;
+
 // ➤ Folds this run's drops into the standing record. Pure: give it the old
 // ➤ store and the new drops, get the new store — no disk, so it is testable.
-export function mergeDrops(store, drops, { today = '', cap = 4000 } = {}) {
+export function mergeDrops(store, drops, { today = '', cap = MAX_TITLES, staleDays = STALE_DAYS } = {}) {
   const titles = { ...(store?.titles || {}) };
   for (const d of drops) {
     const k = key(d.title);
@@ -75,7 +98,27 @@ export function mergeDrops(store, drops, { today = '', cap = 4000 } = {}) {
   }
   // ➤ Bounded on purpose: a scan every two hours would grow this forever.
   // ➤ What survives a cull is what recurs, which is exactly what we are after.
+  // ➤
+  // ➤ BUT A FULL STORE STOPS LEARNING (audit 2026-07-31). Sorting by count
+  // ➤ alone means every entry that has ever been seen twice outranks every
+  // ➤ newcomer for ever. Measured on a real record: 3,905 of the 4,000 slots
+  // ➤ were held by entries at n>=2, leaving 95 for the ~1,250 distinct new
+  // ➤ titles a single cycle throws away. A role that only started appearing
+  // ➤ last week was evicted before it could ever be counted twice — and being
+  // ➤ counted twice is the entire definition of the thing this file exists to
+  // ➤ find. Two changes, and deliberately NOT a third. Ranking newcomers ahead
+  // ➤ of proven ones was tried and rejected: with a tight ceiling a wave of
+  // ➤ one-offs would evict the very titles the record exists to surface, which
+  // ➤ is a worse fault than the one being fixed.
+  const stale = daysBefore(today, staleDays);
   const kept = Object.entries(titles)
+    // ➤ 1. FORGET WHAT STOPPED COMING BACK. An entry nothing has thrown away
+    // ➤ for two months is history, not a blind spot, and it is holding a slot a
+    // ➤ live one needs. This, not the ceiling, is what really bounds the file.
+    // ➤ Entries with no date are kept: they predate this rule.
+    .filter(([, t]) => !t.last || !stale || String(t.last) >= stale)
+    // ➤ 2. And a ceiling high enough that there are slots left over — see
+    // ➤ MAX_TITLES above for the measurement.
     .sort((a, b) => b[1].n - a[1].n || String(b[1].last).localeCompare(String(a[1].last)))
     .slice(0, cap);
   return { updated: today, titles: Object.fromEntries(kept) };
@@ -100,25 +143,84 @@ export function saveStore(store, path = STORE_PATH) {
   writeFileAtomic(path, JSON.stringify(store));
 }
 
+// ➤ Splits a long line at spaces and indents the continuations under the first
+// ➤ word. Titles were cut at a fixed width instead, and a blind spot you cannot
+// ➤ read is not one you can act on. Only the number column must stay aligned.
+export function wrapUnder(text, indent, width = 72) {
+  const room = Math.max(20, width - indent.length);
+  const lines = [];
+  let line = '';
+  for (const word of String(text || '').split(/\s+/).filter(Boolean)) {
+    if (!line) line = word;
+    else if (line.length + 1 + word.length <= room) line += ' ' + word;
+    else { lines.push(line); line = word; }
+  }
+  if (line) lines.push(line);
+  return lines.length ? lines : [''];
+}
+
+// ➤ The whole report goes out as ONE Telegram message, and Telegram refuses
+// ➤ anything over 4096 characters outright — no message at all, not a short one.
+// ➤ Since titles are no longer cut, the length now depends on what the boards
+// ➤ publish, so the report keeps its own budget. Real ones measure ~1,200.
+export const MAX_REPORT_CHARS = 3000;
+
 // ➤ The same text the Telegram command sends, built here so both the terminal
 // ➤ and the chat say exactly the same thing.
-export function formatReport(store, { limit = 12 } = {}) {
+export function formatReport(store, { limit = 12, budget = MAX_REPORT_CHARS } = {}) {
   const blind = topRecurring(store, { bucket: NO_FIELD, limit });
   const ruled = topRecurring(store, { bucket: RULE, limit: 6 });
   const total = Object.keys(store?.titles || {}).length;
   if (!total) return 'Nothing recorded yet. The record fills up as scans run.';
 
+  const allBlind = topRecurring(store, { bucket: NO_FIELD, limit: Infinity }).length;
+  const allRuled = topRecurring(store, { bucket: RULE, limit: Infinity }).length;
+
+  // ➤ Eight characters: two spaces, the three-digit count, its "x" and two more.
+  const PAD = ' '.repeat(8);
+  const entry = t => wrapUnder(t.title, PAD).map((l, i) =>
+    (i === 0 ? `  ${String(t.n).padStart(3)}x  ` : PAD) + l);
+  // ➤ The rule wraps too, and on its own line, so a long title never competes
+  // ➤ with it for the width.
+  const withRule = t => [...entry(t), ...wrapUnder(`— ${ruleOf(t.why)}`, PAD).map(l => PAD + l)];
+
+  // ➤ Adds entries while they fit the budget and reports how many actually did,
+  // ➤ so a long title costs you the last row rather than the whole message.
+  // ➤ Measured ESCAPED, because that is what Telegram counts: the command sends
+  // ➤ this inside <pre>, where one "&" in an "R&D Engineer" becomes five.
+  const escapedLength = s => s.length + (s.match(/&/g) || []).length * 4 + (s.match(/[<>]/g) || []).length * 3;
+  let room = budget;
+  const fit = (list, render) => {
+    const lines = [];
+    let shown = 0;
+    for (const t of list) {
+      const block = render(t);
+      const cost = escapedLength(block.join('\n')) + 1;
+      if (cost > room) break;
+      room -= cost;
+      lines.push(...block);
+      shown++;
+    }
+    return { lines, shown };
+  };
+  const blindFit = fit(blind, entry);
+  const ruledFit = fit(ruled, withRule);
+
+  // ➤ WHAT THE SECTION IS NOT SHOWING, and WHY. Three different things, and
+  // ➤ saying the wrong one is a lie: nothing has recurred yet, the top few of
+  // ➤ many, or entries that exist but did not fit the message.
+  const note = (shown, all) => {
+    if (!all) return ['  nothing has recurred yet'];
+    if (!shown) return [`  ${all} to show, but this message is full — see the terminal`];
+    return all > shown ? [`  showing the top ${shown} of ${all}`] : [];
+  };
+
   const out = [`BLIND SPOTS — ${total} distinct titles thrown away, last updated ${store.updated || '?'}`, ''];
-  out.push('NOT ON YOUR LIST (nothing objected — you just never see these)');
-  if (!blind.length) out.push('  nothing has recurred yet');
-  for (const t of blind) out.push(`  ${String(t.n).padStart(3)}x  ${t.title.slice(0, 58)}`);
+  out.push('NOT ON YOUR LIST (nothing objected — you just never see these)', ...note(blindFit.shown, allBlind));
+  out.push(...blindFit.lines);
   out.push('');
-  out.push('A RULE OF YOURS FIRED (check none is firing wider than you meant)');
-  if (!ruled.length) out.push('  nothing has recurred yet');
-  // ➤ Show the RULE, not the sentence around it: "the title has the blocked
-  // ➤ word X" truncates to "the title has the blocked word Te", which hides the
-  // ➤ only part that matters.
-  for (const t of ruled) out.push(`  ${String(t.n).padStart(3)}x  ${t.title.slice(0, 46)}  — ${ruleOf(t.why)}`);
+  out.push('A RULE OF YOURS FIRED (check none is firing wider than you meant)', ...note(ruledFit.shown, allRuled));
+  out.push(...ruledFit.lines);
   out.push('');
   out.push('Recurrence is the whole signal: seen once is noise, seen weekly is a gap.');
   return out.join('\n');

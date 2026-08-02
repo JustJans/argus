@@ -14,7 +14,11 @@ import { parseVerdict } from './argus-council/judges.mjs';
 import { parseLetter, coverFileBase, resolveCoverBase } from './cover-letter.mjs';
 import { writeFileAtomic, tempNameFor, withFileLock } from './fs-atomic.mjs';
 import { classifyLiveness } from './liveness-core.mjs';
-import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync, copyFileSync } from 'fs';
+import { stripHtml } from './requirements.mjs';
+import { looksLikeAnOutage } from './housekeep.mjs';
+import { seenReply } from './telegram-listener.mjs';
+import { buildCountryFilter, norm, buildTitleFilter, buildCompanyFilter, buildLocationFilter, parseGreenhouse, parseAshby, parseLever, greenhouseUrlWithContent, loadIdHighWater, capJobs, MAX_JOBS_PER_COMPANY } from './scan.mjs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync, copyFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, dirname } from 'path';
 import { pathToFileURL, fileURLToPath } from 'url';
@@ -147,6 +151,20 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(calls[1][2], file, 'the rename lands on the target');
   eq(calls[1][1], calls[0][1], 'and it renames the very file it just wrote');
 
+  // ➤ The failure has to happen AFTER the scratch file exists — between the
+  // ➤ write and the rename — or there is no orphan to leave and the test proves
+  // ➤ nothing. That is also the real case: a process killed in that gap, or a
+  // ➤ disk that fills up on the rename.
+  writeFileSync(file, 'still here');
+  const breakRename = {
+    writeFileSync,
+    renameSync: () => { const e = new Error('ENOSPC: no space left on device'); e.code = 'ENOSPC'; throw e; },
+    unlinkSync,
+  };
+  try { writeFileAtomic(file, 'new content', 'utf-8', breakRename); } catch { /* meant to fail */ }
+  eq(readFileSync(file, 'utf-8'), 'still here', 'a failed write leaves the target untouched');
+  eq(readdirSync(dir).filter(f => f.includes('.tmp')), [], 'and leaves no scratch file behind either');
+
   // ➤ Two writes to the SAME path must not pick the same scratch name, or the
   // ➤ 07:30 cleanup and a "seen" from Telegram can rename a mixture into place.
   ok(tempNameFor(file) !== tempNameFor(file), 'the temp name is different every time');
@@ -192,12 +210,20 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   // ➤ It really refuses when somebody else holds it: a second attempt while the
   // ➤ first is inside must not get in.
   let inner = 'not attempted';
+  const said = [];
   withFileLock(file, () => {
     ok(existsSync(`${file}.lock`), 'while the work runs, the lock exists on disk');
     // ➤ Short timeout so the test does not wait for the real one.
-    withFileLock(file, () => { inner = 'got in'; }, { timeoutMs: 60 });
+    withFileLock(file, () => { inner = 'got in'; }, { timeoutMs: 60, log: m => said.push(m) });
   });
   eq(inner, 'got in', 'a blocked writer waits, then proceeds rather than dropping the work');
+  // ➤ AND IT SAYS SO. Going ahead unlocked is deliberate, but in silence a lock
+  // ➤ nobody can take degrades every write from every job with nothing to show.
+  ok(said.some(m => /without it/.test(m)), 'and it says out loud that it ran unlocked');
+  // ➤ The normal path stays quiet, or the log fills with a warning per write.
+  const quiet = [];
+  withFileLock(file, () => {}, { log: m => quiet.push(m) });
+  eq(quiet.length, 0, 'while a lock taken normally says nothing at all');
 
   // ➤ A lock left behind by a job that was killed must not block the bot for
   // ➤ ever. One older than the timeout is treated as abandoned and cleared —
@@ -250,6 +276,275 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   rmSync(dir, { recursive: true, force: true });
 }
 
+// ── 5d) The "seen" reply must not claim work it did not do ────────────────
+// ➤ The listener decides what to tell you by reading seen.mjs's printed output.
+// ➤ It used to look for the FAILURE line and call everything else a success, so
+// ➤ every other outcome — an empty pending section, a failed write, the program
+// ➤ dying — still answered "Marked as seen" (audit 2026-07-31). It now reads the
+// ➤ "✓ #N" lines, which are printed only for ids that were really marked.
+// ➤ This is also the first test of any kind on the listener's command surface.
+{
+  const okOut = 'Marked as seen:\n  ✓ #412 ACME — Mooring Engineer\n  ✓ #413 BETA — Survey Engineer\n';
+  eq(seenReply(['412', '413'], okOut), 'Marked as seen: #412, #413.', 'both marked, both reported');
+
+  const partial = 'Marked as seen:\n  ✓ #412 ACME — Mooring Engineer\n#413 is not in pending (did you already remove it?)\n';
+  eq(seenReply(['412', '413'], partial), 'Marked as seen: #412. Not found (already gone): #413.', 'one marked, one missing');
+
+  const none = '#412 is not in pending (did you already remove it?)\n';
+  ok(/^Nothing marked/.test(seenReply(['412'], none)), 'nothing marked is reported as nothing marked');
+
+  // ➤ THE CASES THAT USED TO LIE. None of these prints the failure line, so the
+  // ➤ old reply called every one of them a success.
+  ok(/^Nothing marked/.test(seenReply(['412'], 'No pending offers to mark.')),
+     'an empty pending section is not "marked"');
+  ok(/^Nothing marked/.test(seenReply(['412'], '')),
+     'a program that printed nothing at all is not "marked"');
+  // ➤ A CRASH IS NOT "ALREADY GONE" EITHER. That sentence is also a claim about
+  // ➤ the list, and it is false when the write simply failed: the offer is still
+  // ➤ there, still pending, and being told it is gone means you stop chasing it.
+  ok(/^Could not mark/.test(seenReply(['412'], 'Error: EACCES: permission denied')),
+     'a failed write says the list could not be written, not that the offer had gone');
+  ok(/^Could not mark/.test(seenReply(['412'], ['node:fs:600', '    at writeFileSync (node:fs:600:20)'].join('\n'))),
+     'and a bare stack trace is read the same way');
+  ok(/^Nothing marked/.test(seenReply(['412'], 'pipeline.md not found')),
+     'a missing pipeline is not "marked"');
+
+  // ➤ And a number that merely APPEARS in the output must not count as marked:
+  // ➤ #41 must not be satisfied by a "✓ #412" line.
+  ok(/^Nothing marked/.test(seenReply(['41'], okOut)), 'a partial number match does not count as marked');
+
+  // ➤ IMPORTING THE LISTENER MUST NOT START THE BOT. It used to call main() at
+  // ➤ the top level, so merely reading a function out of it polled Telegram with
+  // ➤ the real token and executed whatever commands were waiting — which is
+  // ➤ what running this very test on the server would have done.
+  const li = readFileSync(join(SELF_DIR, 'telegram-listener.mjs'), 'utf-8');
+  ok(/if \(process\.argv\[1\][^\n]*telegram-listener[^\n]*\{\s*\n\s*main\(\)/.test(li),
+     'the listener only starts when it IS the program being run');
+}
+
+// ── 5e) An offer number must never be handed out twice ────────────────────
+// ➤ The counter lives in one small file. Lose it and the old code fell back to
+// ➤ the highest number still in the pending list — a file the weekly clean-up
+// ➤ DELETES from — so the counter walked backwards over every number whose line
+// ➤ had gone, and a second, different job got a number you had already used.
+// ➤ Answering "no 412" from an older message would then hit the wrong one
+// ➤ (audit 2026-07-31). It now also reads the records that only ever grow.
+{
+  const dir = join(tmpdir(), `argus-ids-${process.pid}`);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  const counter = join(dir, 'last-id.json');
+  const apps = join(dir, 'applications.jsonl');
+  const feedback = join(dir, 'feedback.jsonl');
+  writeFileSync(apps, '{"id":9,"company":"GAMMA"}\n{"id":41,"company":"DELTA"}\n');
+  writeFileSync(feedback, '{"id":77,"reason":"too senior"}\n');
+
+  // ➤ The counter is there and is the highest: it wins.
+  writeFileSync(counter, JSON.stringify({ lastId: 900 }));
+  eq(loadIdHighWater(counter, [apps, feedback]), 900, 'the counter is used when it is present');
+
+  // ➤ THE COUNTER IS LOST. The records still know the highest number used.
+  eq(loadIdHighWater(join(dir, 'nope.json'), [apps, feedback]), 77,
+     'with no counter, the records still know the highest number handed out');
+
+  // ➤ The counter is corrupt — half-written by a crash.
+  writeFileSync(counter, '{"lastId":');
+  eq(loadIdHighWater(counter, [apps, feedback]), 77, 'a corrupt counter falls back to the records, not to zero');
+
+  // ➤ A counter that has somehow gone BACKWARDS cannot lower the mark.
+  writeFileSync(counter, JSON.stringify({ lastId: 5 }));
+  eq(loadIdHighWater(counter, [apps, feedback]), 77, 'the mark can never go below what the records prove');
+
+  // ➤ A corrupt line inside a record must not stop the rest being read.
+  writeFileSync(apps, '{"id":9}\nthis is not json\n{"id":150}\n');
+  eq(loadIdHighWater(join(dir, 'nope.json'), [apps, feedback]), 150, 'a broken line does not hide the numbers around it');
+
+  // ➤ Nothing at all: zero, and the pipeline decides — the original behaviour.
+  eq(loadIdHighWater(join(dir, 'nope.json'), [join(dir, 'nope1'), join(dir, 'nope2')]), 0,
+     'with no counter and no records at all it answers zero');
+  rmSync(dir, { recursive: true, force: true });
+}
+
+// ── 6a) Every board must hand over the advert text, or it is not screened ─
+// ➤ The years, degree and body-language screens all read the advert BODY. Three
+// ➤ parsers kept only the title and the link, so those screens ran against an
+// ➤ empty string and every offer from those boards was waved through unread.
+// ➤ Nothing uses them today, which is exactly why this needs a test: the day one
+// ➤ is added the hole would open in silence (audit 2026-07-31).
+{
+  const g = parseGreenhouse({ jobs: [{ title: 'Mooring Engineer', absolute_url: 'https://x/1', location: { name: 'Rotterdam' }, content: 'We require 8 years of experience.' }] }, 'ACME');
+  ok(String(g[0].description || '').includes('8 years'), 'greenhouse carries the advert text');
+  const a = parseAshby({ jobs: [{ title: 'Survey Engineer', jobUrl: 'https://x/2', location: 'Madrid', descriptionHtml: '<p>Minimum 10 years.</p>' }] }, 'ACME');
+  ok(String(a[0].description || '').includes('10 years'), 'ashby carries the advert text');
+  const l = parseLever([{ text: 'Design Engineer', hostedUrl: 'https://x/3', categories: { location: 'Aalst' }, descriptionPlain: 'Requires a PhD in chemistry.' }], 'ACME');
+  ok(String(l[0].description || '').includes('PhD'), 'lever carries the advert text');
+  // ➤ A board that sends no text at all must still parse, not crash.
+  eq(parseGreenhouse({ jobs: [{ title: 'T', absolute_url: 'u' }] }, 'ACME')[0].description, '', 'a board with no text yields an empty body, not undefined');
+
+  // ➤ Greenhouse only sends the text when the URL asks for it.
+  ok(greenhouseUrlWithContent('https://boards-api.greenhouse.io/v1/boards/acme/jobs').endsWith('?content=true'),
+     'the greenhouse URL asks for the advert text');
+  ok(greenhouseUrlWithContent('https://x/jobs?per_page=100').endsWith('&content=true'),
+     'and it is appended correctly to a URL that already has a query');
+  eq(greenhouseUrlWithContent('https://x/jobs?content=true'), 'https://x/jobs?content=true',
+     'asking twice does not double the flag');
+  eq(greenhouseUrlWithContent(''), '', 'an empty URL is left alone');
+}
+
+// ── 6c) One broken board must not fill the whole list ────────────────────
+// ➤ Workday and Oracle already had a ceiling; the other boards took whatever
+// ➤ the feed said. Provoked with a feed answering 20,000 postings: all 20,000
+// ➤ went into the pending list — a 2.2 MB file and, with Telegram on, about 450
+// ➤ messages over nine minutes (audit 2026-07-31).
+{
+  const said = [];
+  const log = m => said.push(String(m));
+  const many = n => Array.from({ length: n }, (_, i) => ({ title: `Job ${i}` }));
+
+  eq(capJobs(many(5), 'ACME', 10, log).length, 5, 'a normal board passes through untouched');
+  eq(said.length, 0, 'and nothing is said about it');
+
+  const big = capJobs(many(20000), 'ACME', 500, log);
+  eq(big.length, 500, 'a runaway board is cut to the ceiling');
+  eq(big[0].title, 'Job 0', 'and it keeps the first ones, in order');
+  ok(said.some(m => /20000/.test(m) && /ACME/.test(m)), 'the cut is announced, never silent');
+
+  // ➤ Exactly at the ceiling is not a runaway.
+  said.length = 0;
+  eq(capJobs(many(500), 'ACME', 500, log).length, 500, 'exactly the ceiling is fine');
+  eq(said.length, 0, 'and says nothing');
+
+  // ➤ Rubbish in must not throw: a broken feed is the case this exists for.
+  eq(capJobs(null, 'ACME', 500, log), [], 'a feed that returned nothing yields an empty list');
+  eq(capJobs(undefined, 'ACME', 500, log), [], 'and so does no feed at all');
+
+  // ➤ THE DEFAULT HAS TO CLEAR THE REAL BOARDS. Every check above passes its own
+  // ➤ ceiling, so the shipped one could drift anywhere. It was 500, set when the
+  // ➤ biggest board tracked published 368 — and connecting the consultancies put
+  // ➤ Bureau Veritas at 1,985, three quarters of it unread every run.
+  said.length = 0;
+  ok(Number.isFinite(MAX_JOBS_PER_COMPANY), 'the shipped ceiling is a real number');
+  ok(MAX_JOBS_PER_COMPANY >= 2000, 'and clears the largest board actually tracked (1,985)');
+  ok(MAX_JOBS_PER_COMPANY < 20000, 'while still catching the runaway feed it exists for');
+  eq(capJobs(many(1985), 'Bureau Veritas', undefined, log).length, 1985, 'so a real board passes whole');
+  eq(said.length, 0, 'and is not accused of being broken');
+}
+
+// ── 6b) A hostile page must not freeze the bot ────────────────────────────
+// ➤ Every job advert is downloaded and stripped of its HTML. The stripper used
+// ➤ a pattern that allowed "<" inside a tag, so a page full of "<" that never
+// ➤ close made it re-scan to the end of the document from every one of them —
+// ➤ time squared. MEASURED on the real function: 200 KB took 6.8 s, 500 KB took
+// ➤ 43 s, 1 MB did not finish in two minutes. The scan is single-threaded, so
+// ➤ that is the whole bot stopped by one broken page (audit 2026-07-31).
+// ➤ This test is a STOPWATCH, which is unusual and deliberate: the defect is
+// ➤ not in what the function returns — the output was always correct — but in
+// ➤ how long it takes, so nothing about the result could ever have caught it.
+{
+  const hostile = '<a '.repeat(200 * 256);      // ~200 KB of unclosed tags
+  const t0 = Date.now();
+  stripHtml(hostile);
+  const ms = Date.now() - t0;
+  // ➤ Generous on purpose: the fixed version does this in single-digit
+  // ➤ milliseconds even on a slow machine, and the broken one took 6800.
+  ok(ms < 1000, `200 KB of unclosed tags is stripped promptly (took ${ms} ms)`);
+
+  // ➤ And it still strips real markup exactly as before.
+  eq(stripHtml('<p>Hello <strong>world</strong> <a href="http://x/y?a=1&amp;b=2">link</a></p>'),
+     'Hello world link', 'ordinary markup is still stripped correctly');
+  eq(stripHtml('<ul><li>one</li><li>two</li></ul>'), 'one. two.', 'and list items still become sentences');
+  // ➤ A KNOWN LIMIT, unchanged by the fix and recorded here so nobody reads it
+  // ➤ as a regression: loose comparison signs in prose look exactly like a tag,
+  // ➤ and the text between them is dropped. It behaved identically before, and
+  // ➤ job adverts do not write "salary < 40k" in raw HTML.
+  eq(stripHtml('a < b and c > d'), 'a d', 'loose comparison signs are swallowed, as they always were');
+  // ➤ A ">" inside an attribute value ends the tag early — the other known
+  // ➤ limit, also unchanged by the fix. Written out rather than compared
+  // ➤ against the function itself, which would prove nothing.
+  eq(stripHtml('<input value="5 > 3">text'), '3">text', 'a ">" inside an attribute still ends the tag early');
+}
+
+// ── 6e) Accent folding, which every text filter depends on ───────────────
+// ➤ norm() strips accents before every title, company and location comparison,
+// ➤ so one spelling of a term covers both. Remove the folding and this project
+// ➤ silently stops matching half of Europe — with no test to say so.
+{
+  eq(norm('Zürich'), 'zurich', 'accents are folded away');
+  eq(norm('España'), 'espana', 'and so is the tilde');
+  eq(norm('Genève'), 'geneve', 'and the grave accent');
+  eq(norm('MOORING'), 'mooring', 'and it lowercases');
+
+  // ➤ The three filters that depend on it, each with the term written one way
+  // ➤ and the text the other.
+  const title = buildTitleFilter({ positive: ['Tôlier'], negative: [] });
+  ok(title('Tolier industriel'), 'a title matches its unaccented spelling');
+  ok(title('Tôlier industriel'), 'and its accented one');
+
+  const company = buildCompanyFilter({ blocked: ['Générale'] });
+  ok(!company('Generale Engineering'), 'a blocked company matches unaccented');
+  ok(!company('Générale Engineering'), 'and accented');
+
+  const loc = buildLocationFilter({ allow: ['España'] });
+  ok(loc('Madrid, Espana'), 'an allowed location matches unaccented');
+  ok(loc('Madrid, España'), 'and accented');
+}
+
+// ── 7a) A country you switched OFF must be off in every spelling ──────────
+// ➤ countries.yml lists the accented forms as aliases on purpose — "Zürich",
+// ➤ "Genève", "Österreich". The matcher folded the ALIAS but tested it against
+// ➤ the raw location, so the folded term could never match the accented text:
+// ➤ "Zurich" was correctly dropped and "Zürich" walked straight through. Every
+// ➤ other matcher in scan.mjs folds both sides (audit 2026-07-31).
+{
+  const country = buildCountryFilter();
+  // ➤ Reads the real countries.yml, so the assertions are about whatever is
+  // ➤ switched off today rather than a fixture that can drift away from it.
+  for (const name of country.off) {
+    // ➤ The country's own name, and its aliases, in whatever spelling.
+    ok(!country.fn(name), `a location that names ${name} is blocked`);
+  }
+  // ➤ The accented aliases specifically — the ones that were dead.
+  const accented = ['Zürich', 'Genève', 'Österreich'];
+  for (const a of accented) {
+    const folded = a.normalize('NFD').replace(/[̀-ͯ]/g, '');
+    // ➤ Only assert on the ones whose country is actually off right now.
+    if (country.fn(folded)) continue;      // that country is on today — nothing to prove
+    ok(!country.fn(a), `"${a}" is blocked exactly like "${folded}"`);
+  }
+  // ➤ And a country that is ON must still pass, or the filter has closed shut.
+  ok(country.fn('Rotterdam, Netherlands'), 'a country you kept is not blocked');
+  ok(country.fn(''), 'an empty location is not blocked');
+}
+
+// ── 7b) `/start` must not be able to destroy the CV by accident ───────────
+// ➤ Question 0 of the setup is "paste your CV", and the listener routes text to
+// ➤ the setup BEFORE it looks for a command — so with setup running, typing
+// ➤ "list" was written over cv.md. Only copy, no confirmation, nothing to
+// ➤ cancel with (audit 2026-07-31). These read the shipped files as text
+// ➤ because the flow itself talks to Telegram and cannot be run here; a check
+// ➤ that only tested a helper would not have caught the original defect either.
+{
+  const ob = readFileSync(join(SELF_DIR, 'onboarding.mjs'), 'utf-8');
+  const li = readFileSync(join(SELF_DIR, 'telegram-listener.mjs'), 'utf-8');
+
+  // ➤ Starting again over an existing profile must ASK first.
+  ok(/startOnboarding\(force = false\)/.test(ob), 'starting the setup again has to be forced');
+  ok(/if \(!force && loadAnswers\(\)\)/.test(ob), 'an existing profile stops /start and asks for confirmation');
+  ok(/\/\^\\\/\?start\(\\s\+yes\)\?\$\/i/.test(li) || /start\(\\s\+yes\)\?/.test(li),
+     'the listener accepts "/start yes" as the confirmation');
+
+  // ➤ The CV is backed up before it is replaced.
+  ok(/backupBeforeOverwrite\(CV_PATH\);\s*\n\s*writePrivate\(CV_PATH/.test(ob),
+     'the old CV is copied aside BEFORE the new one is written');
+
+  // ➤ There is a way out, and it is checked before the answer is stored.
+  ok(/cancel\|cancelar/.test(ob), 'a cancel word exists');
+  const cancelAt = ob.indexOf('cancelOnboarding()');
+  const storeAt = ob.indexOf('backupBeforeOverwrite(CV_PATH)');
+  ok(cancelAt > 0 && storeAt > 0 && cancelAt < storeAt, 'cancel is handled BEFORE anything is written');
+  ok(/or type "cancel" to stop/.test(ob), 'and every typed question says so on screen');
+}
+
 // ── 6) The offer-number high-water mark ───────────────────────────────────
 // ➤ Same logic scan.mjs uses: the next id is the highest EVER handed out, not
 // ➤ merely the highest still present in a file that housekeep deletes from.
@@ -284,16 +579,268 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ok(/^cover\s*#?\d+$/i.test('cover #1000'), 'the "cover" command takes a four-digit id');
 }
 
-// ── 7) The blast-radius guard that protects the pending list ──────────────
+// ── 7) The brake that protects the pending list from a mass delete ────────
 // ➤ housekeep deletes PERMANENTLY. If a whole batch comes back "dead" it is a
 // ➤ portal/network problem, not real withdrawals — it must delete nothing.
+// ➤ THIS BLOCK USED TO RE-IMPLEMENT THE FORMULA and assert against its own
+// ➤ copy, so the real brake could be deleted from the program outright and all
+// ➤ 262 tests still passed (audit 2026-07-31). It now imports the very function
+// ➤ both delete paths call, which is the only version of this test worth having.
 {
-  const suspicious = (pendingCount, deadCount) => pendingCount >= 5 && deadCount >= Math.ceil(pendingCount * 0.5);
-  ok(suspicious(14, 14), 'everything dead at once → refuse to delete');
-  ok(suspicious(14, 7), 'half the list dead at once → refuse to delete');
-  ok(!suspicious(14, 6), 'a normal handful of dead links → delete them');
-  ok(!suspicious(3, 3), 'a tiny list is not enough evidence of an outage → normal behaviour');
-  ok(!suspicious(14, 0), 'nothing dead → nothing to do');
+  ok(looksLikeAnOutage(14, 14), 'everything dead at once → refuse to delete');
+  ok(looksLikeAnOutage(14, 7), 'half the list dead at once → refuse to delete');
+  ok(!looksLikeAnOutage(14, 6), 'a normal handful of dead links → delete them');
+  ok(!looksLikeAnOutage(14, 0), 'nothing dead → nothing to do');
+  ok(looksLikeAnOutage(3, 3), 'a whole short list dying at once is an outage too');
+  ok(!looksLikeAnOutage(0, 0), 'an empty list is not an outage');
+
+  // ➤ A RATIO ALONE GETS SHORT LISTS WRONG, and did: one genuinely withdrawn
+  // ➤ offer out of two is half of them, so the brake fired every run and the
+  // ➤ dead link could never be cleaned. One or two dead links are what this
+  // ➤ clean-up is FOR.
+  ok(!looksLikeAnOutage(1, 1), 'one dead link on a one-offer list is just a dead link');
+  ok(!looksLikeAnOutage(2, 1), 'and one of two');
+  ok(!looksLikeAnOutage(3, 2), 'and two of three');
+  ok(!looksLikeAnOutage(4, 2), 'and two of four');
+  // ➤ But five or more at once is an outage whatever the list size.
+  ok(looksLikeAnOutage(6, 5), 'five dead at once brakes even on a six-offer list');
+
+  // ➤ AND THE BRAKE MUST BE WIRED IN, not merely present. Both delete paths are
+  // ➤ read as text and must mention it; a refactor that quietly stopped calling
+  // ➤ it would otherwise leave every test green — exactly what happened before.
+  const hk = readFileSync(join(SELF_DIR, 'housekeep.mjs'), 'utf-8');
+  eq((hk.match(/looksLikeAnOutage\(/g) || []).length, 3,
+     'the brake is defined once and called by BOTH delete paths');
+}
+
+// ── 5d) The "seen" reply must not claim work it did not do ────────────────
+// ➤ The listener decides what to tell you by reading seen.mjs's printed output.
+// ➤ It used to look for the FAILURE line and call everything else a success, so
+// ➤ every other outcome — an empty pending section, a failed write, the program
+// ➤ dying — still answered "Marked as seen" (audit 2026-07-31). It now reads the
+// ➤ "✓ #N" lines, which are printed only for ids that were really marked.
+// ➤ This is also the first test of any kind on the listener's command surface.
+{
+  const okOut = 'Marked as seen:\n  ✓ #412 ACME — Mooring Engineer\n  ✓ #413 BETA — Survey Engineer\n';
+  eq(seenReply(['412', '413'], okOut), 'Marked as seen: #412, #413.', 'both marked, both reported');
+
+  const partial = 'Marked as seen:\n  ✓ #412 ACME — Mooring Engineer\n#413 is not in pending (did you already remove it?)\n';
+  eq(seenReply(['412', '413'], partial), 'Marked as seen: #412. Not found (already gone): #413.', 'one marked, one missing');
+
+  const none = '#412 is not in pending (did you already remove it?)\n';
+  ok(/^Nothing marked/.test(seenReply(['412'], none)), 'nothing marked is reported as nothing marked');
+
+  // ➤ THE CASES THAT USED TO LIE. None of these prints the failure line, so the
+  // ➤ old reply called every one of them a success.
+  ok(/^Nothing marked/.test(seenReply(['412'], 'No pending offers to mark.')),
+     'an empty pending section is not "marked"');
+  ok(/^Nothing marked/.test(seenReply(['412'], '')),
+     'a program that printed nothing at all is not "marked"');
+  // ➤ A CRASH IS NOT "ALREADY GONE" EITHER. That sentence is also a claim about
+  // ➤ the list, and it is false when the write simply failed: the offer is still
+  // ➤ there, still pending, and being told it is gone means you stop chasing it.
+  ok(/^Could not mark/.test(seenReply(['412'], 'Error: EACCES: permission denied')),
+     'a failed write says the list could not be written, not that the offer had gone');
+  ok(/^Could not mark/.test(seenReply(['412'], ['node:fs:600', '    at writeFileSync (node:fs:600:20)'].join('\n'))),
+     'and a bare stack trace is read the same way');
+  ok(/^Nothing marked/.test(seenReply(['412'], 'pipeline.md not found')),
+     'a missing pipeline is not "marked"');
+
+  // ➤ And a number that merely APPEARS in the output must not count as marked:
+  // ➤ #41 must not be satisfied by a "✓ #412" line.
+  ok(/^Nothing marked/.test(seenReply(['41'], okOut)), 'a partial number match does not count as marked');
+
+  // ➤ IMPORTING THE LISTENER MUST NOT START THE BOT. It used to call main() at
+  // ➤ the top level, so merely reading a function out of it polled Telegram with
+  // ➤ the real token and executed whatever commands were waiting — which is
+  // ➤ what running this very test on the server would have done.
+  const li = readFileSync(join(SELF_DIR, 'telegram-listener.mjs'), 'utf-8');
+  ok(/if \(process\.argv\[1\][^\n]*telegram-listener[^\n]*\{\s*\n\s*main\(\)/.test(li),
+     'the listener only starts when it IS the program being run');
+}
+
+// ── 5e) An offer number must never be handed out twice ────────────────────
+// ➤ The counter lives in one small file. Lose it and the old code fell back to
+// ➤ the highest number still in the pending list — a file the weekly clean-up
+// ➤ DELETES from — so the counter walked backwards over every number whose line
+// ➤ had gone, and a second, different job got a number you had already used.
+// ➤ Answering "no 412" from an older message would then hit the wrong one
+// ➤ (audit 2026-07-31). It now also reads the records that only ever grow.
+{
+  const dir = join(tmpdir(), `argus-ids-${process.pid}`);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  const counter = join(dir, 'last-id.json');
+  const apps = join(dir, 'applications.jsonl');
+  const feedback = join(dir, 'feedback.jsonl');
+  writeFileSync(apps, '{"id":9,"company":"GAMMA"}\n{"id":41,"company":"DELTA"}\n');
+  writeFileSync(feedback, '{"id":77,"reason":"too senior"}\n');
+
+  // ➤ The counter is there and is the highest: it wins.
+  writeFileSync(counter, JSON.stringify({ lastId: 900 }));
+  eq(loadIdHighWater(counter, [apps, feedback]), 900, 'the counter is used when it is present');
+
+  // ➤ THE COUNTER IS LOST. The records still know the highest number used.
+  eq(loadIdHighWater(join(dir, 'nope.json'), [apps, feedback]), 77,
+     'with no counter, the records still know the highest number handed out');
+
+  // ➤ The counter is corrupt — half-written by a crash.
+  writeFileSync(counter, '{"lastId":');
+  eq(loadIdHighWater(counter, [apps, feedback]), 77, 'a corrupt counter falls back to the records, not to zero');
+
+  // ➤ A counter that has somehow gone BACKWARDS cannot lower the mark.
+  writeFileSync(counter, JSON.stringify({ lastId: 5 }));
+  eq(loadIdHighWater(counter, [apps, feedback]), 77, 'the mark can never go below what the records prove');
+
+  // ➤ A corrupt line inside a record must not stop the rest being read.
+  writeFileSync(apps, '{"id":9}\nthis is not json\n{"id":150}\n');
+  eq(loadIdHighWater(join(dir, 'nope.json'), [apps, feedback]), 150, 'a broken line does not hide the numbers around it');
+
+  // ➤ Nothing at all: zero, and the pipeline decides — the original behaviour.
+  eq(loadIdHighWater(join(dir, 'nope.json'), [join(dir, 'nope1'), join(dir, 'nope2')]), 0,
+     'with no counter and no records at all it answers zero');
+  rmSync(dir, { recursive: true, force: true });
+}
+
+// ── 6a) Every board must hand over the advert text, or it is not screened ─
+// ➤ The years, degree and body-language screens all read the advert BODY. Three
+// ➤ parsers kept only the title and the link, so those screens ran against an
+// ➤ empty string and every offer from those boards was waved through unread.
+// ➤ Nothing uses them today, which is exactly why this needs a test: the day one
+// ➤ is added the hole would open in silence (audit 2026-07-31).
+{
+  const g = parseGreenhouse({ jobs: [{ title: 'Mooring Engineer', absolute_url: 'https://x/1', location: { name: 'Rotterdam' }, content: 'We require 8 years of experience.' }] }, 'ACME');
+  ok(String(g[0].description || '').includes('8 years'), 'greenhouse carries the advert text');
+  const a = parseAshby({ jobs: [{ title: 'Survey Engineer', jobUrl: 'https://x/2', location: 'Madrid', descriptionHtml: '<p>Minimum 10 years.</p>' }] }, 'ACME');
+  ok(String(a[0].description || '').includes('10 years'), 'ashby carries the advert text');
+  const l = parseLever([{ text: 'Design Engineer', hostedUrl: 'https://x/3', categories: { location: 'Aalst' }, descriptionPlain: 'Requires a PhD in chemistry.' }], 'ACME');
+  ok(String(l[0].description || '').includes('PhD'), 'lever carries the advert text');
+  // ➤ A board that sends no text at all must still parse, not crash.
+  eq(parseGreenhouse({ jobs: [{ title: 'T', absolute_url: 'u' }] }, 'ACME')[0].description, '', 'a board with no text yields an empty body, not undefined');
+
+  // ➤ Greenhouse only sends the text when the URL asks for it.
+  ok(greenhouseUrlWithContent('https://boards-api.greenhouse.io/v1/boards/acme/jobs').endsWith('?content=true'),
+     'the greenhouse URL asks for the advert text');
+  ok(greenhouseUrlWithContent('https://x/jobs?per_page=100').endsWith('&content=true'),
+     'and it is appended correctly to a URL that already has a query');
+  eq(greenhouseUrlWithContent('https://x/jobs?content=true'), 'https://x/jobs?content=true',
+     'asking twice does not double the flag');
+  eq(greenhouseUrlWithContent(''), '', 'an empty URL is left alone');
+}
+
+// ── 6c) One broken board must not fill the whole list ────────────────────
+// ➤ Workday and Oracle already had a ceiling; the other boards took whatever
+// ➤ the feed said. Provoked with a feed answering 20,000 postings: all 20,000
+// ➤ went into the pending list — a 2.2 MB file and, with Telegram on, about 450
+// ➤ messages over nine minutes (audit 2026-07-31).
+{
+  const said = [];
+  const log = m => said.push(String(m));
+  const many = n => Array.from({ length: n }, (_, i) => ({ title: `Job ${i}` }));
+
+  eq(capJobs(many(5), 'ACME', 10, log).length, 5, 'a normal board passes through untouched');
+  eq(said.length, 0, 'and nothing is said about it');
+
+  const big = capJobs(many(20000), 'ACME', 500, log);
+  eq(big.length, 500, 'a runaway board is cut to the ceiling');
+  eq(big[0].title, 'Job 0', 'and it keeps the first ones, in order');
+  ok(said.some(m => /20000/.test(m) && /ACME/.test(m)), 'the cut is announced, never silent');
+
+  // ➤ Exactly at the ceiling is not a runaway.
+  said.length = 0;
+  eq(capJobs(many(500), 'ACME', 500, log).length, 500, 'exactly the ceiling is fine');
+  eq(said.length, 0, 'and says nothing');
+
+  // ➤ Rubbish in must not throw: a broken feed is the case this exists for.
+  eq(capJobs(null, 'ACME', 500, log), [], 'a feed that returned nothing yields an empty list');
+  eq(capJobs(undefined, 'ACME', 500, log), [], 'and so does no feed at all');
+}
+
+// ── 6d) The guards must be WIRED IN, not merely present ──────────────────
+// ➤ Every one of these is tested on its own and passes — and every one of them
+// ➤ could be deleted from the place it is actually called with the whole suite
+// ➤ still green. A rule nothing calls is not a rule. Each check reads the
+// ➤ shipped file as text, which is crude but is the only thing that catches a
+// ➤ call site quietly disappearing.
+{
+  const scan = readFileSync(join(SELF_DIR, 'scan.mjs'), 'utf-8');
+  const hk = readFileSync(join(SELF_DIR, 'housekeep.mjs'), 'utf-8');
+  const li = readFileSync(join(SELF_DIR, 'telegram-listener.mjs'), 'utf-8');
+
+  // ➤ The per-board ceiling: without the call, one broken feed puts 20,000
+  // ➤ postings straight into the pending list.
+  ok(/jobs = capJobs\(jobs, [^)]+\);/.test(scan), 'the scan actually applies the per-board ceiling');
+
+  // ➤ A BOARD THAT STOPS HALFWAY MUST BE REPORTED. Measured against a real
+  // ➤ Workday tenant: when only page 1 of 42 answered and the rest returned
+  // ➤ 503, the run printed 20 offers of 840, no Errors section, and a summary
+  // ➤ identical to a quiet day — while the SAME failure on page 1 was reported.
+  // ➤ Read as text: the bug is a missing call, and no fixture can miss it.
+  ok(/collectWorkday\(c\._api, c\.name, workdayTerms, partial\)/.test(scan),
+    'the scan asks Workday to report a board it could only read part of');
+  ok(/collectOracle\(c\._api, c\.name, partial\)/.test(scan), 'and asks Oracle the same');
+  ok(/if \(answered\) cutShort = true;/.test(scan), 'a page that fails after one worked is a truncated read');
+  ok(/if \(cutShort\) onPartial\(/.test(scan), 'and that is handed back, not swallowed');
+  ok(/only part of the board was read/.test(scan), 'which reaches the run summary as an error');
+
+  ok(/detached: true/.test(li) && /child\.unref\(\)/.test(li),
+    'the listener starts the cover letter detached and lets go of it');
+  ok(!/await makeCoverLetter/.test(li), 'and does not wait for the letter itself');
+  ok(/--offer/.test(li), 'handing the offer number to the program that does the work');
+
+  // ➤ Greenhouse withholds the advert text unless the URL asks for it, so the
+  // ➤ years and degree screens would run against an empty body.
+  ok(/greenhouseUrlWithContent\(c\._api\.url\)/.test(scan), 'the scan actually asks Greenhouse for the advert text');
+
+  // ➤ The counter that stops an offer number ever being handed out twice.
+  ok(/nextId = Math\.max\(nextId, loadIdHighWater\(\)\)/.test(scan),
+     'the scan actually consults the high-water mark before numbering');
+
+  // ➤ The brake, on BOTH delete paths — the daily check and the weekly clean-up.
+  eq((hk.match(/looksLikeAnOutage\(/g) || []).length, 3,
+     'the mass-delete brake is defined once and called by both delete paths');
+  ok(!/if \(false && looksLikeAnOutage/.test(hk), 'and neither call is disabled');
+
+  // ➤ The Telegram position: treating a missing file as zero replays a day of
+  // ➤ commands, which is what today's fix exists to prevent.
+  ok(/loadJson\(OFFSET_PATH, null\)/.test(li), 'a missing position file is not read as zero');
+  ok(/await resyncOffset\(cfg\)/.test(li), 'and it resynchronises instead');
+  ok(/writeFileAtomic\(OFFSET_PATH/.test(li), 'the position is written atomically');
+  ok(!/writeFileSync\(OFFSET_PATH/.test(li), 'and never with a plain write');
+}
+
+// ── 6b) A hostile page must not freeze the bot ────────────────────────────
+// ➤ Every job advert is downloaded and stripped of its HTML. The stripper used
+// ➤ a pattern that allowed "<" inside a tag, so a page full of "<" that never
+// ➤ close made it re-scan to the end of the document from every one of them —
+// ➤ time squared. MEASURED on the real function: 200 KB took 6.8 s, 500 KB took
+// ➤ 43 s, 1 MB did not finish in two minutes. The scan is single-threaded, so
+// ➤ that is the whole bot stopped by one broken page (audit 2026-07-31).
+// ➤ This test is a STOPWATCH, which is unusual and deliberate: the defect is
+// ➤ not in what the function returns — the output was always correct — but in
+// ➤ how long it takes, so nothing about the result could ever have caught it.
+{
+  const hostile = '<a '.repeat(200 * 256);      // ~200 KB of unclosed tags
+  const t0 = Date.now();
+  stripHtml(hostile);
+  const ms = Date.now() - t0;
+  // ➤ Generous on purpose: the fixed version does this in single-digit
+  // ➤ milliseconds even on a slow machine, and the broken one took 6800.
+  ok(ms < 1000, `200 KB of unclosed tags is stripped promptly (took ${ms} ms)`);
+
+  // ➤ And it still strips real markup exactly as before.
+  eq(stripHtml('<p>Hello <strong>world</strong> <a href="http://x/y?a=1&amp;b=2">link</a></p>'),
+     'Hello world link', 'ordinary markup is still stripped correctly');
+  eq(stripHtml('<ul><li>one</li><li>two</li></ul>'), 'one. two.', 'and list items still become sentences');
+  // ➤ A KNOWN LIMIT, unchanged by the fix and recorded here so nobody reads it
+  // ➤ as a regression: loose comparison signs in prose look exactly like a tag,
+  // ➤ and the text between them is dropped. It behaved identically before, and
+  // ➤ job adverts do not write "salary < 40k" in raw HTML.
+  eq(stripHtml('a < b and c > d'), 'a d', 'loose comparison signs are swallowed, as they always were');
+  // ➤ A ">" inside an attribute value ends the tag early — the other known
+  // ➤ limit, also unchanged by the fix. Written out rather than compared
+  // ➤ against the function itself, which would prove nothing.
+  eq(stripHtml('<input value="5 > 3">text'), '3">text', 'a ">" inside an attribute still ends the tag early');
 }
 
 // ── 8) The onboarding must produce a search that is actually the USER'S ───
@@ -311,6 +858,20 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   };
   const p = yaml.load(buildProfileYaml(accountant)).search;
   ok(Array.isArray(p.queries) && p.queries.length > 0, 'the profile carries its own search queries');
+
+  // ➤ TICKING "REMOTE" MUST NOT SEND EVERY REMOTE OFFER TWICE. The onboarding
+  // ➤ offers it as a country, so it lands in the user's country list AND in the
+  // ➤ fixed group order the message is built from — and that list is walked, so
+  // ➤ a label in it twice emits its offers twice.
+  {
+    const remoto = yaml.load(buildProfileYaml({ ...accountant, countries: ['Germany', 'Remote'] })).search;
+    const labels = remoto.countries.map(c => c.label);
+    const order = [...new Set(['BERLIN', ...labels, 'REMOTE', 'OTHER', 'NO LOCATION'])];
+    eq(order.filter(x => x === 'REMOTE').length, 1, 'onboarding: REMOTE appears once in the group order');
+    // ➤ And the allowed places do not carry the same word twice in two cases.
+    const bajas = remoto.locations.allow.map(x => String(x).toLowerCase());
+    eq(bajas.length, new Set(bajas).size, 'onboarding: no place is listed twice');
+  }
   ok(p.queries.includes('financial accountant'), 'the queries are built from the roles');
   ok(p.queries.includes('accounting'), 'the queries also include the fields');
   ok(!p.queries.some(q => /offshore|marine|mooring/.test(q)), 'no marine term leaks into a non-marine search');
@@ -319,6 +880,38 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(p.track_example_companies, false, 'the example marine employers are switched off');
   // ➤ And the whole thing must still be valid, complete config.
   ok(p.positive_titles.length > 0 && p.max_years === 2, 'the rest of the profile is still complete');
+}
+
+// ── 8b) A setup with no job titles must not inherit the example's ────────
+// ➤ A punctuation-only answer to "what job titles are you looking for" reduces
+// ➤ to an empty list. Writing [] tells the scanner no keyword is required, so
+// ➤ every title in the world passes; leaving the key out makes it fall back to
+// ➤ portals.yml — the shipped MARINE example. An accountant's bot would then
+// ➤ ask the boards for accounting jobs and reject every one of them for having
+// ➤ "no keyword from your field", for ever and without a word (audit
+// ➤ 2026-08-01). Her own FIELDS are hers, so that is the fallback.
+{
+  const accountant = {
+    name: 'Jane Doe', contact: 'jane@x.com, Berlin',
+    fields: 'accounting, finance, audit', level: 'junior', max_years: '2',
+    languages: ['en'], degrees_excluded: [], countries: ['Germany'], vetoes: [],
+  };
+  const blank = yaml.load(buildProfileYaml({ ...accountant, roles: ',,' })).search;
+  eq(blank.positive_titles, ['accounting', 'finance', 'audit'],
+     `with no usable job titles, the filter falls back to the user's OWN fields`);
+  ok(!/mooring|offshore|orcaflex/i.test(JSON.stringify(blank)),
+     'and never to the shipped marine example');
+
+  // ➤ A normal answer is untouched.
+  const normal = yaml.load(buildProfileYaml({ ...accountant, roles: 'accountant, controller' })).search;
+  eq(normal.positive_titles, ['accountant', 'controller'], 'a real answer is used as given');
+
+  // ➤ Nothing at all: the key stays out, because there is genuinely nothing to
+  // ➤ search for — and the flow says so on screen rather than pretending.
+  const nothing = yaml.load(buildProfileYaml({ ...accountant, roles: ',,', fields: '' })).search;
+  eq(nothing.positive_titles, undefined, 'with neither titles nor fields the key is left out');
+  const ob = readFileSync(join(SELF_DIR, 'onboarding.mjs'), 'utf-8');
+  ok(/nothing to search for/.test(ob), 'and the setup tells the user so when it finishes');
 }
 
 // ── 9) A profile WITHOUT the new keys must behave exactly as before ───────
@@ -544,7 +1137,7 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
 }
 
 // ── Result ────────────────────────────────────────────────────────────────
-// ── 15) argus-discover: the profile audit must not invent evidence ────────
+// ── 14) argus-discover: the profile audit must not invent evidence ────────
 // ➤ It reads the CV, the search terms and the user's own decisions to say
 // ➤ whether a term is worth keeping. Every number it prints is an argument for
 // ➤ changing the filter, so a wrong one sends the user chasing a problem that
@@ -598,7 +1191,7 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   }
 }
 
-// ── 16) argus-discover: the harvest must not propose noise ───────────────
+// ── 15) argus-discover: the harvest must not propose noise ───────────────
 // ➤ Its output is a list of words to add to the search. A bad one widens the
 // ➤ filter for nothing, so gender tags, seniority words and terms already in
 // ➤ use must never reach the proposal.
@@ -623,7 +1216,7 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(candidateTerms([], {}).length, 0, 'harvest: no titles, no candidates');
 }
 
-// ── 17) argus-discover: the ESCO match ───────────────────────────────────
+// ── 16) argus-discover: the ESCO match ───────────────────────────────────
 // ➤ Its output is occupation names in five languages, offered as search terms.
 // ➤ ESCO's translations are administrative, so the filter that decides which
 // ➤ labels a human would ever type is the part that has to be right.
@@ -659,19 +1252,73 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(dup[0].score, 2, 'esco: the same term counted once, however many skills matched it');
 }
 
-// ── 18) argus-discover: the blind-spot record ────────────────────────────
+// ── 17) argus-discover: the blind-spot record ────────────────────────────
 // ➤ It exists because the title filter's allowlist drops things silently, and
 // ➤ on a real cycle 345 titles were dropped for no reason but "not on the
 // ➤ list". Recurrence is the only signal it uses, so the counting has to be
 // ➤ right: over-count and noise looks like a gap, under-count and a real gap
 // ➤ stays invisible.
 {
-  const { mergeDrops, topRecurring, classifyDrop, ruleOf, NO_FIELD, RULE } =
+  const { mergeDrops, topRecurring, classifyDrop, ruleOf, formatReport, NO_FIELD, RULE, MAX_TITLES } =
     await import('./argus-discover/blind-spots.mjs');
 
   eq(classifyDrop('the title has no keyword from your field'), NO_FIELD, 'blind: no-keyword is the blind-spot bucket');
   eq(classifyDrop('the title has the blocked word "Senior"'), RULE, 'blind: a veto that fired is the other bucket');
   eq(ruleOf('the title has the blocked word "Technician"'), 'Technician', 'blind: the report names the rule, not the sentence');
+
+  // ➤ THE REPORT MUST PRINT THE WHOLE TITLE. It used to cut at a fixed width,
+  // ➤ so "Digital Product Manager - Energy Forecast Products" arrived clipped
+  // ➤ mid-word — and a blind spot you cannot read is one you cannot act on.
+  {
+    const long = 'Offshore Wind Asset Integrity and Reliability Engineer for Floating Foundations';
+    const ruled = 'Digital Product Manager - Energy Forecast Products';
+    const report = formatReport({ updated: 'd1', titles: {
+      a: { title: long, why: 'no keyword from your field', bucket: NO_FIELD, n: 4 },
+      b: { title: ruled, why: 'the title has the blocked word "Manager"', bucket: RULE, n: 3 },
+    } });
+    // ➤ Wrapped titles span lines, so the comparison is made on the unwrapped text.
+    const flat = report.replace(/\n\s+/g, ' ');
+    ok(flat.includes(long), 'blind: a long title is wrapped, never cut');
+    ok(flat.includes(ruled), 'blind: and so is one in the rule bucket');
+    ok(report.split('\n').every(l => l.length <= 80), 'blind: while every line still fits a phone screen');
+
+    // ➤ EACH SECTION SAYS HOW MANY IT IS NOT SHOWING. It used to print its top
+    // ➤ few and stop, which reads as "that is all of them" — and the difference
+    // ➤ between 12 recurring blind spots and 300 is the whole picture.
+    const many = {};
+    for (let i = 0; i < 40; i++) many['b' + i] = { title: `Blind Title ${i}`, bucket: NO_FIELD, n: 40 - i, why: 'no keyword from your field' };
+    const big = formatReport({ updated: 'd1', titles: many });
+    ok(/showing the top 12 of 39/.test(big), 'blind: the section says how many it is leaving out');
+    ok(!/showing the top/.test(report), 'blind: and says nothing when it is showing them all');
+
+    // ➤ THE WHOLE REPORT GOES OUT AS ONE MESSAGE, and Telegram refuses anything
+    // ➤ over 4096 characters outright — no message at all. Now that titles are
+    // ➤ printed whole, the length depends on what the boards publish, so the
+    // ➤ budget is measured ESCAPED: the command sends it inside <pre>, where one
+    // ➤ "&" becomes five characters.
+    const escaped = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    for (const [name, word] of [['long words', 'Palabra '], ['ampersands', 'R&D '], ['angle brackets', '<x> ']]) {
+      const hostile = {};
+      for (let i = 0; i < 12; i++) hostile['b' + i] = { title: word.repeat(80).trim(), bucket: NO_FIELD, n: 40 - i };
+      for (let i = 0; i < 6; i++) hostile['r' + i] = { title: word.repeat(80).trim(), bucket: RULE, n: 20 - i, why: 'the title has the blocked word "Manager"' };
+      const report2 = formatReport({ updated: 'd1', titles: hostile });
+      ok(`<pre>${escaped(report2)}</pre>`.length < 4096, `blind: a report full of ${name} still fits one Telegram message`);
+      // ➤ AND IT SAYS WHY IT IS SHORT. A section whose entries did not fit used
+      // ➤ to print "nothing has recurred yet" next to "showing the top 0 of 6" —
+      // ➤ two answers, one of them false.
+      ok(!/showing the top 0 of/.test(report2), 'blind: a section that fits nothing does not claim to show nothing');
+      if (/this message is full/.test(report2)) {
+        ok(!/nothing has recurred yet/.test(report2), 'blind: and does not call a full message an empty record');
+      }
+    }
+
+    // ➤ And a reason that does not match the "blocked word" shape is wrapped like
+    // ➤ everything else, rather than running off the side of the screen.
+    const oddReason = formatReport({ updated: 'd1', titles: {
+      a: { title: 'Short', bucket: RULE, n: 3, why: 'rejected because ' + 'reason '.repeat(20) },
+    } });
+    ok(oddReason.split('\n').every(l => l.length <= 80), 'blind: an unusual reason wraps too');
+  }
 
   const noField = 'the title has no keyword from your field';
   let st = mergeDrops({ titles: {} }, [{ title: 'Asset Integrity Engineer', why: noField }], { today: 'd1' });
@@ -697,9 +1344,11 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
     eq(Object.keys(big.titles).length, 10, 'blind: the record is capped');
 
     // ➤ The DEFAULT cap has to be finite too, not just one passed in by a test.
-    const flood = Array.from({ length: 4100 }, (_, i) => ({ title: `Flood ${i}`, why: noField }));
+    // ➤ Sized against MAX_TITLES rather than a number written here, so raising
+    // ➤ the ceiling does not quietly turn this into a test of nothing.
+    const flood = Array.from({ length: MAX_TITLES + 100 }, (_, i) => ({ title: `Flood ${i}`, why: noField }));
     const defaulted = mergeDrops({ titles: {} }, flood, { today: 'd1' });
-    ok(Object.keys(defaulted.titles).length < flood.length, 'blind: the default cap is finite');
+    eq(Object.keys(defaulted.titles).length, MAX_TITLES, 'blind: the default cap is finite and is MAX_TITLES');
 
     // ➤ A title seen many times must survive a cull, EVEN when every one-off
     // ➤ around it is more recent. Culling by date alone would lose exactly the
@@ -737,6 +1386,25 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   // ➤ a cull is what recurs, which is exactly what is being looked for.
   const many = Array.from({ length: 50 }, (_, i) => ({ title: `Role ${i}`, why: noField }));
   eq(Object.keys(mergeDrops({ titles: {} }, many, { today: 'd1', cap: 10 }).titles).length, 10, 'blind: the record is capped');
+}
+
+// ── 18) The location written to pipeline.md keeps its country ─────────
+// ➤ It used to be cut at 70 characters before being stored, and housekeep
+// ➤ re-reads that stored text weeks later to decide whether the country is
+// ➤ still one you accept. 35 of 993 real locations were long enough to be cut.
+{
+  const { normalizeLocation, MAX_LOCATION_CHARS } = await import('./scan.mjs');
+
+  eq(normalizeLocation('España, España'), 'España', 'location: a repeated part is written once');
+  const long = 'Steinbecker Vorstadt, Greifswald, Mecklenburg-Vorpommern, Bundesrepublik Deutschland';
+  eq(normalizeLocation(long), long, 'location: a long one keeps the country at its end');
+  ok(!normalizeLocation(long).includes('…'), 'location: and is not marked as cut, because it is not');
+
+  // ➤ The ceiling that remains is a guard against a feed pasting a paragraph
+  // ➤ into the field, and it must sit far above anything real (longest: 88).
+  const absurd = normalizeLocation('Rotterdam, ' + 'Zuid-Holland, '.repeat(80));
+  ok(absurd.length <= MAX_LOCATION_CHARS, 'location: an absurd one is still bounded');
+  ok(MAX_LOCATION_CHARS >= 200, 'location: and that bound is nowhere near a real location');
 }
 
 // ── 19) "seen": marking the RIGHT line, and marking it as YOUR decision ────

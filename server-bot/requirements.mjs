@@ -420,13 +420,20 @@ export function degreeScreen(text, title) {
 // ➤ Returns '' if the marker is absent — the caller then skips the check.
 export function extractAdzunaJd(html) {
   const s = String(html || '');
-  const open = s.match(/<section[^>]*\bclass\s*=\s*["']([^"']*\badp-body\b[^"']*)["'][^>]*>/i);
+  // ➤ Note the `[^<>]` (not `[^>]`) in every tag pattern here: a tag can only
+  // ➤ be read up to the next angle bracket of ANY kind. With the looser `[^>]`
+  // ➤ a single stray "<" in the page — an unescaped angle bracket typed into
+  // ➤ the ad, a tag someone forgot to close — let the pattern run straight past
+  // ➤ the tag it was reading and swallow whatever came after it, so the body
+  // ➤ handed to the years and degree checks was cut short or wrong and the
+  // ➤ offer sailed through unfiltered.
+  const open = s.match(/<section[^<>]*\bclass\s*=\s*["']([^"']*\badp-body\b[^"']*)["'][^<>]*>/i);
   if (!open) return '';
   // ➤ Audit 2026-07-16: count nesting instead of stopping at the first
   // ➤ </section>, or a nested one truncates the body. Latent today, correct if
   // ➤ Adzuna changes.
   let i = open.index + open[0].length, depth = 1;
-  const tag = /<(\/?)section\b[^>]*>/gi;
+  const tag = /<(\/?)section\b[^<>]*>/gi;
   tag.lastIndex = i;
   let mt;
   while ((mt = tag.exec(s)) !== null) {
@@ -445,14 +452,19 @@ export function stripHtml(html) {
     // ➤ space breaks them (#526: "<strong>de 3 a</strong>ños" read as "3 a ños"
     // ➤ and the offer slipped). Block tags DO become a space — they separate.
     .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<\/?(?:strong|b|em|i|u|span|a|sub|sup|mark|small|font)(?:\s[^>]*)?>/gi, '')
+    .replace(/<\/?(?:strong|b|em|i|u|span|a|sub|sup|mark|small|font)(?:\s[^<>]*)?>/gi, '')
     // ➤ 2026-07-18: each </li> becomes a PERIOD. Bullets carry no final stop, so
     // ➤ flattened they merged into one sentence and an "is a plus" from the next
     // ➤ bullet cancelled a real requirement (case WtbE: "Minimaal 5 jaar" got
     // ➤ through because of an "RSTAD is een pre" two bullets away). ONLY </li>:
     // ➤ doing it to </p> broke the softening of a "Nice to have:" heading.
     .replace(/<\/li>/gi, '. ')
-    .replace(/<[^>]+>/g, ' ')
+    // ➤ Same rule as above: a tag ends at the next angle bracket of ANY kind
+    // ➤ (`[^<>]`, not `[^>]`). An ad that writes a bare "<" in its own text
+    // ➤ used to make this pattern treat everything up to the next ">" as one
+    // ➤ giant tag and delete it — sentences with the real requirement in them
+    // ➤ simply vanished before the screening ever saw them.
+    .replace(/<[^<>]*>/g, ' ')
     // ➤ Numeric entities too (audit 2026-07-25): "5&#160;years" hid the
     // ➤ requirement because only the named &nbsp; was decoded.
     .replace(/&#(?:160|xa0);/gi, ' ')

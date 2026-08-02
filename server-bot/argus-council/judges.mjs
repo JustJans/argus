@@ -178,7 +178,7 @@ function normConfidence(raw) {
   const n = Number(raw);
   if (!Number.isFinite(n)) return 0;
   if (n < 0) return 0;
-  if (n > 1) return n > 1 && n <= 100 ? n / 100 : 1; // ➤ tolerates "80" as 0.80
+  if (n > 1) return n <= 100 ? n / 100 : 1;          // ➤ tolerates "80" as 0.80
   return n;
 }
 

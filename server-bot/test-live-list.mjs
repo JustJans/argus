@@ -90,16 +90,40 @@ const notSeen = harness();
 await refreshList({ deps: notSeen.deps });
 check('without markSeen nothing is marked seen', !notSeen.log.some(l => l.startsWith('seen:')));
 
+// ➤ A list that never left the server has not been seen. Marking it seen anyway
+// ➤ spent the [NEW] tags on offers that were never shown, so the next list to
+// ➤ arrive presented them as old news.
+const failedSeen = harness({ sendReturns: [] });
+await refreshList({ deps: failedSeen.deps, markSeen: true });
+check('a failed send does not spend the [NEW] tags', !failedSeen.log.some(l => l.startsWith('seen:')));
+
 // ➤ With no offers left it still posts the placeholder, so the chat always ends
 // ➤ in a list rather than in the last thing you typed.
 const empty = harness({ offers: [] });
 await refreshList({ deps: empty.deps });
 check('an empty list still posts a notice', empty.log.includes('send-empty'));
 
-// ➤ It must never take its caller down: a throwing dependency returns null.
+// ➤ It must never take its caller down: a throwing dependency is reported, not
+// ➤ thrown. It answers FALSE, meaning "it failed" — deliberately not null, which
+// ➤ means "Telegram is not set up" (audit 2026-07-31). The two used to be the
+// ➤ same answer, so the scan's own summary said the bot was unconfigured when in
+// ➤ fact a send had failed and offers had been written to the pending list
+// ➤ without ever reaching the phone.
 const boom = harness();
 boom.deps.pendingOffers = () => { throw new Error('pipeline unreadable'); };
-check('a throwing dependency returns null instead of crashing', await refreshList({ deps: boom.deps }) === null);
+check('a throwing dependency is reported as a failure, not as a crash', await refreshList({ deps: boom.deps }) === false);
+
+// ➤ And the three answers stay apart from each other.
+const off = harness();
+off.deps.telegramConfigured = () => false;
+check('not configured answers null', await refreshList({ deps: off.deps }) === null);
+
+const nosend = harness();
+nosend.deps.notifyNewOffers = async () => [];      // the send produced no message
+check('a send that posted nothing answers false', await refreshList({ deps: nosend.deps }) === false);
+
+const okrun = harness();
+check('a successful refresh answers the number of pending offers', typeof (await refreshList({ deps: okrun.deps })) === 'number');
 
 try { rmSync(p); } catch { /* best-effort cleanup */ }
 try { rmSync(sp); } catch { /* best-effort cleanup */ }
