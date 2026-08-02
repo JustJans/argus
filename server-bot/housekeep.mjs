@@ -148,10 +148,21 @@ export function rewritePipelineWithout(linesToDrop, path = PIPELINE_PATH) {
 // ➤ NO FLOOR ON THE LIST SIZE. The old version only protected lists of 5 or
 // ➤ more, which had it exactly backwards: a short list is where losing
 // ➤ everything hurts most, and "3 of 3 died in the same second" is just as
-// ➤ clearly an outage as thirty of thirty.
+// ➤ TWO WAYS TO TRIGGER, because a ratio alone gets it wrong at both ends.
+// ➤ A ratio with no floor made an ordinary short list impossible to clean: one
+// ➤ genuinely withdrawn offer out of two is half of them, so the brake fired
+// ➤ every single run and the dead link stayed for ever. A count alone would
+// ➤ miss "everything died at once" on a small list.
+// ➤ So: five or more dead AND at least half — many at once is an outage
+// ➤ whatever the list size — OR every single one dead, from three up, which
+// ➤ cannot be a coincidence either. One or two dead links get deleted, which
+// ➤ is what they are for.
 export function looksLikeAnOutage(pendingCount, deadCount) {
-  return pendingCount > 0 && deadCount >= Math.ceil(pendingCount * 0.5);
+  if (pendingCount <= 0 || deadCount <= 0) return false;
+  const half = deadCount >= Math.ceil(pendingCount * 0.5);
+  return (deadCount >= 5 && half) || (deadCount === pendingCount && deadCount >= 3);
 }
+
 
 // ➤ The key that decides two postings are THE SAME job — and therefore that
 // ➤ one of them gets deleted. Exported so the rule can be tested: it already

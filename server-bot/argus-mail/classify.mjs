@@ -89,9 +89,17 @@ export const CONDITIONAL = new RegExp([
   // ➤ Spanish
   'si (tu|su) (perfil|candidatura|solicitud)', 'en caso de', 'si (encajas|resultas|eres seleccionad|es seleccionad)',
   // ➤ Dutch: "als je/u wordt geselecteerd", "indien wij/uw", "mocht u/je"
-  'indien (we|wij|u|uw|je)', 'mocht (u|je|uw)', 'als (je|u|uw)[a-z ]{0,15}(geselecteerd|geschikt)',
-  // ➤ German: "falls wir/Ihre", "wenn wir", "wenn Sie ausgewählt werden"
-  'falls (wir|ihre|sie)', 'wenn wir', 'wenn (sie|du)[a-z ]{0,15}(ausgewahlt|ausgewaehlt|passen)',
+  // ➤ Dutch. "indien wij" is the company deciding; "indien u/je" addresses the
+  // ➤ reader ("indien u geïnteresseerd bent") and opens a real invitation — so
+  // ➤ that form has to name a decision, as the English clauses do.
+  'indien (we|wij)', 'mocht (u|je|uw)',
+  'indien (u|uw|je)[a-z ]{0,20}(geselecteerd|weerhouden|geschikt|in aanmerking)',
+  'als (je|u|uw)[a-z ]{0,15}(geselecteerd|geschikt)',
+  // ➤ German, same split: "falls Sie Interesse/Fragen haben" is the polite
+  // ➤ opening of an invitation, not a company still deciding.
+  'falls (wir|ihre)', 'wenn wir',
+  'falls (sie|du)[a-z ]{0,20}(ausgewahlt|ausgewaehlt|passen|geeignet)',
+  'wenn (sie|du)[a-z ]{0,15}(ausgewahlt|ausgewaehlt|passen)',
   // ➤ French: "si vous êtes retenu / sélectionné"
   'si (vous|votre)[a-z ]{0,15}(retenu|selectionn)',
 ].join('|'));

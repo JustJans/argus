@@ -42,7 +42,13 @@ const STATES = [
 
 // ➤ Which ones are worth reading one by one. A rejection is closed: it is
 // ➤ counted above and left there.
-const LISTED = ['bounced', 'noreply', 'acknowledged', 'interview'];
+// ➤ Which of those get a section of their own underneath, spelled out here as
+// ➤ the STATE KEYS of the entries above rather than as a second hand-written
+// ➤ list. Written out by hand, a state added to STATES and forgotten here would
+// ➤ be counted in the header and then never listed — and the stray-state guard
+// ➤ below would not notice, because it only checks against STATES.
+const LISTED_LABELS = ['Never arrived', 'N/A', 'Received', 'Interview'];
+const LISTED = STATES.filter(s => LISTED_LABELS.includes(s.title)).flatMap(s => s.keys);
 
 // ➤ The whole message, as one string of Telegram HTML: a count line, then a
 // ➤ section per state worth reading one by one. Takes the file the nightly run

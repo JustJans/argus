@@ -888,6 +888,24 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
      'no ties, no line');
 }
 
+// ── 7c) The longest silence is read first ────────────────────────────────
+// ➤ The "no reply" pile is sorted by how long you have been waiting, so the
+// ➤ application that has been silent longest is the first thing you see. It is
+// ➤ one line of code and nothing pinned it: remove the sort and the report
+// ➤ still prints, just in an order that buries the one worth chasing.
+{
+  // ➤ daysWaiting is computed upstream by status.mjs and carried on the record;
+  // ➤ the report sorts on it rather than re-deriving it from the date.
+  const txt = formatStatus({ applications: [
+    { id: 1, company: 'Recent', title: 'A', state: 'noreply', daysWaiting: 3 },
+    { id: 2, company: 'Oldest', title: 'B', state: 'noreply', daysWaiting: 40 },
+    { id: 3, company: 'Middle', title: 'C', state: 'noreply', daysWaiting: 20 },
+  ] });
+  const order = ['Oldest', 'Middle', 'Recent'].map(n => txt.indexOf(n));
+  ok(order[0] >= 0 && order[0] < order[1] && order[1] < order[2],
+     'the longest silence is listed first, then in descending order');
+}
+
 // ── 8) No application may fall between the states ───────────────────────
 // ➤ The report knows six states. One in any OTHER state appeared in no section
 // ➤ AND in no count, while the header kept printing the full total — so the

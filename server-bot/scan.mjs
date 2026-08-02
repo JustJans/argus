@@ -224,8 +224,22 @@ export function parseGreenhouse(json, name) {
   return (json.jobs || []).map(j => ({
     title: j.title || '', url: j.absolute_url || '', company: name,
     location: j.location?.name || '',
-    description: j.content || '',
+    // ➤ Greenhouse sends the advert with its markup ESCAPED ("&lt;p&gt;"),
+    // ➤ so the tag stripper downstream sees no tags at all: the tag names
+    // ➤ leak in as words and the sentences run together, which is exactly
+    // ➤ where the requirement lines live.
+    description: unescapeEntities(j.content || ''),
   }));
+}
+
+// ➤ Turns "&lt;p&gt;5+ years&lt;/p&gt;" back into real markup so the tag
+// ➤ stripper can do its job. Only the five that matter: anything else is
+// ➤ already handled once the text is stripped.
+export function unescapeEntities(text) {
+  return String(text || '')
+    .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"').replace(/&#39;/g, "'")
+    .replace(/&amp;/gi, '&');
 }
 export function parseAshby(json, name) {
   return (json.jobs || []).map(j => ({
@@ -239,20 +253,31 @@ export function parseLever(json, name) {
   return json.map(j => ({
     title: j.text || '', url: j.hostedUrl || '', company: name,
     location: j.categories?.location || '',
-    description: j.descriptionPlain || j.description || '',
+    // ➤ Lever splits the advert: `description` is the intro blurb and the
+    // ➤ requirements live in `lists` ("What We Require", "Qualifications").
+    // ➤ Reading only the intro meant "5+ years required" never reached the
+    // ➤ years and degree screens at all.
+    description: leverText(j),
   }));
 }
 
-// ➤ Greenhouse leaves the advert text out unless the URL asks for it. Adding the
-// ➤ flag here rather than in portals.yml means it cannot be forgotten when a
-// ➤ board is added, and re-adding it to a URL that already carries it does
-// ➤ nothing.
+// ➤ The whole Lever advert as one string: intro, every list, and the closing
+// ➤ section. Exported to be tested — the requirements are the part that
+// ➤ decides whether an offer is realistic for you.
+export function leverText(j) {
+  const lists = (j?.lists || []).map(l => `${l?.text || ''}. ${l?.content || ''}`);
+  return [j?.descriptionPlain || j?.description || '', ...lists, j?.additionalPlain || j?.additional || '']
+    .filter(Boolean).join(' ');
+}
+
+// ➤ Greenhouse leaves the advert text out unless the URL asks for it. The flag
+// ➤ is added here rather than in portals.yml so it cannot be forgotten when a
+// ➤ board is added; re-adding it to a URL that already has it is a no-op.
 export function greenhouseUrlWithContent(url) {
   const u = String(url || '');
   if (!u || /[?&]content=true\b/.test(u)) return u;
   return u + (u.includes('?') ? '&' : '?') + 'content=true';
 }
-
 // ➤ Workday translator. Important detail: when an offer says
 // ➤ "2 Locations" (several locations without saying which), the
 // ➤ location is left empty so as not to discard it by mistake; further below there is a step
@@ -619,6 +644,10 @@ async function collectLinkedIn(cfg) {
   }
   const everyMs = (cfg.every_hours || 6) * 3600_000;
   // ➤ Have the minimum hours since the last query not passed yet? Skip.
+  // ➤ Same clock guard as the cooldown below: last_run is written on every
+  // ➤ run, so it is the likelier of the two to catch a clock that jumped, and
+  // ➤ a run "in the future" would hold LinkedIn off until the date passes.
+  if (state.last_run && state.last_run - now > everyMs) state.last_run = 0;
   if (state.last_run && now - state.last_run < everyMs) {
     return { offers: [], calls: 0, status: 'cadence-skip' };
   }
@@ -1160,9 +1189,9 @@ export function buildLocationFilter(lf) {
 // ➤ EXPORTED so a test can reach it (audit 2026-07-31). It was a local, and the
 // ➤ accent bug below — every accented alias silently ignored — lived here for as
 // ➤ long as it did precisely because nothing could call it.
-export function buildCountryFilter() {
-  if (!existsSync(COUNTRIES_PATH)) return { fn: () => true, off: [] };
-  const cfg = parseYaml(readFileSync(COUNTRIES_PATH, 'utf-8')) || {};
+export function buildCountryFilter(cfg = null) {
+  if (!cfg && !existsSync(COUNTRIES_PATH)) return { fn: () => true, off: [] };
+  cfg = cfg || parseYaml(readFileSync(COUNTRIES_PATH, 'utf-8')) || {};
   const countries = cfg.countries || {};
   const aliases = cfg.aliases || {};
   // ➤ Keeps only the countries marked as off (false).
@@ -2030,7 +2059,16 @@ async function main() {
   // ➤ "no new jobs this week" and "the bot has been dead since Tuesday".
   const anySourceConfigured = targets.length > 0 || adzunaWanted || liCfg.enabled;
   const nothingToScan = !anySourceConfigured;
-  const everythingFailed = anySourceConfigured && sourcesOk === 0 && adzunaCalls === 0 && liCalls === 0 && errors.length > 0;
+  // ➤ NOT "everything errored" — "nothing answered". A source that is switched
+  // ➤ on but never reached raises no error at all: a missing Adzuna key is
+  // ➤ reported as skipped, and LinkedIn's cadence and cooldown paths return in
+  // ➤ silence. Requiring an error meant the quietest failure of all — the one
+  // ➤ this alarm exists for — could not set it off.
+  // ➤ A --company run is exempt: it deliberately scans one board with the
+  // ➤ aggregators switched off, so "no aggregator answered" is the point of the
+  // ➤ command, not a fault worth waking you for.
+  const everythingFailed = anySourceConfigured && !only
+    && sourcesOk === 0 && adzunaCalls === 0 && liCalls === 0 && found === 0;
   if (nothingToScan) {
     console.log('\n! NOTHING WAS SEARCHED. No employer, no aggregator and no LinkedIn are switched on —');
     console.log('  portals.yml and config/profile.yml between them select no sources at all.');

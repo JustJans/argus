@@ -142,6 +142,14 @@ export function seenReply(ids, out) {
   const tag = list => list.map(i => `#${i}`).join(', ');
   if (marked.length && missing.length) return `Marked as seen: ${tag(marked)}. Not found (already gone): ${tag(missing)}.`;
   if (marked.length) return `Marked as seen: ${tag(marked)}.`;
+  // ➤ "ALREADY GONE" IS ALSO A CLAIM ABOUT YOUR LIST, and it is false when the
+  // ➤ write simply failed — a full disk, a folder gone read-only, the program
+  // ➤ killed. The offer is still there and still pending, and being told it is
+  // ➤ gone means you stop chasing it. If the output looks like a crash rather
+  // ➤ than an answer, say so instead.
+  if (/[A-Za-z]*Error[:\s]|EACCES|EPERM|ENOSPC|ENOTDIR|^\s+at .+:\d+/m.test(text)) {
+    return `Could not mark ${tag(missing)}: the list could not be written. Nothing was changed — try again.`;
+  }
   return `Nothing marked: ${tag(missing)} ${missing.length > 1 ? 'are' : 'is'} not in the pending list (already removed?).`;
 }
 

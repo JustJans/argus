@@ -64,6 +64,15 @@ export function writeFileAtomic(path, data, encoding = 'utf-8', io = { writeFile
 // ➤ itself race, so two jobs could both get in — but only once a lock has sat
 // ➤ untouched for five seconds, which means a job was already killed mid-write.
 // ➤ A real hold lasts milliseconds, so in normal running it cannot arise.
+// ➤ A real pause inside synchronous code. This used to be a spin loop, which
+// ➤ burns a whole core: harmless for the milliseconds of normal contention, but
+// ➤ a permanent failure (a read-only data folder, a full disk) meant five
+// ➤ seconds at 100% CPU on EVERY write, from every job, for as long as the
+// ➤ machine stayed broken. Atomics.wait sleeps without a callback, so the four
+// ➤ callers stay synchronous.
+const SLEEP_BUF = new Int32Array(new SharedArrayBuffer(4));
+function sleepSync(ms) { Atomics.wait(SLEEP_BUF, 0, 0, ms); }
+
 export const LOCK_TIMEOUT_MS = 5000;
 
 export function withFileLock(path, fn, { timeoutMs = LOCK_TIMEOUT_MS, io = { mkdirSync, rmdirSync, statSync } } = {}) {
@@ -84,14 +93,15 @@ export function withFileLock(path, fn, { timeoutMs = LOCK_TIMEOUT_MS, io = { mkd
       if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR') break;
     }
     // ➤ A lock older than the timeout belonged to a job that died. Clear it.
+    // ➤ A lock dated in the FUTURE is abandoned too: a live one is milliseconds
+    // ➤ old, so a future stamp can only be a clock that jumped. Without this it
+    // ➤ is never reaped, and every writer then burns the whole timeout and runs
+    // ➤ unlocked — for ever, and there the writes do succeed.
     try {
       const age = Date.now() - io.statSync(lock).mtimeMs;
-      if (age > timeoutMs) { io.rmdirSync(lock); continue; }
+      if (age > timeoutMs || age < -timeoutMs) { io.rmdirSync(lock); continue; }
     } catch { /* it vanished: try again */ }
-    // ➤ Busy-wait on purpose: this is a synchronous path, the wait is
-    // ➤ milliseconds, and making it async would mean rewriting four callers.
-    const until = Date.now() + 15;
-    while (Date.now() < until) { /* spin */ }
+    sleepSync(15);
   }
   try {
     return fn();

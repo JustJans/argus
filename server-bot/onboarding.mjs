@@ -107,7 +107,7 @@ const QUESTIONS = [
   { key: 'name', kind: 'text',
     prompt: 'Your full name (used to sign cover letters):' },
   { key: 'contact', kind: 'text',
-    prompt: 'Contact line for letters: email, phone, city (comma-separated):' },
+    prompt: 'Contact details: email, phone, city (comma-separated). The city goes in your cover letters; the email and phone are only kept in your profile for you to copy when applying.' },
   { key: 'roles', kind: 'text',
     prompt: 'Job titles you are looking for (comma-separated). e.g. automation engineer, PLC, controls, instrumentation' },
   { key: 'fields', kind: 'text',
