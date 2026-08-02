@@ -1245,8 +1245,10 @@ title_filter:
     - "Tubero"
     - "Tuberos"
     - "Ventas"
-  # ➤ Words that ADD points when evaluating (junior, graduate...) — they
-  # ➤ don't filter, they just score better in the AI evaluations.
+  # ➤ NOT READ BY ANY CODE. This used to say the words "score better in the
+  # ➤ AI evaluations"; nothing reads the key, so editing it changes nothing.
+  # ➤ Kept because the list itself is a useful record of what junior looks
+  # ➤ like — the ordering that DOES happen lives in notify.mjs (offerAffinity).
   seniority_boost:
     - "Graduate"
     - "Junior"
