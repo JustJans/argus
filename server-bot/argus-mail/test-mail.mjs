@@ -621,6 +621,19 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   // ➤ not evidence against the search.
   eq(s.excludingLongshots.rejected, 1, 'the filter is judged without them');
   eq(s.excludingLongshots.interview, 1, 'and keeps the rest');
+
+  // ➤ EVERY STATE MUST BE COUNTED SOMEWHERE. The nightly summary listed five of
+  // ➤ the six and the figures still added up — but only because no application
+  // ➤ had yet passed the 60-day mark, so "ghosted" was always zero. The first
+  // ➤ one to pass it would have vanished from the summary without a word.
+  const oldOne = buildStatus(
+    [{ id: 9, company: 'ACME', title: 'Mooring Engineer', ts: '2026-01-01T09:00:00Z' }],
+    [], { today: new Date('2026-07-25T00:00:00Z') });
+  eq(oldOne[0].state, 'ghosted', 'two months of silence is a state of its own');
+  const withGhost = summarise([...recs, ...oldOne]);
+  const parts = withGhost.bounced + withGhost.interview + withGhost.rejected
+    + withGhost.acknowledged + withGhost.noreply + withGhost.ghosted;
+  eq(parts, withGhost.applications, 'and the six states account for every application');
 }
 
 // ── 5) End to end, through the real pipeline ──────────────────────────────

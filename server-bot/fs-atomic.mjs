@@ -75,7 +75,7 @@ function sleepSync(ms) { Atomics.wait(SLEEP_BUF, 0, 0, ms); }
 
 export const LOCK_TIMEOUT_MS = 5000;
 
-export function withFileLock(path, fn, { timeoutMs = LOCK_TIMEOUT_MS, io = { mkdirSync, rmdirSync, statSync } } = {}) {
+export function withFileLock(path, fn, { timeoutMs = LOCK_TIMEOUT_MS, io = { mkdirSync, rmdirSync, statSync }, log = console.log } = {}) {
   const lock = `${path}.lock`;
   const started = Date.now();
   let held = false;
@@ -103,6 +103,12 @@ export function withFileLock(path, fn, { timeoutMs = LOCK_TIMEOUT_MS, io = { mkd
     } catch { /* it vanished: try again */ }
     sleepSync(15);
   }
+  // ➤ RUNNING UNLOCKED IS WORTH A LINE. Going ahead anyway is the right call —
+  // ➤ see above — but doing it in silence means a data folder that has gone
+  // ➤ read-only, or a lock nobody can clear, degrades every write from every job
+  // ➤ for ever with nothing to show for it. A real hold lasts milliseconds, so
+  // ➤ this line should never appear; if it does, it is the only warning there is.
+  if (!held) log(`[${new Date().toISOString()}] lock on ${path} could not be taken in ${timeoutMs}ms; going ahead without it.`);
   try {
     return fn();
   } finally {

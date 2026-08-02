@@ -178,7 +178,18 @@ async function main() {
   console.log(`  rejected:       ${summary.rejected}`);
   console.log(`  acknowledged:   ${summary.acknowledged}`);
   console.log(`  no reply:       ${summary.noreply}`);
+  // ➤ GHOSTED HAS TO BE ON THIS LIST. It was missing, so the lines added up only
+  // ➤ while no application had yet passed the 60-day mark — and the first one to
+  // ➤ pass it would have gone missing from the summary without a word.
+  console.log(`  ghosted:        ${summary.ghosted}`);
   console.log(`  ambiguous, for you to settle: ${ties.length}`);
+  // ➤ And the arithmetic is checked rather than assumed: a state added in
+  // ➤ status.mjs and forgotten here is exactly how the list above went stale.
+  const counted = summary.bounced + summary.interview + summary.rejected
+    + summary.acknowledged + summary.noreply + summary.ghosted;
+  if (counted !== summary.applications) {
+    console.log(`  ⚠️ the states above cover ${counted} of ${summary.applications} applications — one is missing from this summary.`);
+  }
 }
 
 if (process.argv[1] && /(^|[\\/])listen\.mjs$/.test(process.argv[1])) {

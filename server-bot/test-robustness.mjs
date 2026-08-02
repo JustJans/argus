@@ -210,12 +210,20 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   // ➤ It really refuses when somebody else holds it: a second attempt while the
   // ➤ first is inside must not get in.
   let inner = 'not attempted';
+  const said = [];
   withFileLock(file, () => {
     ok(existsSync(`${file}.lock`), 'while the work runs, the lock exists on disk');
     // ➤ Short timeout so the test does not wait for the real one.
-    withFileLock(file, () => { inner = 'got in'; }, { timeoutMs: 60 });
+    withFileLock(file, () => { inner = 'got in'; }, { timeoutMs: 60, log: m => said.push(m) });
   });
   eq(inner, 'got in', 'a blocked writer waits, then proceeds rather than dropping the work');
+  // ➤ AND IT SAYS SO. Going ahead unlocked is deliberate, but in silence a lock
+  // ➤ nobody can take degrades every write from every job with nothing to show.
+  ok(said.some(m => /without it/.test(m)), 'and it says out loud that it ran unlocked');
+  // ➤ The normal path stays quiet, or the log fills with a warning per write.
+  const quiet = [];
+  withFileLock(file, () => {}, { log: m => quiet.push(m) });
+  eq(quiet.length, 0, 'while a lock taken normally says nothing at all');
 
   // ➤ A lock left behind by a job that was killed must not block the bot for
   // ➤ ever. One older than the timeout is treated as abandoned and cleared —
