@@ -159,35 +159,68 @@ export function wrapUnder(text, indent, width = 72) {
   return lines.length ? lines : [''];
 }
 
+// ➤ The whole report goes out as ONE Telegram message, and Telegram refuses
+// ➤ anything over 4096 characters outright — no message at all, not a short one.
+// ➤ Since titles are no longer cut, the length now depends on what the boards
+// ➤ publish, so the report keeps its own budget. Real ones measure ~1,200.
+export const MAX_REPORT_CHARS = 3000;
+
 // ➤ The same text the Telegram command sends, built here so both the terminal
 // ➤ and the chat say exactly the same thing.
-export function formatReport(store, { limit = 12 } = {}) {
+export function formatReport(store, { limit = 12, budget = MAX_REPORT_CHARS } = {}) {
   const blind = topRecurring(store, { bucket: NO_FIELD, limit });
   const ruled = topRecurring(store, { bucket: RULE, limit: 6 });
   const total = Object.keys(store?.titles || {}).length;
   if (!total) return 'Nothing recorded yet. The record fills up as scans run.';
 
-  // ➤ HOW MANY THERE REALLY ARE. Each section showed its top few and stopped,
-  // ➤ which reads as "that is all": 12 recurring blind spots or 1,625 is not
-  // ➤ the same picture. On its own line — appended, the heading overran.
   const allBlind = topRecurring(store, { bucket: NO_FIELD, limit: Infinity }).length;
   const allRuled = topRecurring(store, { bucket: RULE, limit: Infinity }).length;
-  const rest = (shown, all) => (all > shown ? [`  showing the top ${shown} of ${all}`] : []);
 
-  const out = [`BLIND SPOTS — ${total} distinct titles thrown away, last updated ${store.updated || '?'}`, ''];
   // ➤ Eight characters: two spaces, the three-digit count, its "x" and two more.
   const PAD = ' '.repeat(8);
   const entry = t => wrapUnder(t.title, PAD).map((l, i) =>
     (i === 0 ? `  ${String(t.n).padStart(3)}x  ` : PAD) + l);
+  // ➤ The rule wraps too, and on its own line, so a long title never competes
+  // ➤ with it for the width.
+  const withRule = t => [...entry(t), ...wrapUnder(`— ${ruleOf(t.why)}`, PAD).map(l => PAD + l)];
 
-  out.push('NOT ON YOUR LIST (nothing objected — you just never see these)', ...rest(blind.length, allBlind));
-  if (!blind.length) out.push('  nothing has recurred yet');
-  for (const t of blind) out.push(...entry(t));
+  // ➤ Adds entries while they fit the budget and reports how many actually did,
+  // ➤ so a long title costs you the last row rather than the whole message.
+  // ➤ Measured ESCAPED, because that is what Telegram counts: the command sends
+  // ➤ this inside <pre>, where one "&" in an "R&D Engineer" becomes five.
+  const escapedLength = s => s.length + (s.match(/&/g) || []).length * 4 + (s.match(/[<>]/g) || []).length * 3;
+  let room = budget;
+  const fit = (list, render) => {
+    const lines = [];
+    let shown = 0;
+    for (const t of list) {
+      const block = render(t);
+      const cost = escapedLength(block.join('\n')) + 1;
+      if (cost > room) break;
+      room -= cost;
+      lines.push(...block);
+      shown++;
+    }
+    return { lines, shown };
+  };
+  const blindFit = fit(blind, entry);
+  const ruledFit = fit(ruled, withRule);
+
+  // ➤ WHAT THE SECTION IS NOT SHOWING, and WHY. Three different things, and
+  // ➤ saying the wrong one is a lie: nothing has recurred yet, the top few of
+  // ➤ many, or entries that exist but did not fit the message.
+  const note = (shown, all) => {
+    if (!all) return ['  nothing has recurred yet'];
+    if (!shown) return [`  ${all} to show, but this message is full — see the terminal`];
+    return all > shown ? [`  showing the top ${shown} of ${all}`] : [];
+  };
+
+  const out = [`BLIND SPOTS — ${total} distinct titles thrown away, last updated ${store.updated || '?'}`, ''];
+  out.push('NOT ON YOUR LIST (nothing objected — you just never see these)', ...note(blindFit.shown, allBlind));
+  out.push(...blindFit.lines);
   out.push('');
-  out.push('A RULE OF YOURS FIRED (check none is firing wider than you meant)', ...rest(ruled.length, allRuled));
-  if (!ruled.length) out.push('  nothing has recurred yet');
-  // ➤ The rule alone, on its own line, so a long title never competes with it.
-  for (const t of ruled) out.push(...entry(t), `${PAD}— ${ruleOf(t.why)}`);
+  out.push('A RULE OF YOURS FIRED (check none is firing wider than you meant)', ...note(ruledFit.shown, allRuled));
+  out.push(...ruledFit.lines);
   out.push('');
   out.push('Recurrence is the whole signal: seen once is noise, seen weekly is a gap.');
   return out.join('\n');

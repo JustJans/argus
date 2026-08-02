@@ -1240,6 +1240,34 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
     const big = formatReport({ updated: 'd1', titles: many });
     ok(/showing the top 12 of 39/.test(big), 'blind: the section says how many it is leaving out');
     ok(!/showing the top/.test(report), 'blind: and says nothing when it is showing them all');
+
+    // ➤ THE WHOLE REPORT GOES OUT AS ONE MESSAGE, and Telegram refuses anything
+    // ➤ over 4096 characters outright — no message at all. Now that titles are
+    // ➤ printed whole, the length depends on what the boards publish, so the
+    // ➤ budget is measured ESCAPED: the command sends it inside <pre>, where one
+    // ➤ "&" becomes five characters.
+    const escaped = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    for (const [name, word] of [['long words', 'Palabra '], ['ampersands', 'R&D '], ['angle brackets', '<x> ']]) {
+      const hostile = {};
+      for (let i = 0; i < 12; i++) hostile['b' + i] = { title: word.repeat(80).trim(), bucket: NO_FIELD, n: 40 - i };
+      for (let i = 0; i < 6; i++) hostile['r' + i] = { title: word.repeat(80).trim(), bucket: RULE, n: 20 - i, why: 'the title has the blocked word "Manager"' };
+      const report2 = formatReport({ updated: 'd1', titles: hostile });
+      ok(`<pre>${escaped(report2)}</pre>`.length < 4096, `blind: a report full of ${name} still fits one Telegram message`);
+      // ➤ AND IT SAYS WHY IT IS SHORT. A section whose entries did not fit used
+      // ➤ to print "nothing has recurred yet" next to "showing the top 0 of 6" —
+      // ➤ two answers, one of them false.
+      ok(!/showing the top 0 of/.test(report2), 'blind: a section that fits nothing does not claim to show nothing');
+      if (/this message is full/.test(report2)) {
+        ok(!/nothing has recurred yet/.test(report2), 'blind: and does not call a full message an empty record');
+      }
+    }
+
+    // ➤ And a reason that does not match the "blocked word" shape is wrapped like
+    // ➤ everything else, rather than running off the side of the screen.
+    const oddReason = formatReport({ updated: 'd1', titles: {
+      a: { title: 'Short', bucket: RULE, n: 3, why: 'rejected because ' + 'reason '.repeat(20) },
+    } });
+    ok(oddReason.split('\n').every(l => l.length <= 80), 'blind: an unusual reason wraps too');
   }
 
   const noField = 'the title has no keyword from your field';
