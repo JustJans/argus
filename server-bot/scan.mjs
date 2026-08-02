@@ -1416,6 +1416,35 @@ function loadSeenCompanyRoles() {
 // ➤ Writing results: these functions record the new offers
 // ➤ in the pending list (pipeline.md) and the history.
 
+// ➤ WHO GETS IN, and the reason when they do not. Written once, here, and
+// ➤ exported: this same rule is re-applied weeks later by housekeep, and two
+// ➤ copies of "who gets in" drifting apart is how an offer ends up admitted
+// ➤ and deleted in the same week.
+// ➤ Returns { ok: true } or { ok: false, stage, reason }.
+export function admissionVerdict(job, gates) {
+  const { companyFilter, titleFilter, locationFilter, country, seenUrls, seenRoles } = gates;
+
+  if (!job.url || !isSafeUrl(job.url)) return { ok: false, stage: 'NO LINK', reason: 'the offer had no usable/safe link' };
+  if (!companyFilter(job.company)) return { ok: false, stage: 'COMPANY', reason: `company blocked by you: ${companyFilter.explain(job.company)}` };
+
+  if (!titleFilter(job.title)) {
+    return { ok: false, stage: 'TITLE', reason: titleFilter.explain(job.title), titleDrop: true };
+  }
+
+  // ➤ GEOGRAPHY IS NOT A MATTER OF OPINION. Whatever a title suggests, a job
+  // ➤ in a country you ruled out is not one you can take.
+  if (!locationFilter(job.location)) return { ok: false, stage: 'LOCATION', reason: `location outside your range: ${job.location || '(empty)'}` };
+  // ➤ Also out if the blocked country is named in the TITLE, which is where
+  // ➤ multi-location postings hide it ("... Programme - Qatar").
+  if (locationFilter.blockHit(job.title)) return { ok: false, stage: 'LOCATION', reason: 'the title names a country outside your range' };
+  if (!country.fn(job.location)) return { ok: false, stage: 'COUNTRY', reason: `country turned off by you: ${job.location || ''}` };
+
+  if (seenUrls?.has(normUrl(job.url))) return { ok: false, stage: 'DUPLICATE', reason: 'already seen (same link)' };
+  if (seenRoles?.has(roleKey(job.company, job.title))) return { ok: false, stage: 'DUPLICATE', reason: 'already seen (same company and role)' };
+
+  return { ok: true };
+}
+
 // ➤ A CEILING ON WHAT ONE EMPLOYER CAN ADD IN ONE RUN (audit 2026-07-31).
 // ➤ Workday and Oracle already had one; the other boards took whatever the feed
 // ➤ said. Provoked with a feed answering 20,000 postings: all 20,000 went into
@@ -1733,38 +1762,35 @@ async function main() {
   function admit(job, source) {
     if (!job.url || !isSafeUrl(job.url)) { logDrop('NO LINK', 'the offer had no usable/safe link', job, source); return; }
     // ➤ Company blocked by you (portals.yml blocklist): out, without looking further.
-    if (!companyFilter(job.company)) { fCompany++; logDrop('COMPANY', `company blocked by you: ${companyFilter.explain(job.company)}`, job, source); return; }
-    if (!titleFilter(job.title)) {
-      fTitle++;
-      const why = titleFilter.explain(job.title);
-      // ➜ Recorded ALWAYS, not only under --explain: the point is that these
-      // ➜ drops stop being invisible between manual investigations.
-      // ➜ The bucket is decided by RE-TESTING without the field list, never by
-      // ➜ reading `why`: explain() reports the FIRST reason and positives are
-      // ➜ checked first, so a barman with no field word reads as "not on the
-      // ➜ list" though a rule would have killed it anyway. Measured on a real
-      // ➜ cycle: reading `why` put 1,234 titles in the blind-spot bucket where
-      // ➜ the truth is 345. The reason has the same problem, so for that bucket
-      // ➜ ask the no-fields filter, which names the rule that actually fired.
-      const blind = titleFilterNoFields(job.title);
-      titleDrops.push({
-        title: job.title,
-        why: blind ? why : titleFilterNoFields.explain(job.title),
-        bucket: blind ? 'no-field' : 'rule',
-      });
-      logDrop('TITLE', why, job, source);
+    const v = admissionVerdict(job, { companyFilter, titleFilter, locationFilter, country, seenUrls, seenRoles });
+
+    if (!v.ok) {
+      if (v.stage === 'COMPANY') fCompany++;
+      else if (v.stage === 'TITLE') fTitle++;
+      else if (v.stage === 'LOCATION') fLoc++;
+      else if (v.stage === 'COUNTRY') fCountry++;
+      else if (v.stage === 'DUPLICATE') dupes++;
+
+      // ➤ Recorded ALWAYS, not only under --explain: the point is that these
+      // ➤ drops stop being invisible between manual investigations.
+      // ➤ The bucket is decided by RE-TESTING without the field list, never by
+      // ➤ reading `why`. explain() reports the FIRST reason and positives are
+      // ➤ checked before negatives, so a job with no field word is reported as
+      // ➤ "not on the list" even when a veto would have killed it anyway.
+      if (v.titleDrop) {
+        const blind = titleFilterNoFields(job.title);
+        titleDrops.push({
+          title: job.title,
+          why: blind ? v.reason : titleFilterNoFields.explain(job.title),
+          bucket: blind ? 'no-field' : 'rule',
+        });
+      }
+      logDrop(v.stage, v.reason, job, source);
       return;
     }
-    if (!locationFilter(job.location)) { fLoc++; logDrop('LOCATION', `location outside your range: ${job.location || '(empty)'}`, job, source); return; }
-    // ➤ It's also discarded if the blocked country appears in the title
-    // ➤ (happens in multi-location offers, e.g. "... Programme - Qatar").
-    if (locationFilter.blockHit(job.title)) { fLoc++; logDrop('LOCATION', 'the title names a country outside your range', job, source); return; } // blocked country in the title
-    if (!country.fn(job.location)) { fCountry++; logDrop('COUNTRY', `country turned off by you: ${job.location || ''}`, job, source); return; }
-    if (seenUrls.has(normUrl(job.url))) { dupes++; logDrop('DUPLICATE', 'already seen (same link)', job, source); return; }
-    const key = roleKey(job.company, job.title);
-    if (seenRoles.has(key)) { dupes++; logDrop('DUPLICATE', 'already seen (same company and role)', job, source); return; }
+
     seenUrls.add(normUrl(job.url));
-    seenRoles.add(key);
+    seenRoles.add(roleKey(job.company, job.title));
     newOffers.push({ ...job, source });
   }
 
