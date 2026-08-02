@@ -932,6 +932,32 @@ for (const [name, ok] of COMPANY) {
   check(t('Engineering Manager'), 'a normal keyword still matches inside a longer word', 'Engineering');
 }
 
+// ➤ ── ONE SEAT YOU CAN TAKE IS ENOUGH ────────────────────────────────────
+// ➤ A posting open in several places arrives as ONE string — Teamtailor joins
+// ➤ them with "; " — and read whole it was vetoed outright, because the block
+// ➤ list saw the foreign half. The job in the allowed city was real.
+{
+  const loc = buildLocationFilter({ allow: ['España', 'Netherlands'], block: ['Dubai', 'Qatar'] });
+  check(loc('Barcelona, España; Dubai, AE'), 'a job with one seat in your range survives the other', 'BCN; Dubai');
+  check(loc('Dubai, AE; Barcelona, España'), 'and the order does not matter', 'Dubai; BCN');
+  check(!loc('Dubai, AE; Doha, Qatar'), 'while one with no seat in your range still goes', 'Dubai; Doha');
+  check(!loc('Dubai, AE'), 'a single blocked place is unaffected', 'Dubai');
+  check(loc('Rotterdam, Netherlands'), 'and so is a single allowed one', 'Rotterdam');
+}
+
+// ➤ ── AN AGGREGATOR IS NOT AN EMPLOYER ───────────────────────────────────
+// ➤ Adzuna hides the advertiser on plenty of ads and the parser wrote its own
+// ➤ name into the field, so every anonymous "Offshore Engineer" in the country
+// ➤ shared one company+role key and the second was discarded as a repost.
+{
+  check(roleKey('Adzuna', 'Offshore Engineer') === '', 'an unnamed advertiser yields no role key', 'Adzuna');
+  check(roleKey('', 'Offshore Engineer') === '', 'and neither does an empty company', '(empty)');
+  check(roleKey('Van Oord', 'Offshore Engineer') === roleKey('Van Oord', 'Offshore Engineer'),
+    'a real employer still keys the same both times', 'Van Oord');
+  check(roleKey('Van Oord', 'Offshore Engineer') !== roleKey('Boskalis', 'Offshore Engineer'),
+    'and two employers with one title are two roles', 'two employers');
+}
+
 // ➤ ── A WAY OF WORKING IS NOT A PLACE ────────────────────────────────────
 // ➤ "Hybrid" sat in the list of allowed PLACES, so "Nationwide, Hybrid, US"
 // ➤ cleared the geography gate on the strength of that one word — and hybrid

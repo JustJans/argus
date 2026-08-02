@@ -771,6 +771,23 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   // ➤ postings straight into the pending list.
   ok(/jobs = capJobs\(jobs, [^)]+\);/.test(scan), 'the scan actually applies the per-board ceiling');
 
+  // ➤ A BOARD THAT STOPS HALFWAY MUST BE REPORTED. Measured against a real
+  // ➤ Workday tenant: when only page 1 of 42 answered and the rest returned
+  // ➤ 503, the run printed 20 offers of 840, no Errors section, and a summary
+  // ➤ identical to a quiet day — while the SAME failure on page 1 was reported.
+  // ➤ Read as text: the bug is a missing call, and no fixture can miss it.
+  ok(/collectWorkday\(c\._api, c\.name, workdayTerms, partial\)/.test(scan),
+    'the scan asks Workday to report a board it could only read part of');
+  ok(/collectOracle\(c\._api, c\.name, partial\)/.test(scan), 'and asks Oracle the same');
+  ok(/if \(answered\) cutShort = true;/.test(scan), 'a page that fails after one worked is a truncated read');
+  ok(/if \(cutShort\) onPartial\(/.test(scan), 'and that is handed back, not swallowed');
+  ok(/only part of the board was read/.test(scan), 'which reaches the run summary as an error');
+
+  ok(/detached: true/.test(li) && /child\.unref\(\)/.test(li),
+    'the listener starts the cover letter detached and lets go of it');
+  ok(!/await makeCoverLetter/.test(li), 'and does not wait for the letter itself');
+  ok(/--offer/.test(li), 'handing the offer number to the program that does the work');
+
   // ➤ Greenhouse withholds the advert text unless the URL asks for it, so the
   // ➤ years and degree screens would run against an empty body.
   ok(/greenhouseUrlWithContent\(c\._api\.url\)/.test(scan), 'the scan actually asks Greenhouse for the advert text');

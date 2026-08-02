@@ -392,7 +392,13 @@ async function fetchJsonRetry(url, opts = {}, tries = 3) {
 // ➤ Collects a company's offers on Workday: it searches each configured
 // ➤ keyword, pages through the results, and saves each
 // ➤ offer only once even if it appears in several searches.
-async function collectWorkday(api, name, searchTerms) {
+// ➤ `onPartial` is how a board that answered and then STOPPED gets reported.
+// ➤ Without it the run said nothing: measured against a real tenant, when only
+// ➤ the first of 42 pages came back and the other 41 answered 503, the scan
+// ➤ printed 20 offers of 840, no Errors section, and a summary identical to a
+// ➤ quiet day. The same 503 on the FIRST page was reported — so the portal
+// ➤ failing was visible or invisible depending on when it failed.
+async function collectWorkday(api, name, searchTerms, onPartial = () => {}) {
   const terms = searchTerms.length ? searchTerms : [''];
   const byUrl = new Map();
   // ➤ DID THIS BOARD ANSWER AT ALL? (audit 2026-07-31) Every request error used
@@ -400,7 +406,7 @@ async function collectWorkday(api, name, searchTerms) {
   // ➤ reached looked exactly like one with no matching jobs. Measured with the
   // ➤ network cut: nine boards reported as scanned, five errors, and seven
   // ➤ failures invisible — the run read as an ordinary quiet one.
-  let answered = false, lastError = null;
+  let answered = false, lastError = null, cutShort = false;
   for (const term of terms) {
     for (let offset = 0; offset < WORKDAY_MAX_PER_TERM; offset += WORKDAY_PAGE) {
       let json;
@@ -413,6 +419,10 @@ async function collectWorkday(api, name, searchTerms) {
         answered = true;
       } catch (err) {
         lastError = err;
+        // ➤ Failing here, with pages already read, is a TRUNCATED board — not an
+        // ➤ employer with nothing to offer. There are no retries on this path
+        // ➤ (fetchJson, not fetchJsonRetry), so one 429 ends the term.
+        if (answered) cutShort = true;
         break; // move to next term on error
       }
       const jobs = parseWorkday(json, name, api.meta);
@@ -423,6 +433,7 @@ async function collectWorkday(api, name, searchTerms) {
   // ➤ One good answer is enough: a board really can have nothing today. Not a
   // ➤ single one is a failure, and the caller records it like any other.
   if (!answered) throw lastError || new Error('no response from the board');
+  if (cutShort) onPartial(lastError, byUrl.size);
   return [...byUrl.values()];
 }
 
@@ -492,10 +503,12 @@ async function collectSitemap(api, name, titleFilter, log = console.log) {
 
 // ➤ Collects a company's offers on Oracle: it requests the most recent ones
 // ➤ first, page by page, up to the cap of 150 offers.
-async function collectOracle(api, name) {
+// ➤ onPartial: same as Workday above — a board that answered and then stopped
+// ➤ is a truncated read, and the run has to say so.
+async function collectOracle(api, name, onPartial = () => {}) {
   const { host, site } = api.meta;
   const byUrl = new Map();
-  let answered = false, lastError = null;
+  let answered = false, lastError = null, cutShort = false;
   for (let offset = 0; offset < ORACLE_MAX; offset += ORACLE_PAGE) {
     const url = `https://${host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions`
       + `?onlyData=true&expand=requisitionList`
@@ -503,7 +516,8 @@ async function collectOracle(api, name) {
     let json;
     // ➤ Same as Workday above (audit 2026-07-31): a board that never answered is
     // ➤ a failure to report, not an employer with nothing on offer.
-    try { json = await fetchJson(url); answered = true; } catch (err) { lastError = err; break; }
+    try { json = await fetchJson(url); answered = true; }
+    catch (err) { lastError = err; if (answered) cutShort = true; break; }
     const jobs = parseOracle(json, name, api.meta);
     if (jobs.length === 0) break;
     for (const j of jobs) if (j.url) byUrl.set(j.url, j);
@@ -511,6 +525,7 @@ async function collectOracle(api, name) {
     if (offset + ORACLE_PAGE >= total) break;
   }
   if (!answered) throw lastError || new Error('no response from the board');
+  if (cutShort) onPartial(lastError, byUrl.size);
   return [...byUrl.values()];
 }
 
@@ -1246,12 +1261,21 @@ export function buildLocationFilter(lf) {
   if (!lf) return Object.assign(() => true, { blockHit: () => false });
   const allow = (lf.allow || []).map(norm);
   const blockHit = buildBlockMatcher(lf.block);
+  // ➤ ONE SEAT YOU CAN TAKE IS ENOUGH. A posting open in several places arrives
+  // ➤ as one string ("Barcelona, ES; Dubai, AE" — Teamtailor joins them), and
+  // ➤ read whole it was VETOED, because the block list saw Dubai. The job in
+  // ➤ Barcelona was real and you never saw it. Each place is judged on its own
+  // ➤ and the offer survives if any one of them passes.
+  const one = (place) => {
+    if (blockHit(place)) return false;
+    if (allow.length === 0) return true;
+    const lower = norm(place);
+    return allow.some(k => lower.includes(k));
+  };
   const fn = (loc) => {
     if (!loc) return true;
-    if (blockHit(loc)) return false;
-    if (allow.length === 0) return true;
-    const lower = norm(loc);
-    return allow.some(k => lower.includes(k));
+    const places = String(loc).split(';').map(x => x.trim()).filter(Boolean);
+    return places.length ? places.some(one) : one(String(loc));
   };
   // ➤ The blocked-country detector is exposed separately so it can also be
   // ➤ applied to the TITLE: multi-location Workday jobs say "2 Locations" and
@@ -1342,6 +1366,13 @@ function loadSeenUrls() {
 // ➤ re-posts the same job with a different link. A mutation that stopped it
 // ➤ normalising the en dash — the exact case that made one employer's role
 // ➤ appear twice — passed every test in the project.
+// ➤ Names that are NOT an employer. Adzuna hides the advertiser on plenty of
+// ➤ ads, and the parser used to write its own name into the field — so every
+// ➤ anonymous "Offshore Engineer" in the country shared one key and the second
+// ➤ one was thrown away as a repost of the first. No key means no role barrier;
+// ➤ the link barrier still catches a genuine duplicate.
+const NOT_AN_EMPLOYER = new Set(['', 'adzuna']);
+
 export function roleKey(company, title) {
   // ➤ Also (Lonza case #595/#602, 2026-07-18): German portals
   // ➤ re-post the SAME role with gender tags "(m/w/d)"/"(All
@@ -1353,7 +1384,9 @@ export function roleKey(company, title) {
     .replace(/\(\s*(?:(?:m|w|f|d|x|h|v)(?:\s*[/|,.]?\s*(?:m|w|f|d|x|h|v))+|all\s*genders?|gn)\s*\)/gi, ' ')
     .replace(/\b\d{2,3}\s*[-–]\s*\d{2,3}\s*%|\b\d{2,3}\s*%/g, ' ')
     .replace(/[–—]/g, '-').replace(/\s+/g, ' ').replace(/[\s,.;:-]+$/, '').trim();
-  return `${norm(company)}::${norm(title)}`;
+  const who = norm(company);
+  if (NOT_AN_EMPLOYER.has(who)) return '';
+  return `${who}::${norm(title)}`;
 }
 
 // ➤ Loads the company+title pairs that must BLOCK repeats.
@@ -1802,10 +1835,16 @@ async function main() {
   const tasks = targets.map(c => async () => {
     try {
       let jobs;
+      // ➤ A board that stops halfway is recorded like any other failure, so the
+      // ➤ summary can never read as a quiet day when 41 of 42 pages went unread.
+      const partial = (err, got) => errors.push({
+        company: c.name,
+        error: `only part of the board was read (${got} offers before it stopped): ${err?.message || 'unknown'}`,
+      });
       if (c._api.type === 'workday') {
-        jobs = await collectWorkday(c._api, c.name, workdayTerms);
+        jobs = await collectWorkday(c._api, c.name, workdayTerms, partial);
       } else if (c._api.type === 'oracle') {
-        jobs = await collectOracle(c._api, c.name);
+        jobs = await collectOracle(c._api, c.name, partial);
       } else if (c._api.type === 'sitemap') {
         jobs = await collectSitemap(c._api, c.name, titleFilter);
       } else {

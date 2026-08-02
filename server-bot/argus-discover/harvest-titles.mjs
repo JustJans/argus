@@ -41,7 +41,10 @@ async function askAdzuna(creds, country, term, perPage) {
     results_per_page: String(perPage), max_days_old: '30',
     what: term, 'content-type': 'application/json',
   });
-  const res = await fetch(`https://api.adzuna.com/v1/api/jobs/${country}/search/1?${params}`);
+  // ➤ Bounded, like every other request here: this runs one query per skill in
+  // ➤ a loop, so a stalled connection would hang the whole harvest on the first.
+  const res = await fetch(`https://api.adzuna.com/v1/api/jobs/${country}/search/1?${params}`,
+    { signal: AbortSignal.timeout(20_000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json();
   return (json.results || []).map(r => String(r.title || '').trim()).filter(Boolean);
