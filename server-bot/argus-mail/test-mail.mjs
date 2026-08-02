@@ -232,6 +232,52 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
     'We would like to invite you for an interview on Monday. --- To stop receiving these emails, unsubscribe here.'),
     'interview', 'an "unsubscribe" footer does not turn a real invitation into a mailshot');
 
+  // ➤ ── THREE THINGS TODAY'S OWN FIXES BROKE (audit 2026-08-01) ────────────
+  // ➤ Every one of these worked before this morning. They are here because a
+  // ➤ fix that quietly breaks something is worse than the bug it fixed, and
+  // ➤ because the suite passed on all three.
+
+  // ➤ 1. A SPANISH REFUSAL IS NOT ADVERTISING. Moving the mailshot test to the
+  // ➤ front put "hemos encontrado" — with no number after it, unlike its
+  // ➤ English twin "we found 3" — ahead of the refusal test. "Lamentamos
+  // ➤ comunicarte que hemos encontrado otro candidato" was filed as a mailshot,
+  // ➤ dropped before it could be linked, and the application sat on "no reply"
+  // ➤ until it was given up for lost sixty days later.
+  eq(c('Sobre tu candidatura', 'Lamentamos comunicarte que hemos encontrado otro candidato cuyo perfil se ajusta mejor al puesto.'),
+    'rejected', 'a Spanish refusal opening "hemos encontrado otro candidato" is a refusal');
+  eq(c('Nuevas ofertas de empleo', 'Hemos encontrado 12 ofertas para ti. Postula ya.'),
+    'alert', 'and the mailshot it was confused with is still a mailshot');
+  // ➤ A call to action and an unsubscribe line are NOT enough on their own:
+  // ➤ genuine company mail carries them too, which is why they are left out of
+  // ➤ the early test and only count in the fallback at the end.
+  eq(c('Your application', 'Unfortunately we will not be proceeding. Apply now for other roles, or unsubscribe here.'),
+    'rejected', 'a refusal that ends with a call to action is still a refusal');
+
+  // ➤ 2. A CONDITION ABOUT YOUR DIARY IS NOT A MAYBE. Widening the conditional
+  // ➤ list to cover "if YOU are selected" also swept in "a match" and "the
+  // ➤ right fit", which describe the OFFER suiting you — ordinary polite
+  // ➤ invitation wording. The invitation then classified as nothing at all.
+  eq(c('Your application', 'If this is the right fit for you, we would like to invite you for an interview on Thursday.'),
+    'interview', 'an invitation conditioned on YOUR preference is still an invitation');
+  eq(c('Your application', 'If Thursday is a match for you, we would like to invite you for an interview.'),
+    'interview', 'and one conditioned on YOUR diary');
+  // ➤ While the sentence the widening was for stays a maybe.
+  eq(c('Thanks for applying', 'Thank you for your application. If you are selected we will invite you for an interview.'),
+    'acknowledged', 'the company still choosing is still a maybe');
+
+  // ➤ 3. THE COMMONEST COURSE MAILSHOT CAME BACK. Making the advice guard
+  // ➤ whole-word kept only the plural "cursos", so "curso online" — the usual
+  // ➤ shape of the thing — stopped being recognised and a course advert was
+  // ➤ reported as an interview.
+  eq(c('Curso online de entrevistas', 'Nuestro curso online te prepara para una entrevista de trabajo.'),
+    null, 'a singular "curso" mailshot is not an interview');
+  eq(c('Interview help', 'Read our blogs. Our workshop will invite you for an interview rehearsal.'),
+    null, 'and neither is a blog round-up, plural included');
+  // ➤ And the Spanish that forced whole words in the first place still passes:
+  // ➤ "en curso" means under way, and comes BEFORE the word.
+  eq(c('Proceso', 'Su proceso está en curso. Nos gustaría invitarle a una entrevista la semana que viene.'),
+    'interview', '"en curso" (under way) still does not cancel an invitation');
+
   // ➤ ── REAL INVITATIONS ──────────────────────────────────────────────────
   // ➤ Not invented. These are the shapes the only genuine interview process in
   // ➤ this mailbox actually took, and they are here because the morning was
@@ -808,6 +854,38 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
     ok(typeof out === 'string' && out.includes('No applications on record'),
       `a malformed status file is answered, not thrown at: ${JSON.stringify(junk)}`);
   }
+}
+
+// ── 7b) A tie has to be answerable, or it is not worth reporting ─────────
+// ➤ The rule that produces ties says "the message is shown and you say which
+// ➤ one it was". Nothing was shown: only the COUNT reached the report, so it
+// ➤ said "1 email fit more than one application" and named no employer, no
+// ➤ kind and no application. Today's tie rule made that outcome commoner, so
+// ➤ the promise had to be kept (audit 2026-08-01).
+{
+  const twoAtOne = [
+    { id: 664, company: 'ACME', title: 'Mooring Engineer', state: 'noreply', ts: '2026-07-01T09:00:00Z' },
+    { id: 665, company: 'ACME', title: 'Survey Engineer', state: 'noreply', ts: '2026-07-01T09:30:00Z' },
+  ];
+  const txt = formatStatus({ applications: twoAtOne,
+    unlinked: { ambiguous: 1, unrelated: 0, cases: [{ kind: 'interview', ids: [664, 665] }] } });
+  ok(/fit more than one application/.test(txt), 'the count is still reported');
+  ok(/#664 or #665/.test(txt), 'and the applications it is torn between are named');
+  ok(/an interview/.test(txt), 'and what kind of message it was — an unassigned interview is the costly one');
+
+  // ➤ A refusal reads differently, because "no N" can settle it.
+  const rej = formatStatus({ applications: twoAtOne,
+    unlinked: { ambiguous: 1, unrelated: 0, cases: [{ kind: 'rejected', ids: [664, 665] }] } });
+  ok(/a refusal that fits #664 or #665/.test(rej), 'a tied refusal says so');
+
+  // ➤ An old status file written before this existed has no cases; it must
+  // ➤ still print, not throw.
+  const legacy = formatStatus({ applications: twoAtOne, unlinked: { ambiguous: 2, unrelated: 0 } });
+  ok(/fit more than one application/.test(legacy), 'a status file from before this change still reports');
+
+  // ➤ And with nothing tied, nothing is said about ties at all.
+  ok(!/fit more than one/.test(formatStatus({ applications: twoAtOne, unlinked: { ambiguous: 0, unrelated: 3 } })),
+     'no ties, no line');
 }
 
 // ── 8) No application may fall between the states ───────────────────────

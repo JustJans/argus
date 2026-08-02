@@ -147,7 +147,20 @@ async function main() {
     // ➤ yours is somebody else's business and there is no reason to keep it.
     // ➤ A tie is worth knowing about (you can settle it); an orphan inside
     // ➤ this window is simply mail that is not about your job search.
-    unlinked: { ambiguous: ties.length, unrelated: orphans.length },
+    unlinked: {
+      ambiguous: ties.length,
+      unrelated: orphans.length,
+      // ➤ WHAT the tie was about (audit 2026-08-01). Only the count used to
+      // ➤ survive, so the report could say "1 email fit more than one
+      // ➤ application" and nothing else — not the employer, not whether it was
+      // ➤ a refusal or an invitation, not which applications were tangled. That
+      // ➤ is not something anybody can act on, and the rule that produces ties
+      // ➤ promises you can. Ids and kind only: no subject, no sender, no text.
+      cases: ties.map(t => ({
+        kind: t.message?.kind || 'unknown',
+        ids: (t.candidates || []).map(c => c.application?.id).filter(id => id != null),
+      })).filter(x => x.ids.length),
+    },
     applications: records,
   };
 

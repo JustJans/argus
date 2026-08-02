@@ -107,6 +107,16 @@ export function formatStatus(status) {
   if (status.unlinked?.ambiguous) {
     out.push('');
     out.push(`<i>${status.unlinked.ambiguous} email(s) fit more than one application and were left unassigned.</i>`);
+    // ➤ NAME THEM (audit 2026-08-01). A bare count is not something you can
+    // ➤ act on: it does not say which applications are tangled, nor whether
+    // ➤ the message was a refusal or an invitation — and an invitation left
+    // ➤ unassigned is the most expensive thing this whole module handles.
+    // ➤ With the numbers in front of you, "no N" settles a refusal and you
+    // ➤ know to go and read the mail yourself when it is an invitation.
+    for (const t of (status.unlinked.cases || []).slice(0, 5)) {
+      const label = { interview: 'an interview', rejected: 'a refusal', acknowledged: 'a receipt', bounced: 'a bounce' }[t.kind] || 'a message';
+      out.push(`<i>  · ${label} that fits ${t.ids.map(i => '#' + i).join(' or ')}</i>`);
+    }
   }
   return out.join('\n');
 }

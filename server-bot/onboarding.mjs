@@ -363,7 +363,13 @@ async function finish(s) {
   saveAnswers(s.answers);
   writeProfile(s.answers);
   clearState();
-  await sendTelegram('Setup complete. Your profile is saved. Type "search" to find offers, or "settings" to edit anything.');
+  // ➤ If neither the job titles nor the fields gave us anything, the profile
+  // ➤ cannot filter and the list will stay empty. Say so now, while the user is
+  // ➤ still here, instead of leaving them to wonder for a week.
+  const usable = splitList(s.answers.roles).length || splitList(s.answers.fields).length;
+  await sendTelegram(usable
+    ? 'Setup complete. Your profile is saved. Type "search" to find offers, or "settings" to edit anything.'
+    : 'Setup saved, but it has nothing to search for: neither the job titles nor the fields question got a usable answer, so every offer would be rejected. Type "settings" and fill in one of them.');
 }
 
 // ── Writing the profile (config/profile.yml) ───────────────────────────────
@@ -408,9 +414,21 @@ export function buildProfileYaml(a) {
   // ➤ what a blank answer means. So when there is nothing usable the key is
   // ➤ left out of the file altogether and the rules already in force stay.
   const roles = splitList(a.roles);
+  // ➤ WHAT TO SEARCH FOR, WHEN THE ROLES ANSWER GAVE US NOTHING USABLE
+  // ➤ (audit 2026-08-01). A punctuation-only answer reduces to an empty list,
+  // ➤ and neither obvious option is right: writing [] tells the scanner no
+  // ➤ keyword is required, so every title in the world passes; leaving the key
+  // ➤ out makes it fall back to portals.yml, whose list is the shipped MARINE
+  // ➤ example — so an accountant's bot would ask the boards for accounting jobs
+  // ➤ and then reject every one of them for having "no keyword from your
+  // ➤ field", for ever, without a word.
+  // ➤ The fields answered two questions later ARE the user's own, so they are
+  // ➤ what the filter falls back to. A worse filter than a proper list of
+  // ➤ titles, but about the right line of work, which is the part that matters.
   // ➤ Fields become regexes downstream, so each typed word is escaped to match
   // ➤ literally (roles do NOT need it — scan.mjs escapes title terms itself).
   const fields = splitList(a.fields).map(reEscape);
+  const titleTerms = roles.length ? roles : splitList(a.fields);
   const langs = a.languages || [];
   const blocked = Object.entries(LANG_BLOCK)
     .filter(([code]) => !langs.includes(code))
@@ -452,7 +470,7 @@ search:
 
   home_city: ${quote(homeCity)}
   countries:${countries.length ? countries.map(c => `\n    - { name: ${c.name}, label: ${c.label}${c.adzuna ? `, adzuna: ${c.adzuna}` : ''} }`).join('') : ' []'}
-${roles.length ? `\n  positive_titles:${yamlList(roles)}` : '\n  # positive_titles: not written — the setup was given no usable job titles,\n  # and an empty list here would switch the title filter off completely.'}
+${titleTerms.length ? `\n  positive_titles:${yamlList(titleTerms)}${roles.length ? '' : '\n  # (taken from your fields: the job-titles question was left unanswered)'}` : '\n  # positive_titles: THE SETUP HAS NOTHING TO SEARCH FOR. Answer the job-titles\n  # question with `settings` — until then every offer will be rejected.'}
   negative_titles:${yamlList(negatives)}
 
   fields:${yamlList(fields)}

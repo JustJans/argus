@@ -553,6 +553,38 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ok(p.positive_titles.length > 0 && p.max_years === 2, 'the rest of the profile is still complete');
 }
 
+// ── 8b) A setup with no job titles must not inherit the example's ────────
+// ➤ A punctuation-only answer to "what job titles are you looking for" reduces
+// ➤ to an empty list. Writing [] tells the scanner no keyword is required, so
+// ➤ every title in the world passes; leaving the key out makes it fall back to
+// ➤ portals.yml — the shipped MARINE example. An accountant's bot would then
+// ➤ ask the boards for accounting jobs and reject every one of them for having
+// ➤ "no keyword from your field", for ever and without a word (audit
+// ➤ 2026-08-01). Her own FIELDS are hers, so that is the fallback.
+{
+  const accountant = {
+    name: 'Jane Doe', contact: 'jane@x.com, Berlin',
+    fields: 'accounting, finance, audit', level: 'junior', max_years: '2',
+    languages: ['en'], degrees_excluded: [], countries: ['Germany'], vetoes: [],
+  };
+  const blank = yaml.load(buildProfileYaml({ ...accountant, roles: ',,' })).search;
+  eq(blank.positive_titles, ['accounting', 'finance', 'audit'],
+     `with no usable job titles, the filter falls back to the user's OWN fields`);
+  ok(!/mooring|offshore|orcaflex/i.test(JSON.stringify(blank)),
+     'and never to the shipped marine example');
+
+  // ➤ A normal answer is untouched.
+  const normal = yaml.load(buildProfileYaml({ ...accountant, roles: 'accountant, controller' })).search;
+  eq(normal.positive_titles, ['accountant', 'controller'], 'a real answer is used as given');
+
+  // ➤ Nothing at all: the key stays out, because there is genuinely nothing to
+  // ➤ search for — and the flow says so on screen rather than pretending.
+  const nothing = yaml.load(buildProfileYaml({ ...accountant, roles: ',,', fields: '' })).search;
+  eq(nothing.positive_titles, undefined, 'with neither titles nor fields the key is left out');
+  const ob = readFileSync(join(SELF_DIR, 'onboarding.mjs'), 'utf-8');
+  ok(/nothing to search for/.test(ob), 'and the setup tells the user so when it finishes');
+}
+
 // ── 9) A profile WITHOUT the new keys must behave exactly as before ───────
 // ➤ The owner's own profile does not define them, so the engine must fall back
 // ➤ to portals.yml and change nothing for them.

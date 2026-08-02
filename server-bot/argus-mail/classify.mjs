@@ -72,7 +72,13 @@ export const INTERVIEW = /\binterview\b|entrevista|\bgesprek\b|vorstellungsgespr
 // ➤ had decided to make. What makes the sentence a maybe is the word
 // ➤ "selected / shortlisted / successful", not the person it is hung on, so a
 // ➤ few words are now allowed in between.
-const PICKED = '(selected|shortlisted|successful|chosen|a match|the right fit)';
+// ➤ BUT ONLY THOSE WORDS (audit 2026-08-01). "a match" and "the right fit" were
+// ➤ added alongside them and had to come straight back out: they describe the
+// ➤ OFFER suiting YOU, not the company choosing. "If this is the right fit for
+// ➤ you, we would like to invite you for an interview" is an invitation, and
+// ➤ with those two in the list it was thrown away entirely — which is the very
+// ➤ mistake the paragraph above warns against.
+const PICKED = '(selected|shortlisted|successful|chosen)';
 export const CONDITIONAL = new RegExp([
   '\\bwhether\\b', 'in case',
   // ➤ "if we ... / if your application ... / if you are selected ..."
@@ -120,7 +126,7 @@ export function saidOutright(pattern, text) {
 // ➤ make, so anything with the power to cancel one has to match exactly.
 // ➤ Bare "curso" is gone for good — on its own it is ordinary Spanish for
 // ➤ "under way". Only the plural and "curso de" mean a training course.
-export const ADVICE = /\btips\b|\bhow to\b|\bguides?\b|\bprepare for\b|\bconsejos\b|\bcursos\b|\bcurso de\b|\bwebinars?\b|\bblog\b|\barticles?\b|\bnewsletters?\b/;
+export const ADVICE = /\btips\b|\bhow to\b|\bguides?\b|\bprepare for\b|\bconsejos\b|(?<!\ben )\bcursos?\b|\bwebinars?\b|\bblogs?\b|\barticles?\b|\bnewsletters?\b/;
 
 // ➤ The automated receipt. Almost every ATS sends one, which is why it is by
 // ➤ far the most common outcome in the mailbox.
@@ -157,6 +163,21 @@ export const BOUNCED = /undelivered mail returned|delivery status notification \
 // ➤ Mailshots about jobs you have NOT applied to. They mention roles and
 // ➤ companies constantly, so without this they poison everything downstream.
 export const ALERT = /job alert|new jobs|jobs for you|recommended for you|nuevas ofertas|ofertas para ti|empleos recomendados|vacatures voor jou|nieuwe vacatures|neue jobs|job digest|we found \d|hemos encontrado|apply now|postula ya|solliciteer nu|unsubscribe|darse de baja/;
+
+// ➤ The part of the list above that can ONLY be a mailshot — wording no company
+// ➤ uses when writing to one person about one application. This is the set the
+// ➤ early test uses, and the distinction is not academic: moving the whole list
+// ➤ to the front threw away real replies (audit 2026-08-01). A Spanish refusal
+// ➤ opens "lamentamos comunicarte que HEMOS ENCONTRADO otro candidato", and that
+// ➤ phrase was in the list with no number after it, unlike its English twin
+// ➤ "we found 3". The rejection was filed as advertising, dropped before it
+// ➤ could be linked, and the application sat on "no reply" until it was given
+// ➤ up for lost sixty days later.
+// ➤ The calls to action and "unsubscribe" are left OUT of this set for the same
+// ➤ reason: a genuine company mail can carry them too. They still count in the
+// ➤ full test at the end of the function, where a message has already failed to
+// ➤ be anything else.
+export const ALERT_DECLARED = /job alert|new jobs|jobs for you|recommended for you|nuevas ofertas|ofertas para ti|empleos recomendados|vacatures voor jou|nieuwe vacatures|neue jobs|job digest|we found \d|hemos encontrado \d/;
 
 // ➤ Returns one of: 'bounced' | 'rejected' | 'interview' | 'acknowledged' | 'alert' | null.
 // ➤ null means "this is not about an application", and it is the honest answer
@@ -197,7 +218,7 @@ export function classifyMessage({ subject = '', snippet = '', body = '', from = 
   // ➤ footer of nearly every company mail ever sent, so running this over the
   // ➤ whole text would throw away genuine replies — the same mistake pointing
   // ➤ the other way.
-  if (ALERT.test(opening)) return 'alert';
+  if (ALERT_DECLARED.test(opening)) return 'alert';
 
   if (saidOutright(REJECTED, text)) return 'rejected';
   if (saidOutright(INTERVIEW, text) && !ADVICE.test(opening)) return 'interview';
