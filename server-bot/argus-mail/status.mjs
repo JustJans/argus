@@ -1,47 +1,40 @@
 #!/usr/bin/env node
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ WHAT IT IS: the state of every application you have sent. It turns the
-// ➤ linked emails into one answer per offer: they replied, they said no, they
-// ➤ want to talk, or nobody ever wrote back.
+// ➤ One answer per application, built from its linked emails: they replied,
+// ➤ they said no, they want to talk, or nobody ever wrote back.
 // ➤
-// ➤ THE STATE THAT MATTERS MOST IS SILENCE. In the real mailbox there were 35
-// ➤ acknowledgements and 5 rejections: companies almost never tell you no,
-// ➤ they just stop. So "no reply after a while" is not missing data, it IS the
-// ➤ outcome, and it has to be counted as one or the record flatters itself.
+// ➤ SILENCE IS THE STATE THAT MATTERS. The real mailbox held 35 receipts and
+// ➤ 5 rejections: companies stop writing instead of saying no. So "no reply
+// ➤ after a while" is not missing data, it IS the outcome, and counting it as
+// ➤ one is what keeps the record from flattering itself.
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
-// ➤ THERE IS NO GRACE PERIOD, AND THAT IS DELIBERATE. There used to be one: an
-// ➤ application younger than three days was held in a state of its own instead
-// ➤ of counting as unanswered. It bought nothing. Measured on the real mailbox,
-// ➤ every automated receipt arrived within the same HOUR of applying — so an
-// ➤ application with no receipt is already saying something on day zero, and
-// ➤ the number of days sits next to it in the report anyway. A reader can see
-// ➤ that one is a day old; they could not see what a fifth colour meant.
+// ➤ NO GRACE PERIOD, DELIBERATELY. An application younger than three days used
+// ➤ to be held in a state of its own. It bought nothing: every automated
+// ➤ receipt in the real mailbox arrived within the same HOUR of applying, so
+// ➤ an application with no receipt is already saying something on day zero.
+// ➤ The age sits next to it in the report anyway, and a reader understands
+// ➤ "one day old" where they could not read a fifth colour.
 
-// ➤ WHEN WAITING BECOMES AN ANSWER. Two months of nothing is a no that nobody
+// ➤ WHEN WAITING BECOMES AN ANSWER: two months of nothing is a no that nobody
 // ➤ bothered to write. Counted from the LAST thing that happened, not from the
-// ➤ day you applied: an employer who acknowledged you in July and went quiet
-// ➤ has been quiet since July, not since the application.
-// ➤ An interview is never ghosted — that conversation is worth chasing, and
-// ➤ calling it dead on a calendar would be the bot deciding for you.
+// ➤ day you applied — an employer who acknowledged you in July and went quiet
+// ➤ has been quiet since July. An interview is never ghosted: that conversation
+// ➤ is worth chasing, and calling it dead on a calendar would be the bot
+// ➤ deciding for you.
 export const GHOSTED_AFTER_DAYS = 60;
 
 // ➤ Ordered by how far the application got. A rejection is terminal wherever
 // ➤ it arrives, so it is not on this ladder.
 const RANK = { acknowledged: 1, interview: 2 };
 
-// ➤ Builds one record per application:
-// ➤   state    bounced | rejected | interview | acknowledged | noreply
-// ➤   reached  everything that ever happened, in order — a rejection after an
-// ➤            interview is a very different story from a form rejection, and
-// ➤            one word cannot hold both
 // ➤ WHAT YOU KNOW BEATS WHAT THE INBOX SAYS. Some employers never write: they
 // ➤ post the verdict on their own portal, or their address bounces and they
 // ➤ never notice. Nothing arrives, so nothing can be read, and the application
 // ➤ sits under "no reply" for ever although you already know how it ended.
-// ➤ `no N` records that, and this is where it wins: the nightly run rebuilds
-// ➤ everything from mail, so without an override it would erase your answer
-// ➤ every midnight. Shape: { id, state, reason, ts }, newest wins.
+// ➤ `no N` records that, and it has to be replayed here because the nightly
+// ➤ run rebuilds everything from mail and would otherwise erase your answer
+// ➤ every midnight. Verdicts are { id, state, reason, ts }; newest wins.
 export function applyVerdicts(records, verdicts) {
   if (!verdicts?.length) return records;
   const latest = new Map();
@@ -58,15 +51,14 @@ export function applyVerdicts(records, verdicts) {
   });
 }
 
-// ➤ THE ANSWER FOR EVERY APPLICATION, one record each, built from the messages
-// ➤ that were linked to it. Takes the applications you sent and the links found
-// ➤ for them; returns, per application:
-// ➤   state         where it ended up — see the ladder below
-// ➤   reached       every kind of message that ever arrived, in order. A
-// ➤                 rejection AFTER an interview is a different story from a
-// ➤                 form rejection, and one word cannot hold both
-// ➤   daysWaiting   how long since you applied
-// ➤   evidence      why each link was made, so a wrong one can be traced
+// ➤ ONE RECORD PER APPLICATION, built from the messages linked to it:
+// ➤   state        bounced, rejected, interview, acknowledged, noreply or
+// ➤                ghosted
+// ➤   reached      every kind of message that ever arrived, in order. A
+// ➤                rejection AFTER an interview is a different story from a
+// ➤                form rejection, and one word cannot hold both
+// ➤   daysWaiting  how long since you applied
+// ➤   evidence     why each link was made, so a wrong one can be traced
 // ➤ `today` is injected rather than read from the clock, because a function
 // ➤ that decides things by date cannot be tested if it insists on now.
 export function buildStatus(applications, links, { today = new Date() } = {}) {
@@ -82,17 +74,16 @@ export function buildStatus(applications, links, { today = new Date() } = {}) {
   return applications.map(a => {
     const mine = (byApp.get(a.id) || []).slice().sort((x, y) => new Date(x.message.date) - new Date(y.message.date));
     // ➤ linkOutcomes leaves the classification on the MESSAGE, not on the link.
-    // ➤ Read both: a hand-built fixture that put it one level up passed every
-    // ➤ test while the real pipeline silently produced no states at all.
+    // ➤ Reading only one of the two made every test pass on a hand-built
+    // ➤ fixture while the real pipeline produced no states at all.
     const kinds = mine.map(l => l.kind || l.message?.kind).filter(Boolean);
     const applied = new Date(a.ts);
     const daysWaiting = isNaN(applied) ? null : Math.floor((now - applied) / 86_400_000);
 
     let state;
-    // ➤ IT NEVER ARRIVED, so nothing else that happened to it matters. Checked
-    // ➤ before the rest because it is not a verdict on you — it is the reason
-    // ➤ there is no verdict, and the only one of these states you can still do
-    // ➤ something about.
+    // ➤ IT NEVER ARRIVED, so nothing else that happened to it matters. First
+    // ➤ because it is not a verdict on you but the reason there is none — and
+    // ➤ the only one of these states you can still do something about.
     if (kinds.includes('bounced')) state = 'bounced';
     else if (kinds.includes('rejected')) state = 'rejected';
     else if (kinds.length) {
@@ -101,10 +92,8 @@ export function buildStatus(applications, links, { today = new Date() } = {}) {
       state = kinds.reduce((best, k) => (RANK[k] || 0) > (RANK[best] || 0) ? k : best, kinds[0]);
     } else state = 'noreply';
 
-    // ➤ GHOSTED. Two months of nothing after the last thing that happened, and
-    // ➤ waiting stops being waiting. Only from the two states that are still
-    // ➤ open: a rejection is already answered and an interview is worth
-    // ➤ chasing, so neither is aged out by a calendar.
+    // ➤ Only the two states still open can age into `ghosted`: a rejection is
+    // ➤ already answered, and an interview is worth chasing.
     const lastEvent = mine.length ? new Date(mine[mine.length - 1].message.date) : applied;
     const daysSince = isNaN(lastEvent) ? null : Math.floor((now - lastEvent) / 86_400_000);
     if ((state === 'noreply' || state === 'acknowledged') && daysSince != null && daysSince >= GHOSTED_AFTER_DAYS) {
@@ -120,20 +109,17 @@ export function buildStatus(applications, links, { today = new Date() } = {}) {
       state,
       reached: kinds,
       daysWaiting,
-      // ➤ Kept so a wrong link can be traced back to the reason it was made.
       evidence: mine.map(l => ({ kind: l.kind || l.message?.kind, date: l.message.date, why: l.why, score: l.score })),
     };
   });
 }
 
 // ➤ A short human summary. EVERY application is counted, longshots included:
-// ➤ you sent them, so they are part of where things stand and the totals have
-// ➤ to add up to what you actually did.
-// ➤ They are still reported separately underneath, for one narrow purpose: a
-// ➤ longshot was sent knowing it fell short, so its rejection says nothing
-// ➤ about whether the FILTER is choosing well. Anything that judges the search
-// ➤ should read `excludingLongshots`; anything that reports to you should read
-// ➤ the top-level numbers.
+// ➤ you sent them, so the totals have to add up to what you actually did.
+// ➤ They are also reported apart, for one narrow purpose: a longshot was sent
+// ➤ knowing it fell short, so its rejection says nothing about whether the
+// ➤ FILTER is choosing well. Anything that judges the search should read
+// ➤ `excludingLongshots`; anything that reports to you, the top-level numbers.
 export function summarise(records) {
   const tally = list => ({
     bounced: list.filter(r => r.state === 'bounced').length,

@@ -39,7 +39,9 @@ async function esco(path, key) {
   if (!existsSync(CACHE_DIR)) mkdirSync(CACHE_DIR, { recursive: true });
   const file = join(CACHE_DIR, `${key.replace(/[^a-z0-9]+/gi, '_').slice(0, 80)}.json`);
   if (existsSync(file)) { try { return JSON.parse(readFileSync(file, 'utf-8')); } catch {} }
-  const res = await fetch(`${API}${path}`);
+  // ➤ With a timeout, like every other request in the project. Without one a
+  // ➤ stalled connection hangs this tool for ever with nothing on screen.
+  const res = await fetch(`${API}${path}`, { signal: AbortSignal.timeout(20_000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json();
   writeFileSync(file, JSON.stringify(json), 'utf-8');
