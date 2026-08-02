@@ -1087,7 +1087,7 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
 }
 
 // ── Result ────────────────────────────────────────────────────────────────
-// ── 15) argus-discover: the profile audit must not invent evidence ────────
+// ── 14) argus-discover: the profile audit must not invent evidence ────────
 // ➤ It reads the CV, the search terms and the user's own decisions to say
 // ➤ whether a term is worth keeping. Every number it prints is an argument for
 // ➤ changing the filter, so a wrong one sends the user chasing a problem that
@@ -1141,7 +1141,7 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   }
 }
 
-// ── 16) argus-discover: the harvest must not propose noise ───────────────
+// ── 15) argus-discover: the harvest must not propose noise ───────────────
 // ➤ Its output is a list of words to add to the search. A bad one widens the
 // ➤ filter for nothing, so gender tags, seniority words and terms already in
 // ➤ use must never reach the proposal.
@@ -1166,7 +1166,7 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(candidateTerms([], {}).length, 0, 'harvest: no titles, no candidates');
 }
 
-// ── 17) argus-discover: the ESCO match ───────────────────────────────────
+// ── 16) argus-discover: the ESCO match ───────────────────────────────────
 // ➤ Its output is occupation names in five languages, offered as search terms.
 // ➤ ESCO's translations are administrative, so the filter that decides which
 // ➤ labels a human would ever type is the part that has to be right.
@@ -1202,19 +1202,45 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(dup[0].score, 2, 'esco: the same term counted once, however many skills matched it');
 }
 
-// ── 18) argus-discover: the blind-spot record ────────────────────────────
+// ── 17) argus-discover: the blind-spot record ────────────────────────────
 // ➤ It exists because the title filter's allowlist drops things silently, and
 // ➤ on a real cycle 345 titles were dropped for no reason but "not on the
 // ➤ list". Recurrence is the only signal it uses, so the counting has to be
 // ➤ right: over-count and noise looks like a gap, under-count and a real gap
 // ➤ stays invisible.
 {
-  const { mergeDrops, topRecurring, classifyDrop, ruleOf, NO_FIELD, RULE, MAX_TITLES } =
+  const { mergeDrops, topRecurring, classifyDrop, ruleOf, formatReport, NO_FIELD, RULE, MAX_TITLES } =
     await import('./argus-discover/blind-spots.mjs');
 
   eq(classifyDrop('the title has no keyword from your field'), NO_FIELD, 'blind: no-keyword is the blind-spot bucket');
   eq(classifyDrop('the title has the blocked word "Senior"'), RULE, 'blind: a veto that fired is the other bucket');
   eq(ruleOf('the title has the blocked word "Technician"'), 'Technician', 'blind: the report names the rule, not the sentence');
+
+  // ➤ THE REPORT MUST PRINT THE WHOLE TITLE. It used to cut at a fixed width,
+  // ➤ so "Digital Product Manager - Energy Forecast Products" arrived clipped
+  // ➤ mid-word — and a blind spot you cannot read is one you cannot act on.
+  {
+    const long = 'Offshore Wind Asset Integrity and Reliability Engineer for Floating Foundations';
+    const ruled = 'Digital Product Manager - Energy Forecast Products';
+    const report = formatReport({ updated: 'd1', titles: {
+      a: { title: long, why: 'no keyword from your field', bucket: NO_FIELD, n: 4 },
+      b: { title: ruled, why: 'the title has the blocked word "Manager"', bucket: RULE, n: 3 },
+    } });
+    // ➤ Wrapped titles span lines, so the comparison is made on the unwrapped text.
+    const flat = report.replace(/\n\s+/g, ' ');
+    ok(flat.includes(long), 'blind: a long title is wrapped, never cut');
+    ok(flat.includes(ruled), 'blind: and so is one in the rule bucket');
+    ok(report.split('\n').every(l => l.length <= 80), 'blind: while every line still fits a phone screen');
+
+    // ➤ EACH SECTION SAYS HOW MANY IT IS NOT SHOWING. It used to print its top
+    // ➤ few and stop, which reads as "that is all of them" — and the difference
+    // ➤ between 12 recurring blind spots and 300 is the whole picture.
+    const many = {};
+    for (let i = 0; i < 40; i++) many['b' + i] = { title: `Blind Title ${i}`, bucket: NO_FIELD, n: 40 - i, why: 'no keyword from your field' };
+    const big = formatReport({ updated: 'd1', titles: many });
+    ok(/showing the top 12 of 39/.test(big), 'blind: the section says how many it is leaving out');
+    ok(!/showing the top/.test(report), 'blind: and says nothing when it is showing them all');
+  }
 
   const noField = 'the title has no keyword from your field';
   let st = mergeDrops({ titles: {} }, [{ title: 'Asset Integrity Engineer', why: noField }], { today: 'd1' });
@@ -1282,6 +1308,25 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   // ➤ a cull is what recurs, which is exactly what is being looked for.
   const many = Array.from({ length: 50 }, (_, i) => ({ title: `Role ${i}`, why: noField }));
   eq(Object.keys(mergeDrops({ titles: {} }, many, { today: 'd1', cap: 10 }).titles).length, 10, 'blind: the record is capped');
+}
+
+// ── 18) The location written to pipeline.md keeps its country ─────────
+// ➤ It used to be cut at 70 characters before being stored, and housekeep
+// ➤ re-reads that stored text weeks later to decide whether the country is
+// ➤ still one you accept. 35 of 993 real locations were long enough to be cut.
+{
+  const { normalizeLocation, MAX_LOCATION_CHARS } = await import('./scan.mjs');
+
+  eq(normalizeLocation('España, España'), 'España', 'location: a repeated part is written once');
+  const long = 'Steinbecker Vorstadt, Greifswald, Mecklenburg-Vorpommern, Bundesrepublik Deutschland';
+  eq(normalizeLocation(long), long, 'location: a long one keeps the country at its end');
+  ok(!normalizeLocation(long).includes('…'), 'location: and is not marked as cut, because it is not');
+
+  // ➤ The ceiling that remains is a guard against a feed pasting a paragraph
+  // ➤ into the field, and it must sit far above anything real (longest: 88).
+  const absurd = normalizeLocation('Rotterdam, ' + 'Zuid-Holland, '.repeat(80));
+  ok(absurd.length <= MAX_LOCATION_CHARS, 'location: an absurd one is still bounded');
+  ok(MAX_LOCATION_CHARS >= 200, 'location: and that bound is nowhere near a real location');
 }
 
 // ── 19) "seen": marking the RIGHT line, and marking it as YOUR decision ────

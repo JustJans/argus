@@ -42,7 +42,7 @@ const key = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 // ➤ print the rule rather than the prose around it.
 export function ruleOf(why) {
   const m = String(why || '').match(/blocked word "([^"]+)"/i);
-  return m ? m[1] : String(why || '').slice(0, 30);
+  return m ? m[1] : String(why || '');
 }
 
 export function classifyDrop(why) {
@@ -143,6 +143,22 @@ export function saveStore(store, path = STORE_PATH) {
   writeFileAtomic(path, JSON.stringify(store));
 }
 
+// ➤ Splits a long line at spaces and indents the continuations under the first
+// ➤ word. Titles were cut at a fixed width instead, and a blind spot you cannot
+// ➤ read is not one you can act on. Only the number column must stay aligned.
+export function wrapUnder(text, indent, width = 72) {
+  const room = Math.max(20, width - indent.length);
+  const lines = [];
+  let line = '';
+  for (const word of String(text || '').split(/\s+/).filter(Boolean)) {
+    if (!line) line = word;
+    else if (line.length + 1 + word.length <= room) line += ' ' + word;
+    else { lines.push(line); line = word; }
+  }
+  if (line) lines.push(line);
+  return lines.length ? lines : [''];
+}
+
 // ➤ The same text the Telegram command sends, built here so both the terminal
 // ➤ and the chat say exactly the same thing.
 export function formatReport(store, { limit = 12 } = {}) {
@@ -151,17 +167,27 @@ export function formatReport(store, { limit = 12 } = {}) {
   const total = Object.keys(store?.titles || {}).length;
   if (!total) return 'Nothing recorded yet. The record fills up as scans run.';
 
+  // ➤ HOW MANY THERE REALLY ARE. Each section showed its top few and stopped,
+  // ➤ which reads as "that is all": 12 recurring blind spots or 1,625 is not
+  // ➤ the same picture. On its own line — appended, the heading overran.
+  const allBlind = topRecurring(store, { bucket: NO_FIELD, limit: Infinity }).length;
+  const allRuled = topRecurring(store, { bucket: RULE, limit: Infinity }).length;
+  const rest = (shown, all) => (all > shown ? [`  showing the top ${shown} of ${all}`] : []);
+
   const out = [`BLIND SPOTS — ${total} distinct titles thrown away, last updated ${store.updated || '?'}`, ''];
-  out.push('NOT ON YOUR LIST (nothing objected — you just never see these)');
+  // ➤ Eight characters: two spaces, the three-digit count, its "x" and two more.
+  const PAD = ' '.repeat(8);
+  const entry = t => wrapUnder(t.title, PAD).map((l, i) =>
+    (i === 0 ? `  ${String(t.n).padStart(3)}x  ` : PAD) + l);
+
+  out.push('NOT ON YOUR LIST (nothing objected — you just never see these)', ...rest(blind.length, allBlind));
   if (!blind.length) out.push('  nothing has recurred yet');
-  for (const t of blind) out.push(`  ${String(t.n).padStart(3)}x  ${t.title.slice(0, 58)}`);
+  for (const t of blind) out.push(...entry(t));
   out.push('');
-  out.push('A RULE OF YOURS FIRED (check none is firing wider than you meant)');
+  out.push('A RULE OF YOURS FIRED (check none is firing wider than you meant)', ...rest(ruled.length, allRuled));
   if (!ruled.length) out.push('  nothing has recurred yet');
-  // ➤ Show the RULE, not the sentence around it: "the title has the blocked
-  // ➤ word X" truncates to "the title has the blocked word Te", which hides the
-  // ➤ only part that matters.
-  for (const t of ruled) out.push(`  ${String(t.n).padStart(3)}x  ${t.title.slice(0, 46)}  — ${ruleOf(t.why)}`);
+  // ➤ The rule alone, on its own line, so a long title never competes with it.
+  for (const t of ruled) out.push(...entry(t), `${PAD}— ${ruleOf(t.why)}`);
   out.push('');
   out.push('Recurrence is the whole signal: seen once is noise, seen weekly is a gap.');
   return out.join('\n');

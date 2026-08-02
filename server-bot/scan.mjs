@@ -124,9 +124,12 @@ export function isSafeUrl(u) {
   } catch { return false; }
 }
 
-// ➤ Fixes the location: removes repeated parts ("España, España" → "España")
-// ➤ and trims it if it's very long.
-function normalizeLocation(loc) {
+// ➤ Only to stop a hostile feed writing a paragraph into pipeline.md.
+export const MAX_LOCATION_CHARS = 300;
+
+// ➤ Fixes the location: removes repeated parts ("España, España" → "España").
+// ➤ Exported so a test can hold the ceiling below to what it is for.
+export function normalizeLocation(loc) {
   const parts = String(loc || '').split(',').map(p => p.trim()).filter(Boolean);
   const seen = new Set();
   const unique = [];
@@ -134,9 +137,11 @@ function normalizeLocation(loc) {
     const k = p.toLowerCase();
     if (!seen.has(k)) { seen.add(k); unique.push(p); }
   }
-  let out = unique.join(', ');
-  if (out.length > 70) out = out.slice(0, 67) + '…';
-  return out;
+  const out = unique.join(', ');
+  // ➤ NOT A DISPLAY WIDTH. A 70-character cut used to go into pipeline.md, where
+  // ➤ housekeep re-reads the location weeks later to apply the country rule: 35
+  // ➤ of 993 were cut, and a country named last in the string simply vanished.
+  return out.length > MAX_LOCATION_CHARS ? out.slice(0, MAX_LOCATION_CHARS) : out;
 }
 
 // ➤ Simplifies a web address so it can be compared: it removes the tracking
@@ -1958,7 +1963,9 @@ async function main() {
   // ➤ EXCEPTION: if the listener launched you with "search"
   // ➤ (ARGUS_SKIP_LIST_REFRESH=1), it does NOT refresh here — the listener
   // ➤ refreshes AFTER the "Search finished" message so the list ends at the bottom.
-  let telegram = 'off';
+  // ➤ It must SAY WHY nothing was sent: "off" is what an unconfigured bot would
+  // ➤ report, so a quiet run and a broken setup left the same line in the log.
+  let telegram = dryRun ? 'dry-run' : 'nothing to send';
   if (!dryRun && newOffers.length > 0) {
     appendToPipeline(newOffers);
     appendToScanHistory(newOffers, date);

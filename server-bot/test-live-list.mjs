@@ -90,6 +90,13 @@ const notSeen = harness();
 await refreshList({ deps: notSeen.deps });
 check('without markSeen nothing is marked seen', !notSeen.log.some(l => l.startsWith('seen:')));
 
+// ➤ A list that never left the server has not been seen. Marking it seen anyway
+// ➤ spent the [NEW] tags on offers that were never shown, so the next list to
+// ➤ arrive presented them as old news.
+const failedSeen = harness({ sendReturns: [] });
+await refreshList({ deps: failedSeen.deps, markSeen: true });
+check('a failed send does not spend the [NEW] tags', !failedSeen.log.some(l => l.startsWith('seen:')));
+
 // ➤ With no offers left it still posts the placeholder, so the chat always ends
 // ➤ in a list rather than in the last thing you typed.
 const empty = harness({ offers: [] });

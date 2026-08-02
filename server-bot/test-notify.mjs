@@ -19,7 +19,7 @@
  */
 
 import { readFileSync } from 'fs';
-import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc, languageOfPlace, translateTitle, MAX_CHUNK, TELEGRAM_LIMIT } from './notify.mjs';
+import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc, languageOfPlace, translateTitle, MAX_CHUNK, MAX_TITLE_CHARS, TELEGRAM_LIMIT } from './notify.mjs';
 
 const matchers = loadCountryMatchers();
 let failures = 0;
@@ -68,6 +68,24 @@ check(compactTitle('Fuselage S19 Industrial Tooling & Robotics (Temp Agency)'),
   'Fuselage S19 Industrial Tooling & Robotics', 'compact temp-agency tag');
 check(compactTitle('Offshore Engineer'),
   'Offshore Engineer', 'compact untouched');
+
+// ➤ A LONG TITLE ARRIVES WHOLE. It used to be cut at 72 characters with an "…",
+// ➤ which hit 41 of 1,006 real titles and threw away the very words that said
+// ➤ what the job was. Telegram wraps the line itself, so nothing was gained.
+const longReal = 'Marine Surveyor (Inspector-a de carga y descarga de producto petroquimico)';
+check(compactTitle(longReal), longReal, 'a long title is not cut');
+// ➤ The en dash comes back as a plain hyphen: the segment splitter rejoins on
+// ➤ " - ". That is the normalising this function has always done, and it is
+// ➤ what the expected value has to say.
+check(compactTitle('Junior Cloud Security Consultant – DevSecOps & Automation - Consulting, IT-Security, Ingenieur'),
+  'Junior Cloud Security Consultant - DevSecOps & Automation - Consulting, IT-Security, Ingenieur',
+  'nor is one that reaches 94 characters');
+// ➤ The one ceiling left protects the message splitter, not the reading width:
+// ➤ a line longer than MAX_CHUNK cannot be split off and would take the whole
+// ➤ list past Telegram's limit. It must still be there, and still be finite.
+const absurd = compactTitle('Engineer ' + 'x '.repeat(400));
+check(absurd.length <= MAX_TITLE_CHARS + 1, true, 'an absurd title is still capped, for the splitter');
+check(MAX_TITLE_CHARS < MAX_CHUNK, true, 'and that cap sits below what one message can hold');
 
 // ── cityOf: city only, no region/province/country ───────────────────
 // ➤ "Extract the city" tests: the user wants to see only the city, not the

@@ -119,10 +119,14 @@ export function formatStatus(status) {
     // ➤ unassigned is the most expensive thing this whole module handles.
     // ➤ With the numbers in front of you, "no N" settles a refusal and you
     // ➤ know to go and read the mail yourself when it is an invitation.
-    for (const t of (status.unlinked.cases || []).slice(0, 5)) {
+    const cases = status.unlinked.cases || [];
+    for (const t of cases.slice(0, 5)) {
       const label = { interview: 'an interview', rejected: 'a refusal', acknowledged: 'a receipt', bounced: 'a bounce' }[t.kind] || 'a message';
       out.push(`<i>  · ${label} that fits ${t.ids.map(i => '#' + i).join(' or ')}</i>`);
     }
+    // ➤ SAY WHAT WAS LEFT OUT: stopping in silence reads as "that was all", and
+    // ➤ the sixth could be the interview invitation.
+    if (cases.length > 5) out.push(`<i>  · and ${cases.length - 5} more, in data/application-status.json</i>`);
   }
   return out.join('\n');
 }

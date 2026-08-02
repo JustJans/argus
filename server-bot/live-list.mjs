@@ -132,7 +132,8 @@ export async function refreshList({ alert = false, markSeen = false, deps } = {}
       // ➤ that Telegram was NOT SET UP, while those offers had already been
       // ➤ written into the pending file and into the anti-repeat history — so
       // ➤ they were never offered again, and you were never told about them once.
-      if (markSeen) d.saveSeenIds(pendingIds);
+      // ➤ AND THE [NEW] TAGS SURVIVE: marking them seen recorded offers as shown
+      // ➤ when the list never left the server, so the next one read as old news.
       return false;
     }
     if (markSeen) d.saveSeenIds(pendingIds);

@@ -886,6 +886,13 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   // ➤ And with nothing tied, nothing is said about ties at all.
   ok(!/fit more than one/.test(formatStatus({ applications: twoAtOne, unlinked: { ambiguous: 0, unrelated: 3 } })),
      'no ties, no line');
+
+  // ➤ Only five are listed, and the message has to SAY the rest exist: stopping
+  // ➤ in silence reads as "that was all", and the sixth could be the interview.
+  const manyCases = Array.from({ length: 8 }, (_, i) => ({ kind: 'rejected', ids: [664, 665, i] }));
+  const capped = formatStatus({ applications: twoAtOne, unlinked: { ambiguous: 8, unrelated: 0, cases: manyCases } });
+  eq((capped.match(/that fits/g) || []).length, 5, 'at most five tied messages are listed');
+  ok(/and 3 more/.test(capped), 'and the ones left out are counted, not hidden');
 }
 
 // ── 7c) The longest silence is read first ────────────────────────────────

@@ -50,6 +50,10 @@ const COUNTRIES_PATH = join(SCRIPT_DIR, 'countries.yml');
 // ➤ mutation that raised it to 100000 passed every test there was.
 export const MAX_CHUNK = 3500;
 export const TELEGRAM_LIMIT = 4096;
+// ➤ A backstop for the splitter, not a reading width: a line that alone exceeds
+// ➤ MAX_CHUNK cannot be split off, so the whole message is refused. The longest
+// ➤ real title measured is 116 characters, so nothing real ever reaches this.
+export const MAX_TITLE_CHARS = 300;
 
 // ── Country grouping (the user's priority order) ────────────────────────
 // Barcelona first, then rest of Spain, France, Monaco, Belgium,
@@ -153,8 +157,6 @@ export function cleanTitle(title) {
 // ➤ Words that are only a country (not a city): if the "city" turns out to be
 // ➤ one of these, it isn't shown, because the message's group already says it.
 // ➤ Country names ONLY — never city aliases, or "Madrid" would stop showing.
-// ➤ Country names ONLY — never city aliases, or "Madrid" would stop showing.
-// ➤ Country names ONLY — never city aliases, or "Madrid" would stop showing.
 // ➤ Includes the multilingual base set AND the configured countries' names/labels.
 const COUNTRY_WORDS = new Set([
   'spain', 'españa', 'espana', 'france', 'monaco', 'mónaco', 'belgium',
@@ -164,11 +166,11 @@ const COUNTRY_WORDS = new Set([
   ..._COUNTRIES.flatMap(c => [String(c.name).toLowerCase(), String(c.label).toLowerCase()]),
 ]);
 
-// ➤ Shortens the title so it reads well on a phone. Four kinds of noise go:
-// ➤ contract parentheticals ("(Temp Agency)"), trailing acronym lists
-// ➤ ("... DWDM / MPLS-TP / TDM / radio link"), sector tags that say nothing
-// ➤ because every offer here is already from your sector ("- NAVAL Sector"),
-// ➤ and anything past 72 characters — cut at a space, never mid-word.
+// ➤ Takes the NOISE out of a title and nothing else: contract parentheticals
+// ➤ ("(Temp Agency)"), trailing acronym lists ("... DWDM / MPLS-TP / TDM") and
+// ➤ sector tags every offer here already carries ("- NAVAL Sector").
+// ➤ IT NO LONGER SHORTENS: a 72-character cut hit 41 of 1,006 real titles, and
+// ➤ Telegram wraps a long line by itself, so there was only a title to lose.
 export function compactTitle(title) {
   let t = String(title || '');
 
@@ -188,9 +190,10 @@ export function compactTitle(title) {
 
   t = t.replace(/\s{2,}/g, ' ').replace(/\s*[-–—|/]\s*$/g, '').trim();
 
-  // ➤ If still too long, cut at 72 characters right at a space and add "…".
-  if (t.length > 72) {
-    const cut = t.slice(0, 72);
+  // ➤ For the splitter, not for reading — see MAX_TITLE_CHARS. It fires only on
+  // ➤ a broken feed pasting a whole ad into the title.
+  if (t.length > MAX_TITLE_CHARS) {
+    const cut = t.slice(0, MAX_TITLE_CHARS);
     t = cut.slice(0, cut.lastIndexOf(' ')).replace(/[,;:\-–—/]\s*$/, '') + '…';
   }
   return t;
