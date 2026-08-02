@@ -45,8 +45,9 @@ not returned an estimated one, so you are unlikely to ever see it.
 
 ## Setup
 
-**Required:** Node.js 18 or newer (the code uses the built-in `fetch`) and a
-Telegram bot token. That is all the job search itself needs.
+**Required:** Node.js 20 or newer (the code uses the built-in `fetch`; the
+cover-letter printer needs 20) and a Telegram bot token. That is all the job
+search itself needs.
 
 **You do not need a server.** The engine is plain Node and runs natively on
 Windows, macOS and Linux — a laptop is fine. What it does need is to be awake

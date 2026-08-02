@@ -25,6 +25,7 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { writeFileAtomic } from './fs-atomic.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
@@ -341,7 +342,11 @@ export async function makeCoverLetter(offer) {
   const base = resolveCoverBase(offer.company, offer.id, index);
   if (Number.isInteger(offer.id) && offer.id > 0) {
     index[String(offer.id)] = base;
-    try { mkdirSync(dirname(LETTER_INDEX_PATH), { recursive: true }); writeFileSync(LETTER_INDEX_PATH, JSON.stringify(index), 'utf-8'); }
+    // ➤ Written aside and renamed, like every other file that is the only copy
+    // ➤ of something. Half-written this is invalid JSON, the reader falls back to
+    // ➤ an empty index, and the next letter to the same employer takes a name
+    // ➤ that is already taken — overwriting a PDF you may already have sent.
+    try { mkdirSync(dirname(LETTER_INDEX_PATH), { recursive: true }); writeFileAtomic(LETTER_INDEX_PATH, JSON.stringify(index)); }
     catch { /* the letter matters more than the bookkeeping */ }
   }
   const pdfPath = join(dir, base + '.pdf');

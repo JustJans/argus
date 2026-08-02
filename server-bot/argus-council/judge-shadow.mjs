@@ -218,7 +218,12 @@ async function main() {
   if (Number.isFinite(limit)) work = work.slice(0, limit);
 
   if (!work.length) {
-    console.log(`No NEW offers to judge (${skipped} already-judged were skipped).`);
+    // ➤ "--limit 0" is not "nothing to judge": there may be a queue and you
+    // ➤ asked for none of it. Reporting the two the same way sent me looking
+    // ➤ for a broken Council when the flag was doing exactly as told.
+    console.log(limit === 0
+      ? `--limit 0: nothing was judged on purpose (${skipped} already judged; the rest are still waiting).`
+      : `No NEW offers to judge (${skipped} already-judged were skipped).`);
     return;
   }
   console.log(`The Council: ${work.length} NEW offer(s) to judge (${skipped} already-judged skipped).`);
