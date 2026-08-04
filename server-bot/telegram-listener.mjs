@@ -81,11 +81,15 @@ async function resyncOffset(cfg) {
     const j = await res.json().catch(() => null);
     if (!j?.ok) return false;
     const last = (j.result || []).at(-1);
-    // ➤ An EMPTY backlog is written down as offset 0: there is nothing those
-    // ➤ ticks could replay, and without the file every tick resynchronised
-    // ➤ again — swallowing whatever the user typed in between, for ever.
-    writeFileAtomic(OFFSET_PATH, JSON.stringify({ offset: last ? last.update_id + 1 : 0 }));
-    if (last) console.log(`[${new Date().toISOString()}] telegram position was lost; resynchronised to ${last.update_id + 1} without replaying anything.`);
+    // ➤ AN EMPTY QUEUE STILL HAS TO LEAVE A POSITION BEHIND. Writing nothing
+    // ➤ meant a fresh install never created the file, so the next tick came
+    // ➤ straight back here — and the tick that finally found something recorded
+    // ➤ it and returned WITHOUT handling it. The very first command anyone ever
+    // ➤ typed was swallowed in silence. Nothing waiting means nothing to
+    // ➤ replay, so zero is the safe position to start from.
+    const offset = last ? last.update_id + 1 : 0;
+    writeFileAtomic(OFFSET_PATH, JSON.stringify({ offset }));
+    console.log(`[${new Date().toISOString()}] telegram position was missing; starting from ${offset}${last ? ' (the backlog was skipped, not replayed)' : ''}.`);
     return true;
   } catch { return false; /* no network: the next tick tries again */ }
 }
