@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# Argus — guided setup.
-# Run it once after cloning:   bash setup.sh
+# Argus — guided setup for macOS and Linux (on Windows, double-click setup-windows.bat).
+# Run it once after downloading:   bash setup-linux-mac.sh
 # It only asks for what is REQUIRED (a Telegram bot token) and offers to write
 # the cron lines for you. Everything else is optional and can wait.
 # ─────────────────────────────────────────────────────────────────────────────

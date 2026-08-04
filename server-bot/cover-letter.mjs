@@ -156,6 +156,9 @@ export function buildCoverPrompt(offer, body) {
     `- Do NOT copy or paraphrase sentences from the offer. Instead of repeating what the role asks for, give a ` +
     `GENUINE reason anchored in the candidate's real experience: pick a concrete detail from the CV (a specific ` +
     `project, tool or result) and what it taught them, the way the example letter does.\n` +
+    `- When you pick examples out of the CV (projects, countries, tools), present them AS examples ` +
+    `("including", "among others"), never as a complete list: the CV's record is longer than any ` +
+    `sentence, and a closed list undersells it.\n` +
     `- NO adjective-list sentences ("I am structured, results-oriented and comfortable in ` +
     `international environments"): every claim needs a concrete example, and do NOT repeat in one ` +
     `paragraph something already said in another. The languages paragraph is ONLY languages.\n` +
@@ -384,8 +387,7 @@ export async function coverToTelegram(id, deps = {}) {
   }
   // ➤ Warn if the portal gave no text: the letter is then written from the title
   // ➤ and company alone, so it will be generic. Better you know before sending.
-  const caption = `Cover letter #${id}: ${offer.title} — ${offer.company}`
-    + (res.thin ? '\n⚠️ The portal gave no offer text, so this one is generic — worth a read before sending.' : '');
+  const caption = `Cover letter #${id}: ${offer.title} — ${offer.company}`;
   if (!await sendTelegramDocument(res.pdfPath, caption)) {
     await sendTelegram(`The cover letter was generated but couldn't be attached. File on the server: ${res.pdfPath}`);
   }

@@ -42,6 +42,11 @@ import { USER_FIELDS, searchProfile } from './requirements.mjs';
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const CFG_PATH = join(SCRIPT_DIR, 'telegram.json');
 const COUNTRIES_PATH = join(SCRIPT_DIR, 'countries.yml');
+// ➤ Where the Council switch and its journal live, for the verdicts below.
+const ROOT = dirname(SCRIPT_DIR);
+const PORTALS_PATH = join(ROOT, 'portals.yml');
+const JUDGE_JOURNAL_PATH = join(ROOT, 'data', 'judge-shadow.jsonl');
+
 // ➤ How much text goes in one message before it is sent and a new one begun.
 // ➤ TELEGRAM REFUSES ANYTHING OVER 4096 CHARACTERS, and refusing means you get
 // ➤ no list at all — the failure is total, not partial. The margin exists
@@ -488,12 +493,41 @@ function escAttr(s) {
 // ➤ Telegram grouped by country, each as a line with a clickable link. It
 // ➤ tries to fit everything in ONE message; if there are too many, it splits
 // ➤ them across several, repeating the header of the country where it cut.
+// ➤ ── THE COUNCIL'S WORD ON EACH OFFER ───────────────────────────────────
+// ➤ What the shadow judges decided, one tag per offer: show → [YES],
+// ➤ tie → [MYB], hide → [NO]. Read from the journal the Council appends after
+// ➤ each scan, and spoken on the list ONLY while portals.yml has the Council
+// ➤ switched on — with it off, the list does not change by one character.
+// ➤ Returns null when off; a Map (possibly empty) when on, so an offer the
+// ➤ judges have not reached yet simply says nothing until the next pass.
+export function councilVerdicts({ portalsPath = PORTALS_PATH, journalPath = JUDGE_JOURNAL_PATH } = {}) {
+  try {
+    if (yaml.load(readFileSync(portalsPath, 'utf-8'))?.council?.enabled !== true) return null;
+  } catch { return null; }
+  const WORD = { show: 'YES', tie: 'MYB', hide: 'NO' };
+  const map = new Map();
+  try {
+    for (const line of readFileSync(journalPath, 'utf-8').split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const r = JSON.parse(line);
+        const word = WORD[r.council];
+        if (!word) continue;
+        if (r.url) map.set(r.url, word);
+        if (r.id != null) map.set('#' + r.id, word);
+      } catch { /* a half-written last line: the next refresh reads it whole */ }
+    }
+  } catch { /* switched on but nothing judged yet */ }
+  return map;
+}
+
 export async function notifyNewOffers(offers, { headerLabel = 'new', silent = false, newIds = null } = {}) {
   if (!offers?.length || !telegramConfigured()) return false;
 
   // ➤ Step 1: sort the offers into buckets by country. If the location gave no
   // ➤ hints, it tries to guess from the web address (adzuna.es → Spain).
   const matchers = loadCountryMatchers();
+  const verdicts = councilVerdicts();
   const groups = new Map();
   for (const o of offers) {
     let g = classifyLocation(o.location, matchers);
@@ -575,14 +609,18 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
       const isNew = newIds && o.id != null && newIds.has(o.id);
       const newTag = isNew ? '[NEW] ' : '';
       const idTag = o.id ? `#${o.id} ` : '';
-      const lineTxt = `- ${newTag}${idTag}${parts.join(' - ')}`;
+      // ➤ The Council's word rides on the line itself, after the link, so the
+      // ➤ verdict lands in the same glance as the offer.
+      const word = verdicts && (verdicts.get(o.url) ?? verdicts.get('#' + o.id));
+      const councilTag = word ? ` [${word}]` : '';
+      const lineTxt = `- ${newTag}${idTag}${parts.join(' - ')}${councilTag}`;
       // ➤ Build the line FIRST, then ask whether it fits. What goes to
       // ➤ Telegram is the markup, not the words: every line carries
       // ➤ <a href="the whole URL">, and measuring only the visible text made
       // ➤ the real message 1.8x the size counted — about 6,300 characters
       // ➤ against a 4,096 limit, so past roughly thirty offers in one country
       // ➤ the list simply stopped being sent.
-      const lineHtml = `- ${isNew ? '<b>[NEW]</b> ' : ''}${esc(idTag)}<a href="${escAttr(o.url)}">${esc(parts.join(' - '))}</a>\n\n`;
+      const lineHtml = `- ${isNew ? '<b>[NEW]</b> ' : ''}${esc(idTag)}<a href="${escAttr(o.url)}">${esc(parts.join(' - '))}</a>${esc(councilTag)}\n\n`;
       if (chunk.length + lineHtml.length > MAX_CHUNK) {
         await flush();
         addGroupHeader(currentGroup);
@@ -604,7 +642,7 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
 // ➤ "--setup" mode (initial configuration): detects only your chat_id. You
 // ➤ must have sent any message to the bot beforehand; it reads that message,
 // ➤ notes the number in telegram.json and sends you a confirmation to your phone.
-// ➤ EXIT CODES, because setup.sh reacts differently to each and a user staring
+// ➤ EXIT CODES, because the setup scripts react differently to each and a user staring
 // ➤ at "Unauthorized" cannot tell them apart:
 // ➤   2 = the token itself is wrong (a typo when pasting) → ask for it again.
 // ➤   1 = the token works but you have not messaged the bot yet, or the network
@@ -628,7 +666,7 @@ async function cliSetup() {
     if (/unauthorized|not found|HTTP 40[14]/i.test(e.message)) {
       console.error('Telegram rejected the bot token: it is not a valid one.');
       console.error('Check it against the token @BotFather gave you (it looks like 123456789:AAH...),');
-      console.error(`and correct it in ${CFG_PATH}, or re-run setup.sh to paste it again.`);
+      console.error(`and correct it in ${CFG_PATH}, or re-run the setup script to paste it again.`);
       process.exit(2);
     }
     throw e;

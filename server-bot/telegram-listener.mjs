@@ -41,7 +41,7 @@ import { writeFileAtomic } from './fs-atomic.mjs';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { sendTelegram, esc } from './notify.mjs';
+import { sendTelegram, sendTelegramMessage, deleteTelegramMessage, esc } from './notify.mjs';
 import { pendingOffers } from './list-offers.mjs';
 // ➤ The "live list": deletes the previous list and re-sends the updated one to the
 // ➤ bottom of the chat every time it changes (after list/seen/no/applied).
@@ -110,6 +110,7 @@ const HELP =
   '<code>seen N</code> — remove offer(s) from the list\n' +
   '<code>no N reason</code> — remove an offer and note why (improves the filter)\n' +
   '<code>applied N</code> — mark as applied (removes it from the list)\n' +
+  '<code>interview N</code> — record an interview the inbox cannot see (a call, your own calendar)\n' +
   '<code>longshot N reason</code> — applied, but you know you fall short\n' +
   '<code>mail</code> — where every application you sent stands\n' +
   '<code>blind</code> — titles the filter keeps discarding (your blind spots)\n' +
@@ -152,15 +153,17 @@ export function seenReply(ids, out) {
   return `Nothing marked: ${tag(missing)} ${missing.length > 1 ? 'are' : 'is'} not in the pending list (already removed?).`;
 }
 
-// ➤ Records that an application you already SENT is over, when you learnt it
-// ➤ somewhere the bot cannot read: the employer's own portal, a phone call, or
-// ➤ a bounced address they never fixed.
+// ➤ Records something about an application you already SENT that you learnt
+// ➤ somewhere the bot cannot read: the employer's own portal, a phone call, a
+// ➤ bounced address they never fixed — or an interview arranged outside the
+// ➤ inbox (real case: a Calendar event you create yourself mails its invite
+// ➤ FROM you, and the mail reading skips your own messages on purpose).
 // ➤ It is written to its own file rather than to feedback.jsonl because the two
 // ➤ mean different things: feedback is "this offer was not for me" and trains
-// ➤ the filter; this is "this application is finished" and must NOT — you were
-// ➤ right to apply, they simply never answered.
+// ➤ the filter; this is "this is how the application went" and must NOT — you
+// ➤ were right to apply.
 // ➤ Returns true if it found an application with that number.
-async function closeApplication(n, reason) {
+async function recordApplicationState(n, state, reason) {
   const path = join(ROOT, 'data', 'applications.jsonl');
   let app = null;
   try {
@@ -171,16 +174,18 @@ async function closeApplication(n, reason) {
   } catch { return false; }
   if (!app) return false;
 
-  const rec = { ts: new Date().toISOString(), id: n, state: 'rejected', reason: reason || '' };
+  const rec = { ts: new Date().toISOString(), id: n, state, reason: reason || '' };
   writeFileSync(join(ROOT, 'data', 'application-verdicts.jsonl'), JSON.stringify(rec) + '\n', { flag: 'a' });
-  console.log(`[${rec.ts}] closed application #${n} → ${app.title} — ${app.company}`);
+  console.log(`[${rec.ts}] application #${n} → ${state} → ${app.title} — ${app.company}`);
   // ➤ ESCAPED (audit 2026-07-31). The title and the company come from a job
   // ➤ portal and the reason is what you typed — none of it is ours. Sent as
   // ➤ HTML without escaping, a title carrying "<" or "&" makes Telegram refuse
   // ➤ the whole message, so the confirmation that the application was closed
   // ➤ never arrives while the file has already changed.
-  await sendTelegram(`Closed #${n}: ${esc(app.title)} — ${esc(app.company)}. It now shows as rejected in <code>mail</code>.`
-    + (reason ? `\nReason: ${esc(reason)}` : ''), { html: true });
+  const said = state === 'interview'
+    ? `Interview recorded for #${n}: ${esc(app.title)} — ${esc(app.company)}. It shows in <code>mail</code> now.`
+    : `Closed #${n}: ${esc(app.title)} — ${esc(app.company)}. It now shows as rejected in <code>mail</code>.`;
+  await sendTelegram(said + (reason ? `\nNote: ${esc(reason)}` : ''), { html: true });
   return true;
 }
 
@@ -199,7 +204,7 @@ async function rejectWithReason(n, reason) {
     // ➤ bounces and nobody notices. That application would sit under "no reply"
     // ➤ for ever although you already know how it ended. Same word for the same
     // ➤ meaning: "no" closes it, and the answer survives the nightly rebuild.
-    if (await closeApplication(n, reason)) return;
+    if (await recordApplicationState(n, 'rejected', reason)) return;
     await sendTelegram(`There's no pending offer with the number #${n} (did you already remove it?). The numbers appear on each offer in the list.`);
     return;
   }
@@ -249,7 +254,7 @@ function coverCommand(n) {
   const child = execFile('node', [join(SCRIPT_DIR, 'cover-letter.mjs'), '--offer', String(n)],
     { cwd: ROOT, detached: true, stdio: 'ignore' });
   child.unref();
-  return sendTelegram(`Generating the cover letter for #${n}: ${off.title} — ${off.company}. It takes a few minutes and arrives on its own; the bot stays free meanwhile.`);
+  return sendTelegram(`Generating the cover letter for #${n}: ${off.title} — ${off.company}.`);
 }
 
 // ➤ The "search" command: launches a job search RIGHT now (without waiting for the
@@ -307,7 +312,7 @@ async function markApplied(n, { longshot = false, reason = '' } = {}) {
   const tag = longshot ? 'longshot' : 'applied';
   console.log(`[${new Date().toISOString()}] ${tag} #${n} → ${off.title} — ${off.company}${reason ? ` | ${reason}` : ''}`);
   await sendTelegram(longshot
-    ? `Longshot recorded: #${n} ${off.title} — ${off.company}.${reason ? `\nShort on: ${reason}` : ''}\nCounted as sent, but not as proof the offer suited you.`
+    ? `Longshot recorded: #${n} ${off.title} — ${off.company}.${reason ? `\nShort on: ${reason}` : ''}`
     : `Application recorded: #${n} ${off.title} — ${off.company}.`);
   // ➤ The confirmation stays; the list refreshes without this offer.
   await refreshList({ markSeen: true });
@@ -398,7 +403,17 @@ async function handle(text) {
       await sendTelegram('No status yet. It is built overnight from your inbox; if you have just set Gmail up, it appears after the next run.');
       return;
     }
-    await sendTelegram(formatStatus(status), { html: true });
+    // ➤ ONE mail report in the chat, not a pile: each "mail" replaces the
+    // ➤ previous report, the same discipline as the live list. Send FIRST,
+    // ➤ delete after — a failed send must never leave the chat with no report
+    // ➤ at all. The previous id rides in data/mail-message.json.
+    const MAIL_MSG_PATH = join(ROOT, 'data', 'mail-message.json');
+    const prev = loadJson(MAIL_MSG_PATH, null);
+    const id = await sendTelegramMessage(formatStatus(status), { html: true });
+    if (id != null) {
+      writeFileAtomic(MAIL_MSG_PATH, JSON.stringify({ message_id: id, ts: new Date().toISOString() }));
+      if (prev?.message_id != null && prev.message_id !== id) await deleteTelegramMessage(prev.message_id);
+    }
     return;
   }
   if (/^blind$/i.test(t)) {
@@ -433,6 +448,18 @@ async function handle(text) {
     }
     return;
   }
+  // ➤ "interview 749 friday 9am" — an interview arranged where the inbox cannot
+  // ➤ see it: a phone call, LinkedIn, or a Calendar event you created yourself
+  // ➤ (its invite mail comes FROM you, and mail reading skips your own). The
+  // ➤ trailing text is an optional note, kept with the record.
+  if (/^interview[\s,:]*#?\d+/i.test(t)) {
+    const m = t.match(/^interview[\s,:]*#?(\d+)[\s,.:—-]*(.*)$/i);
+    const n = parseInt(m[1], 10);
+    if (!(await recordApplicationState(n, 'interview', m[2].trim()))) {
+      await sendTelegram(`No application with the number #${n}. <code>interview</code> works on applications you marked with <code>applied</code>.`, { html: true });
+    }
+    return;
+  }
   // ➤ Is it "no 3 reason..." (or stuck together "no3")? → reject the offer
   // ➤ recording why. (Optional separator — audit 2026-07-18: "no5"
   // ➤ typed quickly fell through to the help text.)
@@ -463,7 +490,7 @@ async function main() {
   if (!cfg?.bot_token || !cfg?.chat_id) {
     if (process.stdout.isTTY) {
       console.log(!cfg?.bot_token
-        ? 'Not set up yet: server-bot/telegram.json is missing its bot_token. Run: bash setup.sh'
+        ? 'Not set up yet: server-bot/telegram.json is missing its bot_token. Run setup-windows.bat (Windows) or: bash setup-linux-mac.sh'
         : 'Almost there: telegram.json has a token but no chat_id. Send your bot any message, then run: node server-bot/notify.mjs --setup');
     }
     return;

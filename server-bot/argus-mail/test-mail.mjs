@@ -573,6 +573,14 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
     ]);
     eq(twice[0].state, 'interview', 'the newest decision is the one that counts');
 
+    // ➤ The "interview N" command writes exactly this record — for interviews
+    // ➤ the inbox cannot see (a phone call, a Calendar event you created: its
+    // ➤ invite mail comes FROM you, and mail reading skips your own). It must
+    // ➤ land on the application AND in the summary's interview counter.
+    const met = applyVerdicts(base, [{ id: 21, state: 'interview', reason: 'video call friday 9am', ts: '2026-07-19T10:00:00Z' }]);
+    eq(met[1].state, 'interview', 'a hand-recorded interview lands like any verdict');
+    eq(summarise(met).interview, 1, 'and the summary counts it');
+
     // ➤ A junk line must not take the file down with it.
     eq(applyVerdicts(base, [null, { id: 'x' }, { state: 'rejected' }])[0].state, 'noreply', 'unusable lines are ignored');
     eq(applyVerdicts(base, []).length, 2, 'and no verdicts changes nothing');

@@ -45,9 +45,13 @@ not returned an estimated one, so you are unlikely to ever see it.
 
 ## Setup
 
+**Get the code without git:** press the green **Code** button above and choose
+**Download ZIP**, then unzip it anywhere. Git is only a way of downloading;
+Argus never needs it to run. (Developers can clone as usual.)
+
 **Required:** Node.js 20 or newer (the code uses the built-in `fetch`; the
 cover-letter printer needs 20) and a Telegram bot token. That is all the job
-search itself needs.
+search itself needs — and on Windows the setup below installs Node for you.
 
 **You do not need a server.** The engine is plain Node and runs natively on
 Windows, macOS and Linux — a laptop is fine. What it does need is to be awake
@@ -55,10 +59,20 @@ when a scan is due: on an always-on machine it works round the clock, and on a
 laptop you close at night it simply searches when the laptop is open. Nothing
 breaks either way.
 
-**On Windows**, run `setup.sh` from Git Bash (it ships with Git for Windows) or
-from WSL, since it is a shell script. Scheduling is the one genuinely Unix-shaped
-part: use Task Scheduler for the four jobs below, or run the whole thing inside
-WSL and use cron there.
+**On Windows**, first take the internet mark off the ZIP so nothing warns
+later: right-click the downloaded ZIP, **Properties**, tick **Unblock**, OK —
+and only then extract it. (Skip that and Windows shows "this file has no valid
+digital signature" on the first double-click; that is what it says about ANY
+free program not signed with a paid publisher certificate, and Run continues
+anyway. The unblock step just spares you the scare.)
+
+Then double-click **`setup-windows.bat`** in the unzipped folder (shown as just
+"setup-windows" when Windows hides file extensions). No Git Bash, no WSL, no
+admin rights beyond Windows's own permission prompt when Node.js has to be
+installed: it installs Node.js by itself if it is missing (via winget),
+installs the dependencies, walks you through the Telegram token, and creates
+the four scheduled tasks in Task Scheduler. On macOS and Linux, run
+`bash setup-linux-mac.sh` — same steps, cron instead of Task Scheduler.
 
 **Optional extras**, each one only unlocks its own feature and nothing breaks
 without it:
@@ -69,8 +83,9 @@ without it:
 | The Claude CLI, installed and logged in (`npm i -g @anthropic-ai/claude-code`, then `claude setup-token` → `server-bot/claude-token.json`) | `cover N` (AI cover letters) and the Council | searching, filtering and Telegram work exactly the same; the Council ships **off** |
 | Chromium (`npx playwright install chromium`) | the cover letter as a PDF | — |
 
-**Quickest way:** `bash setup.sh` walks you through all of it (dependencies,
-bot token, chat linking and the cron lines). Or do it by hand:
+**Quickest way:** `setup-windows.bat` (Windows) or `bash setup-linux-mac.sh`
+(macOS/Linux) walks you through all of it (dependencies, bot token, chat
+linking and the scheduling). Or do it by hand:
 
 ```bash
 npm install
@@ -85,7 +100,8 @@ node server-bot/notify.mjs --setup
 Next, run it on a schedule (the bot does not schedule itself). Do this **before**
 the step below: the listener line is the one that receives your Telegram
 commands, so until it is running the bot cannot answer, not even `/start`.
-`setup.sh` offers to install all four for you. If you skipped it, here they are:
+`setup-linux-mac.sh` offers to install all four for you. If you skipped it,
+here they are:
 
 ```cron
 *    * * * * cd /path/to/argus && /usr/bin/flock -n /tmp/argus-listener.lock /usr/bin/node server-bot/telegram-listener.mjs >> server-bot/listener.log 2>&1
@@ -94,8 +110,8 @@ commands, so until it is running the bot cannot answer, not even `/start`.
 0 9   * * 0 cd /path/to/argus && /usr/bin/node server-bot/housekeep.mjs >> server-bot/scan.log 2>&1
 ```
 
-On **Windows**, the same four go into Task Scheduler. `setup.sh` prints them
-filled in with your own paths; the shape is:
+On **Windows**, the same four go into Task Scheduler — `setup-windows.bat`
+creates them for you. Doing it by hand instead, the shape is:
 
 ```powershell
 schtasks /create /tn "Argus listener" /sc minute /mo 1 /tr '"C:\Program Files\nodejs\node.exe" "C:\path\to\argus\server-bot\telegram-listener.mjs"'
@@ -174,9 +190,11 @@ reveal — the seagoing rotation, the technician role dressed as engineering, th
 language demand. **The Ugly** reads the actual day-to-day and breaks ties.
 Majority of three.
 
-They run in **shadow**: the verdict goes to a journal that nothing reads back.
-No offer is ever kept or dropped because of a judge, and the whole thing ships
-off.
+They run in **shadow**: the verdict goes to a journal, and with the Council
+switched on the pending list shows each offer's word — `[YES]`, `[MYB]` or
+`[NO]` — right on its line. That is advice next to the offer, never a
+decision: no offer is ever kept or dropped because of a judge, and the whole
+thing ships off.
 
 That is not caution for its own sake. It is what the measurement said. On 63
 offers with a real decision behind them the Council agreed 49 times — but it

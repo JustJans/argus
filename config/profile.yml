@@ -22,6 +22,10 @@ candidate:
 search:
   max_years: 2            # drop offers that clearly require more years than this
 
+  # Highest degree you hold (free text: BSc, MSc, HND...). The Council's judges
+  # read it so an offer that firmly demands a higher one counts as a barrier.
+  highest_degree: BSc
+
   # Languages you can work in. An offer whose TITLE is in another language is
   # dropped (a strong proxy for the working language). Use 2-letter codes.
   languages:

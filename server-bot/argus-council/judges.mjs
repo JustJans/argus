@@ -150,6 +150,10 @@ function profileBriefing() {
   if (degOut) lines.push(`- Degrees the candidate does NOT have (a hard requirement for one is a barrier): ${degOut}.`);
   const langs = list(s.languages);
   if (langs) lines.push(`- Languages the candidate works in: ${langs}. A different language REQUIRED by the body is a barrier.`);
+  // ➤ The study level was missing from this briefing, and it cost a verdict: a
+  // ➤ judge QUOTED a hard Master's requirement and still voted show, because no
+  // ➤ line here said the candidate does not hold one.
+  if (s.highest_degree) lines.push(`- Highest degree held: ${s.highest_degree}. An offer that FIRMLY requires a higher one (a Master's with no Bachelor accepted, a PhD) is a barrier.`);
   const countries = list(s.countries);
   if (countries) lines.push(`- Places that work: ${countries}${s.home_city ? ` (home city: ${s.home_city})` : ''}.`);
   if (!lines.length) return '';

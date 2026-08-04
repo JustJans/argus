@@ -91,17 +91,32 @@ const FETCH_TIMEOUT_MS = 15_000;
 
 // ➤ Cleans a text by removing the characters that would break the format of
 // ➤ the lists (vertical bars, tabs, line breaks).
+// ➤ The entity decoding on its own, because TWO things need to agree on it: the
+// ➤ text written to pipeline.md, and the duplicate key built from a title that
+// ➤ has NOT been written yet. They did not agree, and the barrier died — see
+// ➤ decodeTitleEntities below.
+// ➤ REPEATED UNTIL IT SETTLES: LinkedIn sends "&amp;amp;", so one pass leaves
+// ➤ "&amp;" behind. Bounded at three, which is two more than anything real.
+// ➤ Named apart from decodeEntities further down: that one unwraps the XML a
+// ➤ feed arrives in, this one is the plain-text rule shared by the two keys.
+function decodeFieldEntities(s) {
+  let out = String(s || '');
+  for (let pass = 0; pass < 3; pass++) {
+    const before = out;
+    out = out
+      .replace(/&(?:amp|#38);/gi, '&')
+      .replace(/&(?:nbsp|#160);/gi, ' ')
+      .replace(/&(?:quot|#34);/gi, '"')
+      .replace(/&(?:apos|#39|rsquo|lsquo);/gi, "'")
+      .replace(/&(?:lt|#60);/gi, '<').replace(/&(?:gt|#62);/gi, '>')
+      .replace(/&(?:ndash|#8211);/gi, '-').replace(/&(?:mdash|#8212);/gi, '—');
+    if (out === before) break;
+  }
+  return out;
+}
+
 function sanitizeField(s) {
-  // ➤ HTML ENTITIES are decoded here (audit 2026-07-25): portals return titles
-  // ➤ like "Gearboxes &amp; Powertrain" and that "&amp;" was reaching Telegram
-  // ➤ verbatim, because only the offer BODY was ever decoded.
-  return String(s || '')
-    .replace(/&(?:amp|#38);/gi, '&')
-    .replace(/&(?:nbsp|#160);/gi, ' ')
-    .replace(/&(?:quot|#34);/gi, '"')
-    .replace(/&(?:apos|#39|rsquo|lsquo);/gi, "'")
-    .replace(/&(?:lt|#60);/gi, '<').replace(/&(?:gt|#62);/gi, '>')
-    .replace(/&(?:ndash|#8211);/gi, '-').replace(/&(?:mdash|#8212);/gi, '—')
+  return decodeFieldEntities(s)
     .replace(/[|\t\r\n]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
 }
 
@@ -233,7 +248,9 @@ function detectApi(company) {
 // ➤ reading it costs no extra request. Greenhouse only includes it when the URL
 // ➤ asks for it, which is done in greenhouseUrlWithContent below.
 export function parseGreenhouse(json, name) {
-  return (json.jobs || []).map(j => ({
+  // ➤ Tolerant like every other parser here: a degraded feed is a quiet board,
+  // ➤ not a crash dressed up as one.
+  return (Array.isArray(json?.jobs) ? json.jobs : []).filter(Boolean).map(j => ({
     title: j.title || '', url: j.absolute_url || '', company: name,
     location: j.location?.name || '',
     // ➤ Greenhouse sends the advert with its markup ESCAPED ("&lt;p&gt;"),
@@ -254,7 +271,7 @@ export function unescapeEntities(text) {
     .replace(/&amp;/gi, '&');
 }
 export function parseAshby(json, name) {
-  return (json.jobs || []).map(j => ({
+  return (Array.isArray(json?.jobs) ? json.jobs : []).filter(Boolean).map(j => ({
     title: j.title || '', url: j.jobUrl || '', company: name,
     location: j.location || '',
     description: j.descriptionHtml || j.descriptionPlain || '',
@@ -448,7 +465,12 @@ async function collectWorkday(api, name, searchTerms, onPartial = () => {}) {
 // ➤ "…/vacancies/production-automation-system-engineer-rotterdam-2807en".
 // ➤ Good enough for the title filter, which is all it is used for.
 export function slugTitle(url) {
-  const last = decodeURIComponent(String(url || '').split(/[?#]/)[0].replace(/\/+$/, '').split('/').pop() || '');
+  const raw = String(url || '').split(/[?#]/)[0].replace(/\/+$/, '').split('/').pop() || '';
+  // ➤ decodeURIComponent THROWS on malformed percent-encoding, and this runs
+  // ➤ once per sitemap URL — one bad link took the whole board down with it.
+  // ➤ The raw slug still carries the words the title filter needs.
+  let last = raw;
+  try { last = decodeURIComponent(raw); } catch { /* keep the raw slug */ }
   return last.replace(/-\d+[a-z]*$/i, '').replace(/[-_]+/g, ' ').trim();
 }
 
@@ -752,6 +774,7 @@ async function collectLinkedIn(cfg) {
   const byUrl = new Map();
   let calls = 0;
   let rateLimited = false;
+  let refused = 0, lastRefused = 0;
 
   for (const q of cfg.queries || []) {
     const params = new URLSearchParams({
@@ -774,7 +797,7 @@ async function collectLinkedIn(cfg) {
       calls++;
       // ➤ If LinkedIn responds "too many requests", it stops dead.
       if (res.status === 429) { rateLimited = true; break; }
-      if (!res.ok) continue;
+      if (!res.ok) { refused++; lastRefused = res.status; continue; }
       for (const o of parseLinkedInCards(await res.text())) byUrl.set(o.url, o);
       await new Promise(r => setTimeout(r, 1500)); // gentle pacing between queries
     } catch { /* skip query on network error */ }
@@ -790,7 +813,13 @@ async function collectLinkedIn(cfg) {
 
   return {
     offers: [...byUrl.values()], calls,
-    status: rateLimited ? 'RATE-LIMITED (24h cooldown set)' : 'ran',
+    // ➤ "ran" used to cover every outcome short of a 429, so a LinkedIn that
+    // ➤ answers 403 to every call — a permanent block — read exactly like a
+    // ➤ healthy run with no matches. Refusals and total silence say so now.
+    status: rateLimited ? 'RATE-LIMITED (24h cooldown set)'
+      : calls > 0 && refused === calls ? `BLOCKED (HTTP ${lastRefused} on every call)`
+      : calls === 0 && (cfg.queries || []).length ? 'unreachable (every query failed on the network)'
+      : 'ran',
   };
 }
 
@@ -1001,8 +1030,18 @@ async function fetchOfferDescription(o, targetsByName) {
 // ➤ other named language in the title is a requirement that can't be met.
 const TITLE_LANG_DEMAND = /\b(german|deutsch|french|dutch|nederlands|flemish|italian|norwegian|danish|swedish|polish|portuguese)\b[^)]{0,25}?(speak(?:ing|er)?|sprechend|sprachig|parlant)/i;
 
+// ➤ ENGLISH AS AN ALTERNATIVE IS NOT A DEMAND. "German or English speaking"
+// ➤ and "Dutch/English speaking" both accept English, so the owner qualifies —
+// ➤ only "and" chains the two into a real requirement. In doubt, keep: a
+// ➤ false drop loses the offer in silence, a false keep costs one tap.
+const OTHER_LANG = '(?:german|deutsch|french|dutch|nederlands|flemish|italian|norwegian|danish|swedish|polish|portuguese)';
+const ALT_JOIN = String.raw`\s*(?:/|,?\s+(?:or|oder|of|ou|o)\s+)\s*`;
+const ENGLISH_ALTERNATIVE = new RegExp(
+  String.raw`\b${OTHER_LANG}\b${ALT_JOIN}english\b|\benglish\b${ALT_JOIN}${OTHER_LANG}\b`, 'i');
+
 export function titleDemandsForeignLanguage(title) {
-  return TITLE_LANG_DEMAND.test(String(title || ''));
+  const t = String(title || '');
+  return TITLE_LANG_DEMAND.test(t) && !ENGLISH_ALTERNATIVE.test(t);
 }
 
 // ➤ BODY LANGUAGE RULE (refined by the user on 2026-07-18): the language in
@@ -1162,8 +1201,10 @@ function boundaryRegex(term, optionalPlural) {
   // ➤ Optionally allows the plural and the German female forms
   // ➤ (Technikerin, Projektmanagerinnen) without opening the door to other words.
   // ➤ "-es" added 2026-07-13: the Spanish plural in -ores ("Soldadores")
-  // ➤ dodged the negative "Soldador" (#566).
-  const trail = /\w$/.test(raw) ? (optionalPlural ? '(?:s|es|in|innen)?\\b' : '\\b') : '';
+  // ➤ dodged the negative "Soldador" (#566). "-en" is the German and Dutch
+  // ➤ plural (Bacheloranden #753, and Senioren, Professoren, Directeuren
+  // ➤ would all have dodged their negatives the same way).
+  const trail = /\w$/.test(raw) ? (optionalPlural ? '(?:s|es|en|in|innen)?\\b' : '\\b') : '';
   return new RegExp(lead + esc + trail, 'i');
 }
 
@@ -1300,7 +1341,12 @@ export function buildCountryFilter(cfg = null) {
   const countries = cfg.countries || {};
   const aliases = cfg.aliases || {};
   // ➤ Keeps only the countries marked as off (false).
-  const off = Object.entries(countries).filter(([, on]) => on === false).map(([c]) => c);
+  // ➤ A hand-typed toggle counts however YAML reads it. js-yaml follows YAML
+  // ➤ 1.2, where `no` and `off` are STRINGS, not booleans — and this file is
+  // ➤ edited by hand, so `Germany: no` switched nothing off and said nothing.
+  // ➤ The written forms of "off" are honoured; anything else leaves it on.
+  const isOff = v => v === false || /^(?:no|off|false)$/i.test(String(v).trim());
+  const off = Object.entries(countries).filter(([, on]) => isOff(on)).map(([c]) => c);
 
   // ➤ WHOLE-WORD matching (audit 2026-07-25). This used to be a raw substring
   // ➤ test, so switching Denmark off also killed anything in "Brandenburg" (its
@@ -1371,7 +1417,10 @@ function loadSeenUrls() {
 // ➤ anonymous "Offshore Engineer" in the country shared one key and the second
 // ➤ one was thrown away as a repost of the first. No key means no role barrier;
 // ➤ the link barrier still catches a genuine duplicate.
-const NOT_AN_EMPLOYER = new Set(['', 'adzuna']);
+// ➤ Exported: housekeep's weekly dedup keys on company+title too, and a rule
+// ➤ written twice is how the two ends drift. LinkedIn is here for the same
+// ➤ reason as Adzuna — parseLinkedInCards writes it when the ad names nobody.
+export const NOT_AN_EMPLOYER = new Set(['', 'adzuna', 'linkedin']);
 
 export function roleKey(company, title) {
   // ➤ Also (Lonza case #595/#602, 2026-07-18): German portals
@@ -1380,7 +1429,14 @@ export function roleKey(company, title) {
   // ➤ before comparing, so the re-post doesn't dodge your decision.
   // ➤ (2026-07-19, Sartorius case "(x w m)") the separator of the gender tag
   // ➤ can also be a simple space, not only / | , .
-  const norm = s => String(s).toLowerCase()
+  // ➤ ENTITIES FIRST, or the key never matches the one rebuilt from disk. This
+  // ➤ key is built from the title as the BOARD sent it, while pipeline.md holds
+  // ➤ the title after sanitizeField decoded it — so "Automation &amp; Controls
+  // ➤ Engineer" produced two different keys and the barrier was dead for it.
+  // ➤ Nine of 1,016 real titles carry an entity, all of them his kind of role,
+  // ➤ and the effect is that a re-post under a new link comes back and a "no"
+  // ➤ on it never sticks.
+  const norm = s => decodeFieldEntities(String(s)).toLowerCase()
     .replace(/\(\s*(?:(?:m|w|f|d|x|h|v)(?:\s*[/|,.]?\s*(?:m|w|f|d|x|h|v))+|all\s*genders?|gn)\s*\)/gi, ' ')
     .replace(/\b\d{2,3}\s*[-–]\s*\d{2,3}\s*%|\b\d{2,3}\s*%/g, ' ')
     .replace(/[–—]/g, '-').replace(/\s+/g, ' ').replace(/[\s,.;:-]+$/, '').trim();
@@ -1422,7 +1478,8 @@ function loadSeenCompanyRoles() {
     for (const m of text.matchAll(/\|[^|]+\|[^|]+\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|/g)) {
       const company = m[1].trim();
       const role = m[2].trim();
-      if (company && role && company.toLowerCase() !== 'company') seen.add(roleKey(company, role));
+      const k = (company && role && company.toLowerCase() !== 'company') ? roleKey(company, role) : '';
+      if (k) seen.add(k);
     }
   }
   if (existsSync(PIPELINE_PATH)) {
@@ -1438,7 +1495,8 @@ function loadSeenCompanyRoles() {
     for (const line of readFileSync(FEEDBACK_PATH, 'utf-8').split('\n')) {
       try {
         const r = JSON.parse(line);
-        if (r?.company && r?.title) seen.add(roleKey(r.company, r.title));
+        const k = (r?.company && r?.title) ? roleKey(r.company, r.title) : '';
+        if (k) seen.add(k);
       } catch { /* corrupt line: ignored */ }
     }
   }
@@ -1473,7 +1531,10 @@ export function admissionVerdict(job, gates) {
   if (!country.fn(job.location)) return { ok: false, stage: 'COUNTRY', reason: `country turned off by you: ${job.location || ''}` };
 
   if (seenUrls?.has(normUrl(job.url))) return { ok: false, stage: 'DUPLICATE', reason: 'already seen (same link)' };
-  if (seenRoles?.has(roleKey(job.company, job.title))) return { ok: false, stage: 'DUPLICATE', reason: 'already seen (same company and role)' };
+  // ➤ An empty key means the advertiser is not named, so there is nothing to
+  // ➤ compare: the link barrier above is the only one that applies.
+  const role = roleKey(job.company, job.title);
+  if (role && seenRoles?.has(role)) return { ok: false, stage: 'DUPLICATE', reason: 'already seen (same company and role)' };
 
   return { ok: true };
 }
@@ -1766,7 +1827,7 @@ async function main() {
 
   // ➤ Counters for the final summary: found, discarded by
   // ➤ title/location/country, and duplicates.
-  let found = 0, fTitle = 0, fLoc = 0, fCountry = 0, fCompany = 0, dupes = 0;
+  let found = 0, fTitle = 0, fLoc = 0, fCountry = 0, fCompany = 0, fNoLink = 0, dupes = 0;
   const newOffers = [];
   const errors = [];
   // ➤ Optional sources that were not used because they are not set up. Kept
@@ -1793,8 +1854,6 @@ async function main() {
   // ➤ one and the two duplicate checks. Only then is it
   // ➤ accepted as a new offer.
   function admit(job, source) {
-    if (!job.url || !isSafeUrl(job.url)) { logDrop('NO LINK', 'the offer had no usable/safe link', job, source); return; }
-    // ➤ Company blocked by you (portals.yml blocklist): out, without looking further.
     const v = admissionVerdict(job, { companyFilter, titleFilter, locationFilter, country, seenUrls, seenRoles });
 
     if (!v.ok) {
@@ -1803,6 +1862,13 @@ async function main() {
       else if (v.stage === 'LOCATION') fLoc++;
       else if (v.stage === 'COUNTRY') fCountry++;
       else if (v.stage === 'DUPLICATE') dupes++;
+      // ➤ THE FIRST GATE HAD NO COUNTER, so an offer thrown out for a missing or
+      // ➤ unsafe link appeared in no line of the summary at all — not a count,
+      // ➤ not an error, not a field in last-scan.json. It is zero on a healthy
+      // ➤ run, which is exactly why it would go unnoticed: the day a board
+      // ➤ renames the field its links come from, every one of its offers leaves
+      // ➤ by this door and the summary still reads like a quiet week.
+      else if (v.stage === 'NO LINK') fNoLink++;
 
       // ➤ Recorded ALWAYS, not only under --explain: the point is that these
       // ➤ drops stop being invisible between manual investigations.
@@ -1823,7 +1889,8 @@ async function main() {
     }
 
     seenUrls.add(normUrl(job.url));
-    seenRoles.add(roleKey(job.company, job.title));
+    const key = roleKey(job.company, job.title);
+    if (key) seenRoles.add(key);
     newOffers.push({ ...job, source });
   }
 
@@ -1832,6 +1899,12 @@ async function main() {
   // ➤ How many sources answered at all. Used at the end to tell "a quiet week"
   // ➤ from "nothing could be reached", which look identical otherwise.
   let sourcesOk = 0;
+  // ➤ Boards that ANSWER with zero postings, named. An answered zero never trips
+  // ➤ the no-answer alarm, and three boards sat wrong for weeks behind exactly
+  // ➤ that: a stale tenant (5 postings, the real board had 733), an absorbed
+  // ➤ brand (0), and one legitimate quiet board. The line is one glance to tell
+  // ➤ which of those you have.
+  const emptyBoards = [];
   const tasks = targets.map(c => async () => {
     try {
       let jobs;
@@ -1862,6 +1935,7 @@ async function main() {
       // ➤ feed, and it SAYS SO rather than truncating in silence.
       jobs = capJobs(jobs, c.name);
       sourcesOk++;
+      if (jobs.length === 0) emptyBoards.push(c.name);
       found += jobs.length;
       for (const job of jobs) admit(job, `${c._api.type}-api`);
     } catch (err) {
@@ -1998,7 +2072,7 @@ async function main() {
   // ➤ the offer stays. With that same text the refined language rule
   // ➤ is applied (2026-07-18): it doesn't matter which language the
   // ➤ offer is WRITTEN in; it's only discarded if the body REQUIRES a language the user does not speak.
-  let fExp = 0, fDeferred = 0;
+  let fExp = 0, fDeg = 0, fDeferred = 0;
   const expCfg = config.experience_filter || {};
   if (expCfg.enabled !== false && newOffers.length > 0 && !args.includes('--no-expcheck')) {
     // ➤ Years cap comes from your profile (search.max_years); portals.yml or 4
@@ -2060,7 +2134,10 @@ async function main() {
     }
     if (allDrops.size) {
       const kept = newOffers.filter((_, i) => !allDrops.has(i));
-      fExp = drops.size;
+      // ➤ Years and degree are different verdicts and were reported as one:
+      // ➤ a drop for a degree the owner lacks was printed under "exp. years".
+      fExp = [...drops].filter(i => !newOffers[i].degree).length;
+      fDeg = [...drops].filter(i => newOffers[i].degree).length;
       fLang += langDrops.size;
       fDeferred = deferred.size;
       newOffers.length = 0;
@@ -2113,6 +2190,27 @@ async function main() {
     appendToPipeline(newOffers);
     appendToScanHistory(newOffers, date);
     if (!process.env.ARGUS_SKIP_LIST_REFRESH) {
+      // ➤ THE LIST WAITS FOR THE COUNCIL (the user, 2026-08-03). The alert used
+      // ➤ to go out the moment the offers landed, and the verdicts arrived by a
+      // ➤ silent replacement ~3 minutes later — so the ping always showed the
+      // ➤ newest offer with no [YES]/[NO] on it. With the Council on, the new
+      // ➤ offers are judged FIRST and the one alerted list already carries
+      // ➤ every verdict. Capped and best-effort: judges failing or timing out
+      // ➤ mean an untagged list, never a missing or a late one.
+      // ➤ (The interactive "search" path skips this block with the refresh.)
+      if (config.council?.enabled === true) {
+        const { execFile } = await import('child_process');
+        await new Promise(resolve => {
+          execFile(process.execPath,
+            [join(SCRIPT_DIR, 'argus-council', 'judge-shadow.mjs'), '--pending-only', '--no-refresh'],
+            { cwd: ROOT, timeout: 12 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 },
+            (err, stdout) => {
+              const tail = String(stdout || '').trim().split('\n').pop() || 'no output';
+              console.log(`Council before the list: ${err ? `skipped (${String(err.message).slice(0, 120)})` : tail}`);
+              resolve();
+            });
+        });
+      }
       try {
         const { refreshList } = await import(new URL('./live-list.mjs', import.meta.url));
         const n = await refreshList({ alert: true });
@@ -2159,9 +2257,11 @@ async function main() {
       rate_limited: adzunaRateLimited,
       lang_filtered: fLang,
       exp_filtered: fExp,
+      degree_filtered: fDeg,
       linkedin_calls: liCalls,
       linkedin_status: liStatus,
       dropped_dead: prunedDead,
+      no_link: fNoLink,
       telegram,
       errors: errors.length,
     }, null, 2));
@@ -2172,18 +2272,23 @@ async function main() {
   console.log(`\n${'━'.repeat(45)}`);
   console.log(`Portal Scan (extended) — ${date}`);
   console.log(`${'━'.repeat(45)}`);
-  console.log(`Companies scanned:     ${targets.length}`);
+  console.log(`Companies scanned:     ${targets.length}${sourcesOk < targets.length ? ` (${sourcesOk} answered)` : ''}`);
+  if (emptyBoards.length) console.log(`  boards that answered with zero postings: ${emptyBoards.join(', ')}`);
   console.log(`Total jobs found:      ${found}`);
   console.log(`Filtered by title:     ${fTitle}`);
   console.log(`Filtered by company:   ${fCompany} (blocklist)`);
   console.log(`Filtered by location:  ${fLoc}`);
   console.log(`Filtered by country:   ${fCountry} (toggled OFF)`);
+  // ➤ Printed only when it happens: on a healthy run it is zero, and a line of
+  // ➤ zeros every two hours is how a number stops being read.
+  if (fNoLink) console.log(`Dropped, no usable link: ${fNoLink}  <-- a board may have changed its link field`);
   console.log(`Duplicates:            ${dupes}`);
   if (adzunaWanted) {
     console.log(`Adzuna API calls:      ${adzunaCalls} ok, ${adzunaFailed} failed${adzunaRateLimited ? ' (RATE LIMITED)' : ''}`);
   }
   console.log(`Filtered by language:  ${fLang} (title not in EN/ES/CA)`);
   console.log(`Filtered by exp. years:${fExp} (require > threshold)`);
+  console.log(`Filtered by degree:    ${fDeg} (requires one you lack)`);
   if (fDeferred) console.log(`Deferred (body unread): ${fDeferred} — retried on the next scan`);
   if (liCfg.enabled) console.log(`LinkedIn:              ${liCalls} calls (${liStatus})`);
   console.log(`Dropped (dead):        ${prunedDead}`);

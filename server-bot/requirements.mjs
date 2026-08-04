@@ -375,7 +375,11 @@ function masterRequired(t) {
 
 export function degreeScreen(text, title) {
   const ttl = String(title || '');
-  const t0 = String(text || '').toLowerCase().replace(/\s+/g, ' ');
+  // ➤ Typographic apostrophes fold to ASCII first: a real Heerema posting wrote
+  // ➤ "A Master's degree" with U+2019 and the master's rule — the ONE rule that
+  // ➤ pierces the automation-title exemption below — never matched it, so the
+  // ➤ offer sailed through to the phone.
+  const t0 = String(text || '').replace(/[’‘]/g, "'").toLowerCase().replace(/\s+/g, ' ');
   // ➤ Order matters: a title from HIS field is always saved, even from the
   // ➤ master's rule — there the user is a real candidate and the false drop is the
   // ➤ expensive one. The master's only pierces automation and generic titles.

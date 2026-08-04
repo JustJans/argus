@@ -18,8 +18,10 @@
  * Run: node server-bot/test-notify.mjs
  */
 
-import { readFileSync } from 'fs';
-import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc, languageOfPlace, translateTitle, MAX_CHUNK, MAX_TITLE_CHARS, TELEGRAM_LIMIT } from './notify.mjs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc, languageOfPlace, translateTitle, MAX_CHUNK, MAX_TITLE_CHARS, TELEGRAM_LIMIT, councilVerdicts } from './notify.mjs';
 
 const matchers = loadCountryMatchers();
 let failures = 0;
@@ -276,5 +278,34 @@ check(languageOfPlace('Francesca Ltd, Aberdeen'), '', 'a name that merely contai
 }
 
 // ➤ "exit(1)" tells the system that something is wrong.
+// ➤ ── THE COUNCIL'S WORD ON THE LIST ───────────────────────────────────
+// ➤ show → [YES], tie → [MYB], hide → [NO], straight from the journal — and only
+// ➤ while the Council is switched on, so with it off the list never changes.
+{
+  const dir = join(dirname(fileURLToPath(import.meta.url)), 'tmp-test-council');
+  mkdirSync(dir, { recursive: true });
+  const pOn = join(dir, 'on.yml'), pOff = join(dir, 'off.yml'), pJ = join(dir, 'j.jsonl');
+  writeFileSync(pOn, ['council:', '  enabled: true', ''].join(String.fromCharCode(10)));
+  writeFileSync(pOff, ['council:', '  enabled: false', ''].join(String.fromCharCode(10)));
+  writeFileSync(pJ, [
+    JSON.stringify({ url: 'https://x/a', id: 5, council: 'show' }),
+    JSON.stringify({ url: 'https://x/b', id: 6, council: 'tie' }),
+    JSON.stringify({ url: 'https://x/c', id: 7, council: 'hide' }),
+    '{broken line',
+  ].join(String.fromCharCode(10)));
+  const v = councilVerdicts({ portalsPath: pOn, journalPath: pJ });
+  check(v.get('https://x/a'), 'YES', 'the Council speaks YES for show');
+  check(v.get('#6'), 'MYB', 'MYB for tie, reachable by number too');
+  check(v.get('https://x/c'), 'NO', 'and NO for hide');
+  check(v.get('https://x/never'), undefined, 'an unjudged offer says nothing');
+  check(councilVerdicts({ portalsPath: pOff, journalPath: pJ }), null, 'with the Council off the journal is not even read');
+  const empty = councilVerdicts({ portalsPath: pOn, journalPath: join(dir, 'missing.jsonl') });
+  check(empty instanceof Map && empty.size === 0, true, 'on but nothing judged yet: an empty map, not a crash');
+  // ➤ And the word is sewn onto the offer line itself, in both renderings.
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'notify.mjs'), 'utf-8');
+  check(/verdicts\.get\(o\.url\)/.test(src) && src.includes(' [${word}]'), true, 'the verdict rides the offer line as a [TAG]');
+  rmSync(dir, { recursive: true, force: true });
+}
+
 console.log(failures === 0 ? `All ${total} notify tests passed.` : `${failures}/${total} FAILED.`);
 process.exit(failures === 0 ? 0 : 1);

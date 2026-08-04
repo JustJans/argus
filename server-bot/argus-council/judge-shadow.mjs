@@ -203,10 +203,17 @@ async function main() {
     }
   }
 
+  // ➤ --pending-only + --no-refresh: how the SCAN calls this file right before
+  // ➤ sending the list, so the new offers reach the phone with their verdict
+  // ➤ already on. Only the presented ones matter for that; the dropped sample
+  // ➤ keeps its place in the cron run, and the list is sent by the scan itself.
+  const pendingOnly = args.includes('--pending-only');
+  const noRefresh = args.includes('--no-refresh');
+
   // ➤ 1) The PRESENTED ones: the pending offers Argus showed (they carry URL and id).
   const presented = pendingOffers().map(o => ({ ...o, source: 'pending', botDecision: 'presented' }));
   // ➤ 2) The SAMPLE of dropped ones (by title), if the file exists.
-  const dropped = existsSync(EXPLAIN_PATH)
+  const dropped = (!pendingOnly && existsSync(EXPLAIN_PATH))
     ? sampleDropped(readFileSync(EXPLAIN_PATH, 'utf-8'), cfg.sample_dropped)
     : [];
   let work = [...presented, ...dropped];
@@ -259,6 +266,16 @@ async function main() {
   if (failed) appendFileSync(LOG_PATH, `Batch stopped: the judges could not answer (${failed} offer(s) left unjudged; they will be retried).\n`);
   appendFileSync(LOG_PATH, `Summary: SHOW ${tally.show} · HIDE ${tally.hide} · ties ${tally.tie}\n`);
   console.log(`Done. ${done} offer(s) → data/judge-shadow.jsonl (machine) and data/council-log.txt (readable).`);
+  // ➤ The verdicts just written are SHOWN on the Telegram list, and the list
+  // ➤ the scan sent minutes ago predates them. One silent refresh and the new
+  // ➤ offers carry their word now, not two hours from now.
+  if (done > 0 && !noRefresh) {
+    try {
+      const { refreshList } = await import('../live-list.mjs');
+      await refreshList({ alert: false });
+      console.log('List refreshed so the new verdicts show.');
+    } catch { /* the verdicts are safe in the journal; the next refresh shows them */ }
+  }
 }
 
 // ➤ Guard anchored to the file name: main() runs ONLY when launching
