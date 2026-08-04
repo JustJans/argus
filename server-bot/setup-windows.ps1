@@ -153,9 +153,11 @@ if ($linked) {
                 Remove-Item $cfg -ErrorAction SilentlyContinue
             }
         } else {
-            # ➤ Anything else: the token is fine, something else is not (no
-            # ➤ message sent yet, no network). Re-typing it would not help.
-            break
+            # ➤ Anything else: the token is fine — the message simply has not
+            # ➤ arrived (or the network blinked). This used to be a dead end
+            # ➤ that forced restarting the whole setup (field test 2026-08-03);
+            # ➤ now it loops back and asks again, up to the attempt cap.
+            Warn "No message found. Make sure you sent one to the bot; let's try again."
         }
     }
 }
@@ -191,8 +193,12 @@ if ($existing -and $existing.Actions[0].WorkingDirectory -eq $root) {
         $jobs = @(
             @{ Name = 'Argus listener'; Script = 'server-bot\telegram-listener.mjs'; Extra = $null
                Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration $forever },
+            # ➤ The first scan waits half an hour: firing at once, it talked over
+            # ➤ the setup ("No pending offers") before the user even reached the
+            # ➤ /start questions. The listener DOES start now — it is what
+            # ➤ answers /start at all.
             @{ Name = 'Argus scan'; Script = 'server-bot\scan.mjs'; Extra = $null
-               Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Hours 2) -RepetitionDuration $forever },
+               Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(30) -RepetitionInterval (New-TimeSpan -Hours 2) -RepetitionDuration $forever },
             @{ Name = 'Argus links'; Script = 'server-bot\housekeep.mjs'; Extra = '--liveness-only'
                Trigger = New-ScheduledTaskTrigger -Daily -At '07:30' },
             @{ Name = 'Argus cleanup'; Script = 'server-bot\housekeep.mjs'; Extra = $null

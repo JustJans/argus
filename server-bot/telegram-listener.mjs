@@ -36,7 +36,7 @@
  * the cron line prevents overlapping runs while a scan is ongoing.
  */
 
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { writeFileAtomic } from './fs-atomic.mjs';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -79,12 +79,15 @@ async function resyncOffset(cfg) {
     const res = await fetch(`https://api.telegram.org/bot${cfg.bot_token}/getUpdates?offset=-1&timeout=0`,
       { signal: AbortSignal.timeout(15_000) });
     const j = await res.json().catch(() => null);
-    const last = (j?.result || []).at(-1);
-    if (last) {
-      writeFileAtomic(OFFSET_PATH, JSON.stringify({ offset: last.update_id + 1 }));
-      console.log(`[${new Date().toISOString()}] telegram position was lost; resynchronised to ${last.update_id + 1} without replaying anything.`);
-    }
-  } catch { /* no network: the next tick tries again */ }
+    if (!j?.ok) return false;
+    const last = (j.result || []).at(-1);
+    // ➤ An EMPTY backlog is written down as offset 0: there is nothing those
+    // ➤ ticks could replay, and without the file every tick resynchronised
+    // ➤ again — swallowing whatever the user typed in between, for ever.
+    writeFileAtomic(OFFSET_PATH, JSON.stringify({ offset: last ? last.update_id + 1 : 0 }));
+    if (last) console.log(`[${new Date().toISOString()}] telegram position was lost; resynchronised to ${last.update_id + 1} without replaying anything.`);
+    return true;
+  } catch { return false; /* no network: the next tick tries again */ }
 }
 
 // ➤ Runs another of the bot's scripts (for example seen.mjs, the one that marks
@@ -510,7 +513,19 @@ async function main() {
   // ➤ commands running themselves again is not something you could undo.
   const state = loadJson(OFFSET_PATH, null);
   if (!state || !Number.isInteger(state.offset)) {
-    await resyncOffset(cfg);
+    // ➤ fresh = the file never existed: the listener's very first run, not a
+    // ➤ corruption of an established install.
+    const fresh = !existsSync(OFFSET_PATH);
+    const ok = await resyncOffset(cfg);
+    // ➤ THE FIRST /start FELL IN A HOLE (field test 2026-08-03): a brand-new
+    // ➤ user types /start during the setup, this first tick then synchronises
+    // ➤ PAST it — deliberately, replaying history is worse — and the user is
+    // ➤ left in front of a silent bot. Say the bot is alive and what to type.
+    // ➤ Only on a virgin install (setup never completed), so an established
+    // ➤ bot that loses its offset file does not greet its owner like a stranger.
+    if (ok && fresh && !existsSync(join(ROOT, 'data', 'onboarding-answers.json'))) {
+      await sendTelegram('Argus is listening now. Send /start to set up your profile.');
+    }
     return;
   }
   const res = await fetch(

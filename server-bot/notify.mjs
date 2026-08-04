@@ -654,22 +654,33 @@ async function cliSetup() {
     console.error('  {"bot_token": "123456:ABC...", "chat_id": ""}');
     process.exit(1);
   }
+  // ➤ WAIT for the message instead of demanding it already arrived (field test
+  // ➤ 2026-08-03): the user sent their message and pressed Enter within a
+  // ➤ second or two, the single getUpdates came back empty, and the dead end
+  // ➤ forced them to restart the whole setup. Telegram can lag a few seconds,
+  // ➤ so this polls for up to half a minute before declaring nothing there.
   let updates;
-  try {
-    updates = await api(c.bot_token, 'getUpdates', {});
-  } catch (e) {
-    // ➤ Telegram answers a bad token two different ways, and both mean the
-    // ➤ same thing: 401 Unauthorized when the token is well-formed but wrong,
-    // ➤ 404 Not Found when it is not even token-shaped. Saying so plainly is
-    // ➤ the whole point — the raw error used to send people looking for a
-    // ➤ problem with their chat, when the token was simply mistyped.
-    if (/unauthorized|not found|HTTP 40[14]/i.test(e.message)) {
-      console.error('Telegram rejected the bot token: it is not a valid one.');
-      console.error('Check it against the token @BotFather gave you (it looks like 123456789:AAH...),');
-      console.error(`and correct it in ${CFG_PATH}, or re-run the setup script to paste it again.`);
-      process.exit(2);
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    try {
+      updates = await api(c.bot_token, 'getUpdates', {});
+    } catch (e) {
+      // ➤ Telegram answers a bad token two different ways, and both mean the
+      // ➤ same thing: 401 Unauthorized when the token is well-formed but wrong,
+      // ➤ 404 Not Found when it is not even token-shaped. Saying so plainly is
+      // ➤ the whole point — the raw error used to send people looking for a
+      // ➤ problem with their chat, when the token was simply mistyped.
+      if (/unauthorized|not found|HTTP 40[14]/i.test(e.message)) {
+        console.error('Telegram rejected the bot token: it is not a valid one.');
+        console.error('Check it against the token @BotFather gave you (it looks like 123456789:AAH...),');
+        console.error(`and correct it in ${CFG_PATH}, or re-run the setup script to paste it again.`);
+        process.exit(2);
+      }
+      throw e;
     }
-    throw e;
+    if ((updates || []).some(u => u.message?.chat?.id) || Date.now() >= deadline) break;
+    console.log('No message yet — still looking (the bot keeps checking for ~30 seconds)...');
+    await new Promise(r => setTimeout(r, 5_000));
   }
   const withChat = (updates || []).reverse().find(u => u.message?.chat?.id);
   if (!withChat) {
