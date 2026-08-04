@@ -658,9 +658,11 @@ async function cliSetup() {
   // ➤ 2026-08-03): the user sent their message and pressed Enter within a
   // ➤ second or two, the single getUpdates came back empty, and the dead end
   // ➤ forced them to restart the whole setup. Telegram can lag a few seconds,
-  // ➤ so this polls for up to half a minute before declaring nothing there.
+  // ➤ so this polls — up to two minutes, stopping the moment it appears —
+  // ➤ before declaring nothing there. The wait costs nothing when the message
+  // ➤ already arrived: the very first look finds it.
   let updates;
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + 120_000;
   for (;;) {
     try {
       updates = await api(c.bot_token, 'getUpdates', {});
@@ -679,7 +681,7 @@ async function cliSetup() {
       throw e;
     }
     if ((updates || []).some(u => u.message?.chat?.id) || Date.now() >= deadline) break;
-    console.log('No message yet — still looking (the bot keeps checking for ~30 seconds)...');
+    console.log('No message yet — still looking (up to 2 minutes; send it now if you have not)...');
     await new Promise(r => setTimeout(r, 5_000));
   }
   const withChat = (updates || []).reverse().find(u => u.message?.chat?.id);
