@@ -308,16 +308,21 @@ export function experienceScreen(text, title, maxYears) {
 // ➤ the TEXT a degree the candidate lacks. "degree/master's/bachelor" in 6
 // ➤ languages — but NOT "ingeniería", which in Spanish names the degree AND the
 // ➤ discipline and fired on "5 años de experiencia en ingeniería mecánica".
-const DEGREE_WORD = /\b(?:degree|master'?s?|bachelor'?s?|m\.?sc|b\.?sc|b\.?eng|diploma|dipl[oô]me?|grado|m[áa]ster|titulaci[óo]n|licenciatur|studium|hochschulabschluss|abschluss)\b/gi;
+// ➤ "opleiding" is how Dutch postings say it ("afgeronde hbo-opleiding..."):
+// ➤ without it the whole Dutch demand was invisible, majors and all.
+const DEGREE_WORD = /\b(?:degree|master'?s?|bachelor'?s?|m\.?sc|b\.?sc|b\.?eng|diploma|dipl[oô]me?|grado|m[áa]ster|titulaci[óo]n|licenciatur|studium|hochschulabschluss|abschluss|opleiding)\b/gi;
 // ➤ Named majors the user does NOT have: if the requested degree is only these
 // ➤ and names none of their fields, the offer is impossible for them. In the
 // ➤ marine example "industrial" and "civil" only count next to "engineer/génie"
 // ➤ — industrial AUTOMATION is in scope. The accent is folded ("el[eé]ctr[io]")
 // ➤ because plain "electr[io]" missed "eléctrica" and let a degree through.
-// ➤ THE FRENCH SPELLINGS NEVER MATCHED (#798, 2026-08-05): "mécanique" ends in
-// ➤ -que where the stem demanded -nic, and "électrique" opens with é where the
-// ➤ stem demanded "el". Stems now end [ckq] and open [eé] where French differs.
-const GATED_DEGREE = profileRegex(_SEARCH.degrees_excluded, /[eé]l[eé]ctr[io]|electr[óo]nic|electromechanic|electromec[áa]nic|mechanical|m[eé]c[áa]ni[ckq]|mechatronic|m[eé]catr[óo]ni[ckq]|aerospace|aeroespacial|a[ée]ronauti[ckq]|a[ée]rospatial|chemical|qu[íi]mic|chimi|civil engineer|g[ée]nie civil|computer scien|inform[áa]ti[ckq]|industrial engineer/i);
+// ➤ THE NATIVE SPELLINGS NEVER MATCHED (#798, 2026-08-05): "mécanique" ends in
+// ➤ -que where the stem demanded -nic, "électrique" and "Elektrotechnik" open
+// ➤ with é/elek where the stem demanded "elec", and the German and Dutch names
+// ➤ for whole majors (Maschinenbau, Werktuigbouwkunde, Bauingenieur, Chemie,
+// ➤ Raumfahrt) were simply absent. Stems now carry every language the boards
+// ➤ actually write in.
+const GATED_DEGREE = profileRegex(_SEARCH.degrees_excluded, /[eé]l[eé][ck]tr[io]|electr[óo]nic|electromechanic|electromec[áa]nic|mechanical|m[eé]c[áa]ni[ckq]|maschinenbau|werktuigbouw|mechatronic|m[eé]catr[óo]ni[ckq]|aerospace|aeroespacial|a[ée]ronauti[ckq]|a[ée]rospatial|raumfahrt|ruimtevaart|luftfahrt|chemical|chemistry|chemie\b|qu[íi]mic|chimi|civil engineer|g[ée]nie civil|bauingenieur|civiele techniek|computer scien|inform[áa]ti[ckq]|industrial engineer/i);
 // ➤ Fields where the user DOES have a degree or that save the offer ("marine or
 // ➤ related"): if they appear near the requested degree, it's kept (the user fits
 // ➤ there).
@@ -359,7 +364,7 @@ const DEG_THIRD = /\b(?:our|nuestr[oa]s?|unser\w*|notre|ons|onze)\s+(?:founder\w
 // ➤ level. Saved if the sentence also accepts a bachelor, or on the usual
 // ➤ guards. FIXED 2026-07-25: accent-folded `m[áa]ster` also hit the English
 // ➤ word ("Harbour Master"), so only "máster" or "master + degree word" count.
-const MASTER_DEGREE = /\bmaster'?s?\s+(?:degree|diploma)|\bmaster\s+of\s+(?:science|engineering|arts)|\bmaster\s+(?:in|en)\s+(?:\w+\s+)?(?:engineering|science|ingenier|ciencia)|\bmsc\b|\bm\.\s?sc\b|\bm[áa]ster\s+(?:en|in|de|of)\b|\bmáster\b|masterabschluss|masterstudium/gi;
+const MASTER_DEGREE = /\bmaster'?s?\s+(?:degree|diploma)|\bmaster\s+of\s+(?:science|engineering|arts)|\bmaster\s+(?:in|en)\s+(?:\w+\s+)?(?:engineering|science|ingenier|ciencia)|\bmsc\b|\bm\.\s?sc\b|\bm[áa]ster\s+(?:en|in|de|of)\b|\bmáster\b|masterabschluss|masterstudium|masteropleiding/gi;
 const BACHELOR_ALT = /\bbachelor|\bb\.?\s?sc\b|\bb\.?eng\b|\bgrado\b|licenciatur|\bhbo\b|undergraduate|bachiller/i;
 
 function masterRequired(t) {

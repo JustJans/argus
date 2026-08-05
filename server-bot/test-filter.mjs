@@ -1041,6 +1041,20 @@ for (const [name, ok] of COMPANY) {
     'while "ou dans une discipline équivalente" is the way out it says', 'équivalente');
   check(degreeScreen("Profil : Diplôme d'Ingénieur en mécanique.", 'SUBSEA EQUIPMENT ENGINEER F/H') === false,
     'and a title from his field is never degree-dropped', 'subsea title');
+
+// ➤ German and Dutch had the same hole: whole majors exist only under their
+  // ➤ native names (Maschinenbau, Werktuigbouwkunde, Elektrotechnik), and the
+  // ➤ Dutch degree word "opleiding" was not even a degree word.
+  check(degreeScreen('Abgeschlossenes Studium im Maschinenbau erforderlich.', 'Project Engineer') === true,
+    'a German mechanical-degree demand drops', 'Maschinenbau');
+  check(degreeScreen('Afgeronde hbo-opleiding Werktuigbouwkunde vereist.', 'Project Engineer') === true,
+    'and the Dutch one too', 'Werktuigbouwkunde');
+  check(degreeScreen('Afgeronde opleiding Elektrotechniek.', 'Project Engineer') === true,
+    'Dutch electrical as well', 'Elektrotechniek');
+  check(degreeScreen('Studium im Maschinenbau oder gleichwertige Erfahrung.', 'Project Engineer') === false,
+    'while the German equivalent-experience clause still saves', 'gleichwertig');
+  check(degreeScreen("Diplôme exigé. Le poste est proche du chemin de fer.", 'Project Engineer') === false,
+    'and French "chemin" is not read as chemistry', 'chemin');
 }
 
 // ➤ ── A CURLY APOSTROPHE IS STILL AN APOSTROPHE ─────────────────────

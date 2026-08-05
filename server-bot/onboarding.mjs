@@ -77,14 +77,15 @@ const LANG_BLOCK = {
   pt: ['portuguese', 'portugu[êe]s'],
 };
 // ➤ Degrees offered as buttons → the regex fragment written to degrees_excluded.
-// ➤ Each value carries the French spellings too (#798, 2026-08-05): "mécanique"
-// ➤ ends in -que and "électrique" opens with é, and neither matched the stems.
+// ➤ Each value carries the native spellings too (#798, 2026-08-05): "mécanique"
+// ➤ ends in -que, "électrique"/"Elektrotechnik" open with é/elek, and the
+// ➤ German and Dutch names for whole majors were simply absent from the stems.
 const DEGREE_CATALOG = [
-  { label: 'Mechanical', value: 'mechanical|m[eé]c[áa]ni[ckq]' },
-  { label: 'Electrical', value: '[eé]l[eé]ctr[io]|electr[óo]nic' },
-  { label: 'Civil', value: 'civil engineer|g[ée]nie civil' },
-  { label: 'Chemical', value: 'chemical|qu[íi]mic|chimi' },
-  { label: 'Aerospace', value: 'aerospace|a[ée]ronauti[ckq]|a[ée]rospatial' },
+  { label: 'Mechanical', value: 'mechanical|m[eé]c[áa]ni[ckq]|maschinenbau|werktuigbouw' },
+  { label: 'Electrical', value: '[eé]l[eé][ck]tr[io]|electr[óo]nic' },
+  { label: 'Civil', value: 'civil engineer|g[ée]nie civil|bauingenieur|civiele techniek' },
+  { label: 'Chemical', value: 'chemical|chemistry|chemie\\b|qu[íi]mic|chimi' },
+  { label: 'Aerospace', value: 'aerospace|a[ée]ronauti[ckq]|a[ée]rospatial|raumfahrt|ruimtevaart|luftfahrt' },
   { label: 'Computer Science', value: 'computer scien|inform[áa]ti[ckq]' },
 ];
 // ➤ Common deal-breakers → the negative title keyword written to the profile.
