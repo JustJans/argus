@@ -506,14 +506,35 @@ async function handle(text) {
 // ➤ where the reading is up to so it doesn't repeat commands if something is cut off.
 async function main() {
   const cfg = loadJson(CFG_PATH, null);
+  // ➤ A token but no chat yet: FINISH THE LINK OURSELVES (field test
+  // ➤ 2026-08-05). The moment any listener polls this bot — this one, or a
+  // ➤ survivor of an earlier install — it CONSUMES the "hi" the setup console
+  // ➤ is waiting for, and the console then waits two minutes for a message
+  // ➤ that no longer exists, for ever. The listener is the rightful owner of
+  // ➤ getUpdates, so it completes the link itself; the console notices the
+  // ➤ chat_id appearing in telegram.json and moves on.
+  if (cfg?.bot_token && !cfg?.chat_id) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${cfg.bot_token}/getUpdates?offset=-1&timeout=0`,
+        { signal: AbortSignal.timeout(15_000) });
+      const j = await res.json().catch(() => null);
+      const chat = (j?.result || []).map(u => u.message?.chat).filter(Boolean).at(-1);
+      if (chat) {
+        writeFileSync(CFG_PATH, JSON.stringify({ ...cfg, chat_id: String(chat.id) }, null, 2) + '\n', 'utf-8');
+        await sendTelegram('Connected. Finish the setup in the console; when it says Done, send /start here to build your profile.');
+        console.log(`chat_id ${chat.id} learned from the first message and saved.`);
+      } else if (process.stdout.isTTY) {
+        console.log('Almost there: telegram.json has a token but no chat_id. Send your bot any message and this links itself within a minute.');
+      }
+    } catch { /* no network: the next tick tries again */ }
+    return;
+  }
   // ➤ Not configured yet: nothing to do. It says so only when a person ran it
   // ➤ by hand — from cron, stdout is not a terminal and silence is correct, or
   // ➤ the log would gain one identical line every minute for ever.
   if (!cfg?.bot_token || !cfg?.chat_id) {
     if (process.stdout.isTTY) {
-      console.log(!cfg?.bot_token
-        ? 'Not set up yet: server-bot/telegram.json is missing its bot_token. Run setup-windows.bat (Windows) or: bash setup-linux-mac.sh'
-        : 'Almost there: telegram.json has a token but no chat_id. Send your bot any message, then run: node server-bot/notify.mjs --setup');
+      console.log('Not set up yet: server-bot/telegram.json is missing its bot_token. Run setup-windows.bat (Windows) or: bash setup-linux-mac.sh');
     }
     return;
   }

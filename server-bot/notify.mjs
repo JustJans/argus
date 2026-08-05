@@ -664,6 +664,17 @@ async function cliSetup() {
   let updates;
   const deadline = Date.now() + 120_000;
   for (;;) {
+    // ➤ THE LISTENER MAY HAVE LINKED THE CHAT MEANWHILE (field test
+    // ➤ 2026-08-05): once any listener polls this bot — a scheduled one from
+    // ➤ this install, or a survivor of an earlier one — it CONSUMES the very
+    // ➤ message this poll is looking for, so waiting on getUpdates alone
+    // ➤ waited for ever. telegram.json is the meeting point: the listener
+    // ➤ writes the chat_id there and this console run only has to notice.
+    const linked = loadCfg();
+    if (linked?.chat_id) {
+      console.log(`chat_id ${linked.chat_id} saved (the listener completed the link). Confirmation sent.`);
+      return;
+    }
     try {
       updates = await api(c.bot_token, 'getUpdates', {});
     } catch (e) {
@@ -678,7 +689,11 @@ async function cliSetup() {
         console.error(`and correct it in ${CFG_PATH}, or re-run the setup script to paste it again.`);
         process.exit(2);
       }
-      throw e;
+      // ➤ Anything else (a timeout, a network blip) is not worth dying over
+      // ➤ while the window is still open: keep looking until the deadline.
+      if (Date.now() >= deadline) throw e;
+      updates = [];
+      console.log(`Network hiccup (${String(e.message).slice(0, 60)}) — still looking...`);
     }
     if ((updates || []).some(u => u.message?.chat?.id) || Date.now() >= deadline) break;
     console.log('No message yet — still looking (up to 2 minutes; send it now if you have not)...');
