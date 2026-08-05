@@ -107,6 +107,10 @@ check(cityOf('N/A'), '', 'cityOf N/A');
 const CL = [
   ['Barcelona, España', 'BARCELONA'],
   ['Madrid, Comunidad de Madrid, España', 'SPAIN'],
+  // ➤ Real strays of 2026-08-05 (#786/#791): the ISO code and a city outside
+  // ➤ the big three used to land in OTHER.
+  ['Cádiz, ES', 'SPAIN'],
+  ['Greater Sevilla Metropolitan Area', 'SPAIN'],
   ['Paris, France', 'FRANCE'],
   ['Monte Carlo, Monaco', 'MONACO'],
   ['België', 'BELGIUM'],
