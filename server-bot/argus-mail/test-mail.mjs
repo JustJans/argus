@@ -37,6 +37,11 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
     'rejected', 'a Dutch refusal phrased as continuing with others');
   eq(c('Your application', 'We have decided to move forward with other candidates'),
     'rejected', 'and the same in English');
+  // ➤ The negation BEFORE the verb (a real 2026-08-05 case): "decided not to
+  // ➤ go forward with YOUR application" — no "other candidates" in sight, and
+  // ➤ two real rejections sat as acknowledged.
+  eq(c('Your application', 'After a thorough evaluation, we have decided not to go forward with your application for the role of Cable Installation Engineer for the moment.'),
+    'rejected', 'a refusal that negates before the verb');
 
   // ➤ BELGIAN Dutch is not Netherlands Dutch, and this mailbox gets both.
   // ➤ Different words for the same thing, not different spellings.
