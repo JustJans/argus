@@ -183,13 +183,23 @@ if ($existing -and $existing.Actions[0].WorkingDirectory -eq $root) {
     Write-Host "  The machine only runs them while it is awake, which is fine: a laptop"
     Write-Host "  you close simply searches when you open it again."
     if (Ask-YesNo "  Create these 4 scheduled tasks? (y/n)") {
-        $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable
+        # ➤ Battery switches VERIFIED on a real machine (field test 2026-08-05):
+        # ➤ by default Task Scheduler refuses to start tasks on battery power,
+        # ➤ which silences the whole bot on any laptop that is not plugged in.
+        $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable `
+            -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
         $mkAction = { param($script, $extra)
             $arg = "`"$(Join-Path $root $script)`""
             if ($extra) { $arg = "$arg $extra" }
             New-ScheduledTaskAction -Execute $node -Argument $arg -WorkingDirectory $root
         }
-        $forever = [TimeSpan]::MaxValue
+        # ➤ TEN YEARS, NOT [TimeSpan]::MaxValue. MaxValue looks like the obvious
+        # ➤ "for ever" and Register-ScheduledTask REJECTS it: "The task XML
+        # ➤ contains a value which is incorrectly formatted or out of range
+        # ➤ (Duration:P99999999DT23H59M59S)" — verified on a real machine. That
+        # ➤ single value silently cost the field tester BOTH repeating tasks,
+        # ➤ and without the listener the bot cannot even answer /start.
+        $forever = New-TimeSpan -Days 3650
         $jobs = @(
             @{ Name = 'Argus listener'; Script = 'server-bot\telegram-listener.mjs'; Extra = $null
                Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration $forever },
@@ -216,6 +226,17 @@ if ($existing -and $existing.Actions[0].WorkingDirectory -eq $root) {
         }
         if ($created -eq 4) { Ok "4 scheduled tasks created (see them in Task Scheduler)" }
         elseif ($created -gt 0) { Warn "only $created of 4 tasks were created - see the messages above" }
+        # ➤ TRUST NOTHING: the listener is what answers Telegram at all, so its
+        # ➤ task is checked back and kicked once right now — the bot should say
+        # ➤ hello within seconds, while the user is still looking at this window.
+        if (Get-ScheduledTask -TaskName 'Argus listener' -ErrorAction SilentlyContinue) {
+            try { Start-ScheduledTask -TaskName 'Argus listener' } catch { }
+            Ok "the listener is registered and has been started once right now"
+        } else {
+            Warn "THE LISTENER TASK DOES NOT EXIST - the bot cannot answer any Telegram"
+            Warn "command without it. Re-run this setup, or create it by hand:"
+            Write-Host "  schtasks /create /f /tn `"Argus listener`" /sc minute /mo 1 /tr '`"$node`" `"$(Join-Path $root 'server-bot\telegram-listener.mjs')`"'"
+        }
     } else {
         Warn "Skipped. Run setup-windows.bat again when you are ready, or create them in Task Scheduler yourself (the four commands are in the README)."
     }

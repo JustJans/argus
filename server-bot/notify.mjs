@@ -696,7 +696,10 @@ async function cliSetup() {
   // ➤ telegram.json holds the bot token — keep it readable only by you (0600).
   // ➤ On systems without POSIX permissions (e.g. Windows) this is a harmless no-op.
   try { chmodSync(CFG_PATH, 0o600); } catch { /* not POSIX — ignore */ }
-  await sendTelegram(`Connected. I'll notify you here when there are new offers.`);
+  // ➤ This is the FIRST thing the bot ever says, and the field tester read the
+  // ➤ old wording ("I'll notify you when there are new offers") as the whole
+  // ➤ story — and never sent /start. Say what comes next instead.
+  await sendTelegram(`Connected. Finish the setup in the console; when it says Done, send /start here to build your profile.`);
   console.log(`chat_id ${c.chat_id} (${chat.first_name || chat.username || 'chat'}) saved. Confirmation sent.`);
 }
 

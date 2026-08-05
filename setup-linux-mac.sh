@@ -121,9 +121,20 @@ fi
 
 # ── 5. Cron ──────────────────────────────────────────────────────────────
 say "Scheduling"
+# ➤ macOS SHIPS NO flock (field review 2026-08-05): hardcoding /usr/bin/flock
+# ➤ made the listener and scan lines fail silently every single run, and the
+# ➤ bot never answered a thing. With flock absent the lines run bare — the
+# ➤ listener finishes in under a second, so overlap is a non-issue there, and
+# ➤ a scan outliving its 2 h slot is rare enough to accept on a laptop.
+FLOCK_L=""
+FLOCK_S=""
+if command -v flock >/dev/null 2>&1; then
+  FLOCK_L="$(command -v flock) -n /tmp/argus-listener.lock "
+  FLOCK_S="$(command -v flock) -n /tmp/argus-scan.lock "
+fi
 CRON_LINES="\
-* * * * * cd $ROOT && /usr/bin/flock -n /tmp/argus-listener.lock $(command -v node) server-bot/telegram-listener.mjs >> $ROOT/server-bot/listener.log 2>&1
-0 */2 * * * cd $ROOT && /usr/bin/flock -n /tmp/argus-scan.lock $(command -v node) server-bot/scan.mjs >> $ROOT/server-bot/scan.log 2>&1
+* * * * * cd $ROOT && ${FLOCK_L}$(command -v node) server-bot/telegram-listener.mjs >> $ROOT/server-bot/listener.log 2>&1
+0 */2 * * * cd $ROOT && ${FLOCK_S}$(command -v node) server-bot/scan.mjs >> $ROOT/server-bot/scan.log 2>&1
 30 7 * * * cd $ROOT && $(command -v node) server-bot/housekeep.mjs --liveness-only >> $ROOT/server-bot/scan.log 2>&1
 0 9 * * 0 cd $ROOT && $(command -v node) server-bot/housekeep.mjs >> $ROOT/server-bot/scan.log 2>&1"
 
