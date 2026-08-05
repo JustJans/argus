@@ -96,3 +96,17 @@ reason the file exists *is* the comment: it holds the safe overwrite AND the
 lock that stops two scheduled jobs erasing each other's work, and both are the
 kind of thing a later reader would otherwise "simplify" away. Trimmed no
 further on purpose.
+
+### The bot reads the board's copy of an offer, never the page behind Apply
+What the filters, the judges and the cover letters see is the text the job
+board serves (Adzuna's description, a Workday API answer, a sitemap page). The
+posting behind the **Apply now** link — the employer's or agency's own page —
+is never fetched: it is one redirect away, often behind consent walls or
+geo-blocks, and following it for every offer would double the traffic for a
+text that usually repeats the board's.
+
+The cost is that the two copies can differ (a real case: the destination page
+carried a "cadre/executive" label and wording the Adzuna copy did not), and
+the bot's verdict is only ever about the copy it read. When the destination
+page says something the list did not, that difference is yours to judge —
+the bot has not seen it.
