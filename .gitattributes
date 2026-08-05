@@ -1,4 +1,6 @@
 setup-linux-mac.sh text eol=lf
 diagnose-linux-mac.sh text eol=lf
+uninstall-linux-mac.sh text eol=lf
 setup-windows.bat -text
 diagnose-windows.bat -text
+uninstall-windows.bat -text

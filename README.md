@@ -123,6 +123,13 @@ schtasks /create /tn "Argus cleanup"  /sc weekly /d SUN /st 09:00 /tr '"C:\Progr
 No administrator rights needed. Windows only runs them while the machine is
 awake, which is fine — a laptop you close simply searches when you open it.
 
+**If the bot answers nothing**, run the diagnosis: double-click
+`diagnose-windows.bat` (Windows) or run `bash diagnose-linux-mac.sh`
+(macOS/Linux). It checks every piece in order and says which one is broken and
+how to fix it. **To uninstall**, `uninstall-windows.bat` / `bash
+uninstall-linux-mac.sh` removes the schedule — the only thing Argus keeps
+outside its folder — and then you just delete the folder.
+
 Finally, build your profile: **send `/start` to the bot.** It walks you through a
 short questionnaire (CV + a few questions, some with buttons) and writes
 `config/profile.yml` + `cv.md` for you; `settings` re-opens any question to edit
