@@ -400,23 +400,34 @@ async function handle(text) {
   // ➜ the field list becomes visible instead of staying silent.
   // ➜ "mail": where every application you have sent stands. The twin of
   // ➜ "list" — one shows the offers waiting for you, the other what came back
-  // ➜ from the ones you sent. Like "list" it only PRINTS: it reads the file
-  // ➜ the nightly job wrote and answers instantly, it never goes to Gmail here.
+  // ➜ from the ones you sent. It RE-READS THE INBOX FIRST (2026-08-05): the
+  // ➜ report used to be whatever the nightly run left, so "mail" could answer
+  // ➜ with yesterday. If Gmail cannot be read right now (down, token expired),
+  // ➜ the last report is shown with its date rather than nothing. The nightly
+  // ➜ run stays — it keeps the report fresh without being asked.
   // ➜ "status" still answers too: it was the first name this had.
   if (/^(mail|status)$/i.test(t)) {
     const { formatStatus } = await import('./argus-mail/report.mjs');
+    const workingId = await sendTelegramMessage('Reading your inbox — this takes a minute.', { silent: true });
+    const refreshed = await new Promise(resolve => {
+      execFile('node', [join(SCRIPT_DIR, 'argus-mail', 'listen.mjs')],
+        { cwd: ROOT, timeout: 5 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 },
+        (err) => resolve(!err));
+    });
     const status = loadJson(join(ROOT, 'data', 'application-status.json'), null);
+    if (workingId != null) await deleteTelegramMessage(workingId);
     if (!status) {
-      await sendTelegram('No status yet. It is built overnight from your inbox; if you have just set Gmail up, it appears after the next run.');
+      await sendTelegram('No status yet. Set Gmail up first (see server-bot/argus-mail/README.md); the report appears after the first read.');
       return;
     }
+    const stale = refreshed ? '' : `\n\nThe inbox could not be read just now — this is the report from ${String(status.generated || '').slice(0, 10)}.`;
     // ➤ ONE mail report in the chat, not a pile: each "mail" replaces the
     // ➤ previous report, the same discipline as the live list. Send FIRST,
     // ➤ delete after — a failed send must never leave the chat with no report
     // ➤ at all. The previous id rides in data/mail-message.json.
     const MAIL_MSG_PATH = join(ROOT, 'data', 'mail-message.json');
     const prev = loadJson(MAIL_MSG_PATH, null);
-    const id = await sendTelegramMessage(formatStatus(status), { html: true });
+    const id = await sendTelegramMessage(formatStatus(status) + esc(stale), { html: true });
     if (id != null) {
       writeFileAtomic(MAIL_MSG_PATH, JSON.stringify({ message_id: id, ts: new Date().toISOString() }));
       if (prev?.message_id != null && prev.message_id !== id) await deleteTelegramMessage(prev.message_id);
