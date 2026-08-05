@@ -15,6 +15,24 @@ warn() { printf '  ! %s\n' "$*"; }
 
 say "Argus setup"
 
+# ── 0. Where the folder lives (macOS privacy) ────────────────────────────
+# ➤ macOS fences Desktop, Documents and Downloads behind per-app privacy
+# ➤ consent (TCC), and cron never gets that consent: everything here would
+# ➤ work when run BY HAND and silently never run from its schedule — the
+# ➤ exact "bot answers nothing" a field tester hit. Stop before any of that.
+if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+  case "$ROOT" in
+    "$HOME/Desktop"*|"$HOME/Documents"*|"$HOME/Downloads"*)
+      warn "This folder is inside Desktop/Documents/Downloads, which macOS keeps"
+      warn "off-limits to scheduled jobs (cron). Argus would work by hand but its"
+      warn "schedule would silently never run. Move it somewhere plain and rerun:"
+      echo
+      echo "  mv \"$ROOT\" \"\$HOME/argus\" && cd \"\$HOME/argus\" && bash setup-linux-mac.sh"
+      echo
+      exit 1 ;;
+  esac
+fi
+
 # ── 1. Node ──────────────────────────────────────────────────────────────
 # ➤ 20, not 18: playwright (which prints the cover letters) requires it. On 18
 # ➤ this setup used to finish happily and the first "cover N" was the thing that
@@ -121,6 +139,23 @@ fi
 
 # ── 5. Cron ──────────────────────────────────────────────────────────────
 say "Scheduling"
+# ➤ Sweep DEAD copies first: reinstalls leave crontab lines cd'ing into
+# ➤ folders that no longer exist. Those lines can only fail — and a surviving
+# ➤ listener from an old folder is worse, it EATS the new install's Telegram
+# ➤ messages. Only Argus-shaped lines whose folder is gone are dropped.
+if command -v crontab >/dev/null 2>&1 && crontab -l >/dev/null 2>&1; then
+  KEPT="$(crontab -l | while IFS= read -r line; do
+    case "$line" in
+      *"server-bot/telegram-listener.mjs"*|*"server-bot/scan.mjs"*|*"server-bot/housekeep.mjs"*)
+        DIR="${line#*cd }"; DIR="${DIR%% && *}"
+        if [ -n "$DIR" ] && [ ! -d "$DIR" ]; then continue; fi ;;
+    esac
+    printf '%s\n' "$line"
+  done)"
+  if [ "$KEPT" != "$(crontab -l)" ]; then
+    printf '%s\n' "$KEPT" | crontab - && ok "removed cron lines pointing at deleted Argus copies"
+  fi
+fi
 # ➤ macOS SHIPS NO flock (field review 2026-08-05): hardcoding /usr/bin/flock
 # ➤ made the listener and scan lines fail silently every single run, and the
 # ➤ bot never answered a thing. With flock absent the lines run bare — the
