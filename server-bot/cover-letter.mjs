@@ -401,16 +401,25 @@ if (process.argv[1] && /(^|[\\/])cover-letter\.mjs$/.test(process.argv[1])) {
     console.error('Usage: cover-letter.mjs --offer <id>   (the # number shown in the list)');
     process.exit(1);
   }
-  const [{ pendingOffers }, { sendTelegram, sendTelegramDocument }] = await Promise.all([
+  // ➤ --progress-msg: the id of the listener's "Generating..." note. It is
+  // ➤ deleted AFTER the answer lands (letter or failure), never before — the
+  // ➤ chat must always hold either the promise or the result.
+  const pmAt = process.argv.indexOf('--progress-msg');
+  const progressMsg = pmAt === -1 ? NaN : parseInt(process.argv[pmAt + 1], 10);
+  const [{ pendingOffers }, { sendTelegram, sendTelegramDocument, deleteTelegramMessage }] = await Promise.all([
     import('./list-offers.mjs'), import('./notify.mjs'),
   ]);
+  const clearProgress = async () => {
+    if (Number.isInteger(progressMsg)) { try { await deleteTelegramMessage(progressMsg); } catch { /* already gone */ } }
+  };
   coverToTelegram(id, { pendingOffers, sendTelegram, sendTelegramDocument })
-    .then(ok => process.exit(ok ? 0 : 1))
+    .then(async ok => { await clearProgress(); process.exit(ok ? 0 : 1); })
     .catch(async e => {
       // ➤ Nothing is watching this program, so a crash has to reach the chat or
       // ➤ it is a "generating…" message that never gets an answer.
       console.error(e);
       try { await sendTelegram(`The cover letter for #${id} failed: ${String(e.message).slice(0, 200)}`); } catch { /* offline too */ }
+      await clearProgress();
       process.exit(1);
     });
 }

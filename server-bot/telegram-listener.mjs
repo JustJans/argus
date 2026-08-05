@@ -251,17 +251,21 @@ function runScan() {
 // ➤ this listener runs once a minute under a lock, and the next run is skipped
 // ➤ while this one is busy — so for those minutes "seen", "list" and "no" did
 // ➤ nothing at all, with no sign of why.
-function coverCommand(n) {
+async function coverCommand(n) {
   const off = pendingOffers().find(o => o.id === n);
   if (!off) {
     return sendTelegram(`There's no pending offer with the number #${n}. The numbers appear next to each offer in the list.`);
   }
+  // ➤ The "Generating..." note is sent FIRST so its id can travel with the
+  // ➤ child, which deletes it once the letter (or the failure) has arrived —
+  // ➤ the same clean-up the mail report does.
+  const progressId = await sendTelegramMessage(`Generating the cover letter for #${n}: ${off.title} — ${off.company}.`);
   // ➤ detached + unref + ignored streams: the child outlives this process, so
   // ➤ the lock is released the moment we finish, not when the letter is written.
-  const child = execFile('node', [join(SCRIPT_DIR, 'cover-letter.mjs'), '--offer', String(n)],
-    { cwd: ROOT, detached: true, stdio: 'ignore' });
+  const args = [join(SCRIPT_DIR, 'cover-letter.mjs'), '--offer', String(n)];
+  if (progressId != null) args.push('--progress-msg', String(progressId));
+  const child = execFile('node', args, { cwd: ROOT, detached: true, stdio: 'ignore' });
   child.unref();
-  return sendTelegram(`Generating the cover letter for #${n}: ${off.title} — ${off.company}.`);
 }
 
 // ➤ The "search" command: launches a job search RIGHT now (without waiting for the
