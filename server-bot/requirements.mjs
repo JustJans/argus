@@ -314,7 +314,10 @@ const DEGREE_WORD = /\b(?:degree|master'?s?|bachelor'?s?|m\.?sc|b\.?sc|b\.?eng|d
 // ➤ marine example "industrial" and "civil" only count next to "engineer/génie"
 // ➤ — industrial AUTOMATION is in scope. The accent is folded ("el[eé]ctr[io]")
 // ➤ because plain "electr[io]" missed "eléctrica" and let a degree through.
-const GATED_DEGREE = profileRegex(_SEARCH.degrees_excluded, /el[eé]ctr[io]|electr[óo]nic|electromechanic|electromec[áa]nic|mechanical|m[eé]c[áa]nic|mechatronic|mecatr[óo]nic|aerospace|aeroespacial|aeronautic|chemical|qu[íi]mic|civil engineer|g[ée]nie civil|computer scien|inform[áa]tic|industrial engineer/i);
+// ➤ THE FRENCH SPELLINGS NEVER MATCHED (#798, 2026-08-05): "mécanique" ends in
+// ➤ -que where the stem demanded -nic, and "électrique" opens with é where the
+// ➤ stem demanded "el". Stems now end [ckq] and open [eé] where French differs.
+const GATED_DEGREE = profileRegex(_SEARCH.degrees_excluded, /[eé]l[eé]ctr[io]|electr[óo]nic|electromechanic|electromec[áa]nic|mechanical|m[eé]c[áa]ni[ckq]|mechatronic|m[eé]catr[óo]ni[ckq]|aerospace|aeroespacial|a[ée]ronauti[ckq]|a[ée]rospatial|chemical|qu[íi]mic|chimi|civil engineer|g[ée]nie civil|computer scien|inform[áa]ti[ckq]|industrial engineer/i);
 // ➤ Fields where the user DOES have a degree or that save the offer ("marine or
 // ➤ related"): if they appear near the requested degree, it's kept (the user fits
 // ➤ there).
@@ -341,7 +344,11 @@ const DEG_SOFT = /preferred|preferably|ideally|idealerweise|nice to have|a plus|
 // ➤ barrier. Two levels (audit 2026-07-18): any form inside the degree's own
 // ➤ segment, but only unambiguous ones in the NEXT sentence — an "or equivalent
 // ➤ support" from a relocation line used to cancel a real degree.
-const DEG_ALT = /or (?:an? )?equivalent|equivalent (?:work )?experience|equivalent combination|in lieu of|o (?:experiencia )?equivalente|experiencia equivalente|ou (?:exp[ée]rience )?[ée]quivalente|gleichwertig\w*|gelijkwaardig\w*|or (?:relevant|comparable) (?:hands-on )?experience/i;
+// ➤ The French way out has more shapes than "ou expérience équivalente": a real
+// ➤ posting wrote "ou dans une discipline équivalente" (#798) and the rescue
+// ➤ missed it. One clause covers the family: "ou [dans une] [discipline/
+// ➤ formation/diplôme/filière] équivalent(e)".
+const DEG_ALT = /or (?:an? )?equivalent|equivalent (?:work )?experience|equivalent combination|in lieu of|o (?:experiencia )?equivalente|experiencia equivalente|ou (?:dans une |d'une )?(?:discipline |formation |dipl[oô]me |fili[èe]re |exp[ée]rience )?[ée]quivalent\w*|gleichwertig\w*|gelijkwaardig\w*|or (?:relevant|comparable) (?:hands-on )?experience/i;
 const DEG_ALT_NEXT = /equivalent (?:work )?experience|experience in lieu|in lieu of a degree|experiencia equivalente|exp[ée]rience [ée]quivalente|gleichwertige\w* (?:erfahrung|berufserfahrung)|gelijkwaardige ervaring/i;
 // ➤ (4) SOMEONE ELSE'S DEGREE: "our founder has a degree in..." talks about
 // ➤ the company's team, not about what's demanded of the candidate.

@@ -131,24 +131,29 @@ search:
 
   # Degrees you do NOT have — an offer requiring ONLY these (none of your
   # fields) is dropped as impossible.
+  # ➤ 2026-08-05 (#798): the FRENCH spellings never matched — "mécanique" ends
+  # ➤ in -que where the stem demanded -nic, "électrique" opens with é where the
+  # ➤ stem demanded "el". Stems end [ckq] and open [eé] where French differs.
   degrees_excluded:
-    - "el[eé]ctr[io]"
+    - "[eé]l[eé]ctr[io]"
     - "electr[óo]nic"
     - electromechanic
     - "electromec[áa]nic"
     - mechanical
-    - "m[eé]c[áa]nic"
+    - "m[eé]c[áa]ni[ckq]"
     - mechatronic
-    - "mecatr[óo]nic"
+    - "m[eé]catr[óo]ni[ckq]"
     - aerospace
     - aeroespacial
-    - aeronautic
+    - "a[ée]ronauti[ckq]"
+    - "a[ée]rospatial"
     - chemical
     - "qu[íi]mic"
+    - chimi
     - "civil engineer"
     - "g[ée]nie civil"
     - "computer scien"
-    - "inform[áa]tic"
+    - "inform[áa]ti[ckq]"
     - "industrial engineer"
     # ➤ 2026-07-27 (#708 RWE): the list was all engineering, so a graduate
     # ➤ programme asking for "a degree in Business Administration, Economics or

@@ -1026,6 +1026,23 @@ for (const [name, ok] of COMPANY) {
   check(title('GIS Engineer (m/w/d)'), 'while a real engineering title still passes', 'control');
 }
 
+// ➤ ── A DEGREE DEMANDED IN FRENCH IS STILL A DEGREE ──────────────────────
+// ➤ "Diplôme d'Ingénieur en mécanique" never matched (#798): the stem demanded
+// ➤ -nic where French writes -nique, and "électrique" opens with é where the
+// ➤ stem opened with "el". And the French way out has more shapes than
+// ➤ "ou expérience équivalente" — that same posting wrote "ou dans une
+// ➤ discipline équivalente".
+{
+  check(degreeScreen("Profil recherché : Diplôme d'Ingénieur en mécanique.", 'Project Engineer') === true,
+    'a French mechanical-degree demand now drops', 'mécanique #798');
+  check(degreeScreen("Profil : Diplôme d'ingénieur électrique.", 'Project Engineer') === true,
+    'and the French electrical spelling too', 'électrique');
+  check(degreeScreen("Profil : Diplôme d'Ingénieur en mécanique ou dans une discipline équivalente.", 'Project Engineer') === false,
+    'while "ou dans une discipline équivalente" is the way out it says', 'équivalente');
+  check(degreeScreen("Profil : Diplôme d'Ingénieur en mécanique.", 'SUBSEA EQUIPMENT ENGINEER F/H') === false,
+    'and a title from his field is never degree-dropped', 'subsea title');
+}
+
 // ➤ ── A CURLY APOSTROPHE IS STILL AN APOSTROPHE ─────────────────────
 // ➤ A real posting wrote "A Master’s degree" with U+2019 and the master's rule
 // ➤ never matched — the one rule that pierces the automation-title exemption,

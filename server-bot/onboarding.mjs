@@ -77,13 +77,15 @@ const LANG_BLOCK = {
   pt: ['portuguese', 'portugu[êe]s'],
 };
 // ➤ Degrees offered as buttons → the regex fragment written to degrees_excluded.
+// ➤ Each value carries the French spellings too (#798, 2026-08-05): "mécanique"
+// ➤ ends in -que and "électrique" opens with é, and neither matched the stems.
 const DEGREE_CATALOG = [
-  { label: 'Mechanical', value: 'mechanical' },
-  { label: 'Electrical', value: 'el[eé]ctr[io]|electr[óo]nic' },
-  { label: 'Civil', value: 'civil engineer' },
-  { label: 'Chemical', value: 'chemical|qu[íi]mic' },
-  { label: 'Aerospace', value: 'aerospace|aeronautic' },
-  { label: 'Computer Science', value: 'computer scien|inform[áa]tic' },
+  { label: 'Mechanical', value: 'mechanical|m[eé]c[áa]ni[ckq]' },
+  { label: 'Electrical', value: '[eé]l[eé]ctr[io]|electr[óo]nic' },
+  { label: 'Civil', value: 'civil engineer|g[ée]nie civil' },
+  { label: 'Chemical', value: 'chemical|qu[íi]mic|chimi' },
+  { label: 'Aerospace', value: 'aerospace|a[ée]ronauti[ckq]|a[ée]rospatial' },
+  { label: 'Computer Science', value: 'computer scien|inform[áa]ti[ckq]' },
 ];
 // ➤ Common deal-breakers → the negative title keyword written to the profile.
 const VETO_CATALOG = [
