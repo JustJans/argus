@@ -143,18 +143,25 @@ say "Scheduling"
 # ➤ folders that no longer exist. Those lines can only fail — and a surviving
 # ➤ listener from an old folder is worse, it EATS the new install's Telegram
 # ➤ messages. Only Argus-shaped lines whose folder is gone are dropped.
+# ➤ WRITTEN FOR BASH 3.2 (what macOS ships, from 2007): a `case` inside `$(…)`
+# ➤ is a parse error there — a field Mac died on exactly that — so this goes
+# ➤ through a temp file, and every pattern carries its opening parenthesis.
 if command -v crontab >/dev/null 2>&1 && crontab -l >/dev/null 2>&1; then
-  KEPT="$(crontab -l | while IFS= read -r line; do
+  CRON_TMP="$(mktemp 2>/dev/null || echo "/tmp/argus-cron.$$")"
+  crontab -l | while IFS= read -r line; do
+    DIR=""
     case "$line" in
-      *"server-bot/telegram-listener.mjs"*|*"server-bot/scan.mjs"*|*"server-bot/housekeep.mjs"*)
-        DIR="${line#*cd }"; DIR="${DIR%% && *}"
+      (*"server-bot/telegram-listener.mjs"*|*"server-bot/scan.mjs"*|*"server-bot/housekeep.mjs"*)
+        DIR="${line#*cd }"
+        DIR="${DIR%% && *}"
         if [ -n "$DIR" ] && [ ! -d "$DIR" ]; then continue; fi ;;
     esac
     printf '%s\n' "$line"
-  done)"
-  if [ "$KEPT" != "$(crontab -l)" ]; then
-    printf '%s\n' "$KEPT" | crontab - && ok "removed cron lines pointing at deleted Argus copies"
+  done > "$CRON_TMP"
+  if ! crontab -l | cmp -s - "$CRON_TMP"; then
+    crontab "$CRON_TMP" && ok "removed cron lines pointing at deleted Argus copies"
   fi
+  rm -f "$CRON_TMP"
 fi
 # ➤ macOS SHIPS NO flock (field review 2026-08-05): hardcoding /usr/bin/flock
 # ➤ made the listener and scan lines fail silently every single run, and the
