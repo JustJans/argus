@@ -308,13 +308,21 @@ export function experienceScreen(text, title, maxYears) {
 // ➤ the TEXT a degree the candidate lacks. "degree/master's/bachelor" in 6
 // ➤ languages — but NOT "ingeniería", which in Spanish names the degree AND the
 // ➤ discipline and fired on "5 años de experiencia en ingeniería mecánica".
-const DEGREE_WORD = /\b(?:degree|master'?s?|bachelor'?s?|m\.?sc|b\.?sc|b\.?eng|diploma|dipl[oô]me?|grado|m[áa]ster|titulaci[óo]n|licenciatur|studium|hochschulabschluss|abschluss)\b/gi;
+// ➤ "opleiding" is how Dutch postings say it ("afgeronde hbo-opleiding..."):
+// ➤ without it the whole Dutch demand was invisible, majors and all.
+const DEGREE_WORD = /\b(?:degree|master'?s?|bachelor'?s?|m\.?sc|b\.?sc|b\.?eng|diploma|dipl[oô]me?|grado|m[áa]ster|titulaci[óo]n|licenciatur|studium|hochschulabschluss|abschluss|opleiding)\b/gi;
 // ➤ Named majors the user does NOT have: if the requested degree is only these
 // ➤ and names none of their fields, the offer is impossible for them. In the
 // ➤ marine example "industrial" and "civil" only count next to "engineer/génie"
 // ➤ — industrial AUTOMATION is in scope. The accent is folded ("el[eé]ctr[io]")
 // ➤ because plain "electr[io]" missed "eléctrica" and let a degree through.
-const GATED_DEGREE = profileRegex(_SEARCH.degrees_excluded, /el[eé]ctr[io]|electr[óo]nic|electromechanic|electromec[áa]nic|mechanical|m[eé]c[áa]nic|mechatronic|mecatr[óo]nic|aerospace|aeroespacial|aeronautic|chemical|qu[íi]mic|civil engineer|g[ée]nie civil|computer scien|inform[áa]tic|industrial engineer/i);
+// ➤ THE NATIVE SPELLINGS NEVER MATCHED (#798, 2026-08-05): "mécanique" ends in
+// ➤ -que where the stem demanded -nic, "électrique" and "Elektrotechnik" open
+// ➤ with é/elek where the stem demanded "elec", and the German and Dutch names
+// ➤ for whole majors (Maschinenbau, Werktuigbouwkunde, Bauingenieur, Chemie,
+// ➤ Raumfahrt) were simply absent. Stems now carry every language the boards
+// ➤ actually write in.
+const GATED_DEGREE = profileRegex(_SEARCH.degrees_excluded, /[eé]l[eé][ck]tr[io]|electr[óo]nic|electromechanic|electromec[áa]nic|mechanical|m[eé]c[áa]ni[ckq]|maschinenbau|werktuigbouw|mechatronic|m[eé]catr[óo]ni[ckq]|aerospace|aeroespacial|a[ée]ronauti[ckq]|a[ée]rospatial|raumfahrt|ruimtevaart|luftfahrt|chemical|chemistry|chemie\b|qu[íi]mic|chimi|civil engineer|g[ée]nie civil|bauingenieur|civiele techniek|computer scien|inform[áa]ti[ckq]|industrial engineer/i);
 // ➤ Fields where the user DOES have a degree or that save the offer ("marine or
 // ➤ related"): if they appear near the requested degree, it's kept (the user fits
 // ➤ there).
@@ -341,7 +349,11 @@ const DEG_SOFT = /preferred|preferably|ideally|idealerweise|nice to have|a plus|
 // ➤ barrier. Two levels (audit 2026-07-18): any form inside the degree's own
 // ➤ segment, but only unambiguous ones in the NEXT sentence — an "or equivalent
 // ➤ support" from a relocation line used to cancel a real degree.
-const DEG_ALT = /or (?:an? )?equivalent|equivalent (?:work )?experience|equivalent combination|in lieu of|o (?:experiencia )?equivalente|experiencia equivalente|ou (?:exp[ée]rience )?[ée]quivalente|gleichwertig\w*|gelijkwaardig\w*|or (?:relevant|comparable) (?:hands-on )?experience/i;
+// ➤ The French way out has more shapes than "ou expérience équivalente": a real
+// ➤ posting wrote "ou dans une discipline équivalente" (#798) and the rescue
+// ➤ missed it. One clause covers the family: "ou [dans une] [discipline/
+// ➤ formation/diplôme/filière] équivalent(e)".
+const DEG_ALT = /or (?:an? )?equivalent|equivalent (?:work )?experience|equivalent combination|in lieu of|o (?:experiencia )?equivalente|experiencia equivalente|ou (?:dans une |d'une )?(?:discipline |formation |dipl[oô]me |fili[èe]re |exp[ée]rience )?[ée]quivalent\w*|gleichwertig\w*|gelijkwaardig\w*|or (?:relevant|comparable) (?:hands-on )?experience/i;
 const DEG_ALT_NEXT = /equivalent (?:work )?experience|experience in lieu|in lieu of a degree|experiencia equivalente|exp[ée]rience [ée]quivalente|gleichwertige\w* (?:erfahrung|berufserfahrung)|gelijkwaardige ervaring/i;
 // ➤ (4) SOMEONE ELSE'S DEGREE: "our founder has a degree in..." talks about
 // ➤ the company's team, not about what's demanded of the candidate.
@@ -352,7 +364,7 @@ const DEG_THIRD = /\b(?:our|nuestr[oa]s?|unser\w*|notre|ons|onze)\s+(?:founder\w
 // ➤ level. Saved if the sentence also accepts a bachelor, or on the usual
 // ➤ guards. FIXED 2026-07-25: accent-folded `m[áa]ster` also hit the English
 // ➤ word ("Harbour Master"), so only "máster" or "master + degree word" count.
-const MASTER_DEGREE = /\bmaster'?s?\s+(?:degree|diploma)|\bmaster\s+of\s+(?:science|engineering|arts)|\bmaster\s+(?:in|en)\s+(?:\w+\s+)?(?:engineering|science|ingenier|ciencia)|\bmsc\b|\bm\.\s?sc\b|\bm[áa]ster\s+(?:en|in|de|of)\b|\bmáster\b|masterabschluss|masterstudium/gi;
+const MASTER_DEGREE = /\bmaster'?s?\s+(?:degree|diploma)|\bmaster\s+of\s+(?:science|engineering|arts)|\bmaster\s+(?:in|en)\s+(?:\w+\s+)?(?:engineering|science|ingenier|ciencia)|\bmsc\b|\bm\.\s?sc\b|\bm[áa]ster\s+(?:en|in|de|of)\b|\bmáster\b|masterabschluss|masterstudium|masteropleiding/gi;
 const BACHELOR_ALT = /\bbachelor|\bb\.?\s?sc\b|\bb\.?eng\b|\bgrado\b|licenciatur|\bhbo\b|undergraduate|bachiller/i;
 
 function masterRequired(t) {
@@ -375,7 +387,11 @@ function masterRequired(t) {
 
 export function degreeScreen(text, title) {
   const ttl = String(title || '');
-  const t0 = String(text || '').toLowerCase().replace(/\s+/g, ' ');
+  // ➤ Typographic apostrophes fold to ASCII first: a real Heerema posting wrote
+  // ➤ "A Master's degree" with U+2019 and the master's rule — the ONE rule that
+  // ➤ pierces the automation-title exemption below — never matched it, so the
+  // ➤ offer sailed through to the phone.
+  const t0 = String(text || '').replace(/[’‘]/g, "'").toLowerCase().replace(/\s+/g, ' ');
   // ➤ Order matters: a title from HIS field is always saved, even from the
   // ➤ master's rule — there the user is a real candidate and the false drop is the
   // ➤ expensive one. The master's only pierces automation and generic titles.

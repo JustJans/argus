@@ -783,6 +783,44 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ok(/if \(cutShort\) onPartial\(/.test(scan), 'and that is handed back, not swallowed');
   ok(/only part of the board was read/.test(scan), 'which reaches the run summary as an error');
 
+  // ➤ THE FIRST GATE HAD NO COUNTER. An offer thrown out for a missing or unsafe
+  // ➤ link appeared in no line of the summary, no error, and no field of
+  // ➤ last-scan.json. It is zero on a healthy run — which is why the day a board
+  // ➤ renames the field its links come from, all of its offers would leave by
+  // ➤ that door and the summary would still read like a quiet week.
+  ok(/v\.stage === 'NO LINK'\) fNoLink\+\+/.test(scan), 'an offer with no usable link is counted');
+  ok(!/isSafeUrl\(job\.url\)\) \{ logDrop/.test(scan), 'and no inline gate steals the drop before it can be counted');
+  // ➤ Years and degree are different verdicts, and both were printed as one.
+  ok(/degree_filtered: fDeg/.test(scan), 'a degree drop is counted apart from the years');
+  // ➤ A LinkedIn refusing every call is a block, not a run with no matches.
+  ok(/BLOCKED \(HTTP \$\{lastRefused\} on every call\)/.test(scan), 'a fully-refused LinkedIn says BLOCKED, not ran');
+  // ➤ An answered ZERO never trips the no-answer alarm; naming those boards is
+  // ➤ how a stale tenant (5 postings vs the real 733) gets seen at a glance.
+  ok(/emptyBoards\.push\(c\.name\)/.test(scan) && /boards that answered with zero postings/.test(scan),
+    'a board that answers with nothing is named in the summary');
+
+  // ➤ A degraded feed is a quiet board, not a crash: null bodies, wrong types
+  // ➤ and null items must come back as empty lists, as every parser promises.
+  for (const h of [null, undefined, { jobs: 'x' }, { jobs: [null] }]) {
+    let ok1 = true;
+    try { ok1 = Array.isArray(parseGreenhouse(h, 'X')) && Array.isArray(parseAshby(h, 'X')); } catch { ok1 = false; }
+    ok(ok1, 'a hostile feed shape does not crash greenhouse/ashby: ' + JSON.stringify(h));
+  }
+
+  // ➤ The weekly dedup keys on company+title too, and an unnamed advertiser
+  // ➤ must give it nothing: two anonymous ads sharing a title are NOT one
+  // ➤ vacancy, and the older one was being deleted every Sunday.
+  {
+    const { fuzzyKey } = await import('./housekeep.mjs');
+    eq(fuzzyKey('Adzuna', 'Offshore Engineer'), '', 'housekeep: the Adzuna placeholder yields no dedup key');
+    eq(fuzzyKey('LinkedIn', 'Offshore Engineer'), '', 'housekeep: and neither does the LinkedIn one');
+    eq(fuzzyKey('Van Oord BV', 'Offshore Engineer'), 'van oord::offshore engineer', 'housekeep: a real employer still keys');
+    ok(/\(k && seenRole\.has\(k\)\)/.test(hk) && /if \(k\) seenRole\.add\(k\)/.test(hk),
+      'housekeep: and the dedup loop never writes or matches an empty key');
+  }
+  ok(/if \(fNoLink\) console\.log/.test(scan), 'and said out loud, but only when it is not zero');
+  ok(/no_link: fNoLink/.test(scan), 'and recorded where the server can be watched from outside');
+
   ok(/detached: true/.test(li) && /child\.unref\(\)/.test(li),
     'the listener starts the cover letter detached and lets go of it');
   ok(!/await makeCoverLetter/.test(li), 'and does not wait for the letter itself');

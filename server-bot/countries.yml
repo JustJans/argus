@@ -36,7 +36,10 @@ countries:
 # ➤ say "Norway": sometimes they only give the city ("Stavanger"). This list
 # ➤ teaches the bot to recognize the country by its cities and local names.
 aliases:
-  Spain: ["España", "Barcelona", "Madrid", "Bilbao", "Espana"]
+  # ➤ "Cádiz, ES" and "Greater Sevilla Metropolitan Area" landed in OTHER
+  # ➤ (2026-08-05, #786/#791): the city list was three cities long and the ISO
+  # ➤ code was unknown. "ES" is safe as an alias because matching is whole-word.
+  Spain: ["España", "Espana", "Barcelona", "Madrid", "Bilbao", "Cádiz", "Cadiz", "Sevilla", "Seville", "Valencia", "ES"]
   Monaco: ["Mónaco", "Monte Carlo", "Monte-Carlo"]
   Netherlands: ["Nederland", "Holland", "Rotterdam", "Amsterdam", "Den Haag", "The Hague", "Leiden", "Gorinchem"]
   Belgium: ["België", "Belgique", "Brussels", "Antwerp", "Antwerpen", "Gent", "Zwijndrecht"]

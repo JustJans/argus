@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# Argus — guided setup.
-# Run it once after cloning:   bash setup.sh
+# Argus — guided setup for macOS and Linux (on Windows, double-click setup-windows.bat).
+# Run it once after downloading:   bash setup-linux-mac.sh
 # It only asks for what is REQUIRED (a Telegram bot token) and offers to write
 # the cron lines for you. Everything else is optional and can wait.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -105,9 +105,11 @@ else
              *) rm -f "$CFG" ;;
            esac
          fi ;;
-      # ➤ Anything else: the token is fine, something else is not (no message
-      # ➤ sent yet, no network). Re-typing the token would not help.
-      *) break ;;
+      # ➤ Anything else: the token is fine — the message simply has not arrived
+      # ➤ (or the network blinked). This used to be a dead end that forced
+      # ➤ restarting the whole setup (field test 2026-08-03); now it loops back
+      # ➤ and asks again, up to the attempt cap.
+      *) warn "No message found. Make sure you sent one to the bot; let's try again." ;;
     esac
   done
 fi

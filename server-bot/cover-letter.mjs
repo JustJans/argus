@@ -156,6 +156,9 @@ export function buildCoverPrompt(offer, body) {
     `- Do NOT copy or paraphrase sentences from the offer. Instead of repeating what the role asks for, give a ` +
     `GENUINE reason anchored in the candidate's real experience: pick a concrete detail from the CV (a specific ` +
     `project, tool or result) and what it taught them, the way the example letter does.\n` +
+    `- When you pick examples out of the CV (projects, countries, tools), present them AS examples ` +
+    `("including", "among others"), never as a complete list: the CV's record is longer than any ` +
+    `sentence, and a closed list undersells it.\n` +
     `- NO adjective-list sentences ("I am structured, results-oriented and comfortable in ` +
     `international environments"): every claim needs a concrete example, and do NOT repeat in one ` +
     `paragraph something already said in another. The languages paragraph is ONLY languages.\n` +
@@ -384,8 +387,7 @@ export async function coverToTelegram(id, deps = {}) {
   }
   // ➤ Warn if the portal gave no text: the letter is then written from the title
   // ➤ and company alone, so it will be generic. Better you know before sending.
-  const caption = `Cover letter #${id}: ${offer.title} — ${offer.company}`
-    + (res.thin ? '\n⚠️ The portal gave no offer text, so this one is generic — worth a read before sending.' : '');
+  const caption = `Cover letter #${id}: ${offer.title} — ${offer.company}`;
   if (!await sendTelegramDocument(res.pdfPath, caption)) {
     await sendTelegram(`The cover letter was generated but couldn't be attached. File on the server: ${res.pdfPath}`);
   }
@@ -399,16 +401,25 @@ if (process.argv[1] && /(^|[\\/])cover-letter\.mjs$/.test(process.argv[1])) {
     console.error('Usage: cover-letter.mjs --offer <id>   (the # number shown in the list)');
     process.exit(1);
   }
-  const [{ pendingOffers }, { sendTelegram, sendTelegramDocument }] = await Promise.all([
+  // ➤ --progress-msg: the id of the listener's "Generating..." note. It is
+  // ➤ deleted AFTER the answer lands (letter or failure), never before — the
+  // ➤ chat must always hold either the promise or the result.
+  const pmAt = process.argv.indexOf('--progress-msg');
+  const progressMsg = pmAt === -1 ? NaN : parseInt(process.argv[pmAt + 1], 10);
+  const [{ pendingOffers }, { sendTelegram, sendTelegramDocument, deleteTelegramMessage }] = await Promise.all([
     import('./list-offers.mjs'), import('./notify.mjs'),
   ]);
+  const clearProgress = async () => {
+    if (Number.isInteger(progressMsg)) { try { await deleteTelegramMessage(progressMsg); } catch { /* already gone */ } }
+  };
   coverToTelegram(id, { pendingOffers, sendTelegram, sendTelegramDocument })
-    .then(ok => process.exit(ok ? 0 : 1))
+    .then(async ok => { await clearProgress(); process.exit(ok ? 0 : 1); })
     .catch(async e => {
       // ➤ Nothing is watching this program, so a crash has to reach the chat or
       // ➤ it is a "generating…" message that never gets an answer.
       console.error(e);
       try { await sendTelegram(`The cover letter for #${id} failed: ${String(e.message).slice(0, 200)}`); } catch { /* offline too */ }
+      await clearProgress();
       process.exit(1);
     });
 }

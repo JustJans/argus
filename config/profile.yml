@@ -22,6 +22,10 @@ candidate:
 search:
   max_years: 2            # drop offers that clearly require more years than this
 
+  # Highest degree you hold (free text: BSc, MSc, HND...). The Council's judges
+  # read it so an offer that firmly demands a higher one counts as a barrier.
+  highest_degree: BSc
+
   # Languages you can work in. An offer whose TITLE is in another language is
   # dropped (a strong proxy for the working language). Use 2-letter codes.
   languages:
@@ -127,24 +131,40 @@ search:
 
   # Degrees you do NOT have — an offer requiring ONLY these (none of your
   # fields) is dropped as impossible.
+  # ➤ 2026-08-05 (#798): the NATIVE spellings never matched — "mécanique" ends
+  # ➤ in -que where the stem demanded -nic, "électrique"/"Elektrotechnik" open
+  # ➤ with é/elek where the stem demanded "elec", and the German and Dutch
+  # ➤ names for whole majors (Maschinenbau, Werktuigbouwkunde, Bauingenieur,
+  # ➤ Chemie, Raumfahrt) were simply absent.
   degrees_excluded:
-    - "el[eé]ctr[io]"
+    - "[eé]l[eé][ck]tr[io]"
     - "electr[óo]nic"
     - electromechanic
     - "electromec[áa]nic"
     - mechanical
-    - "m[eé]c[áa]nic"
+    - "m[eé]c[áa]ni[ckq]"
+    - maschinenbau
+    - werktuigbouw
     - mechatronic
-    - "mecatr[óo]nic"
+    - "m[eé]catr[óo]ni[ckq]"
     - aerospace
     - aeroespacial
-    - aeronautic
+    - "a[ée]ronauti[ckq]"
+    - "a[ée]rospatial"
+    - raumfahrt
+    - ruimtevaart
+    - luftfahrt
     - chemical
+    - chemistry
+    - 'chemie\b'
     - "qu[íi]mic"
+    - chimi
     - "civil engineer"
     - "g[ée]nie civil"
+    - bauingenieur
+    - "civiele techniek"
     - "computer scien"
-    - "inform[áa]tic"
+    - "inform[áa]ti[ckq]"
     - "industrial engineer"
     # ➤ 2026-07-27 (#708 RWE): the list was all engineering, so a graduate
     # ➤ programme asking for "a degree in Business Administration, Economics or

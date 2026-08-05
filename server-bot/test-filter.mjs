@@ -25,7 +25,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
-import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, roleKey, slugTitle, parseJobPostingLd, parseLinkedInCards, titleDemandsForeignLanguage, bodyLanguageBlock, pipelineRoleKey, hasApplySignal, overrideDeadIfApply, formatSalary, normUrl } from './scan.mjs';
+import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, buildCountryFilter, admissionVerdict, roleKey, slugTitle, parseJobPostingLd, parseLinkedInCards, titleDemandsForeignLanguage, bodyLanguageBlock, pipelineRoleKey, hasApplySignal, overrideDeadIfApply, formatSalary, normUrl } from './scan.mjs';
 import { offerAffinity } from './notify.mjs';
 import { extractRequiredYears, stripHtml, experienceScreen, extractAdzunaJd, degreeScreen } from './requirements.mjs';
 
@@ -952,10 +952,121 @@ for (const [name, ok] of COMPANY) {
 {
   check(roleKey('Adzuna', 'Offshore Engineer') === '', 'an unnamed advertiser yields no role key', 'Adzuna');
   check(roleKey('', 'Offshore Engineer') === '', 'and neither does an empty company', '(empty)');
+  check(roleKey('LinkedIn', 'Offshore Engineer') === '', 'nor does the LinkedIn placeholder name', 'LinkedIn');
   check(roleKey('Van Oord', 'Offshore Engineer') === roleKey('Van Oord', 'Offshore Engineer'),
     'a real employer still keys the same both times', 'Van Oord');
   check(roleKey('Van Oord', 'Offshore Engineer') !== roleKey('Boskalis', 'Offshore Engineer'),
     'and two employers with one title are two roles', 'two employers');
+
+  // ➤ THE KEY MUST MATCH THE ONE REBUILT FROM DISK. It is made from the title as
+  // ➤ the BOARD sent it, while pipeline.md holds the title after the entities
+  // ➤ were decoded — so the two never met and the barrier was dead for the 9 of
+  // ➤ 1,016 real titles that carry one. LinkedIn double-escapes, hence the third.
+  const limpio = roleKey('ACME', 'Automation & Controls Engineer');
+  check(roleKey('ACME', 'Automation &amp; Controls Engineer') === limpio,
+    'an entity in the title keys the same as the decoded form on disk', '&amp;');
+  check(roleKey('ACME', 'Automation &amp;amp; Controls Engineer') === limpio,
+    'and so does a double-escaped one, which is what LinkedIn sends', '&amp;amp;');
+  check(roleKey('ACME', 'Instrumentaci&oacute;n y Control') === roleKey('ACME', 'Instrumentaci&oacute;n y Control'),
+    'an entity this project does not decode is at least stable', '&oacute;');
+}
+
+// ➤ ── AN EMPTY KEY MUST NOT BECOME A KEY ─────────────────────────────────
+// ➤ roleKey answers '' for an unnamed advertiser, and a set that has been fed
+// ➤ '' — one 'Adzuna' line in pipeline.md is enough — would then match EVERY
+// ➤ anonymous offer at the door, whatever its title. Both sides must skip an
+// ➤ empty key: nothing writes it, and the gate never compares against it.
+// ➤ Functional on purpose: a text check on the fix let a broken port pass.
+{
+  const pass = Object.assign(() => true, { explain: () => '' });
+  const locPass = Object.assign(() => true, { blockHit: () => false });
+  const gates = { companyFilter: pass, titleFilter: pass, locationFilter: locPass,
+    country: { fn: () => true }, seenUrls: new Set(), seenRoles: new Set(['']) };
+  check(admissionVerdict({ url: 'https://x.example/a', company: 'Adzuna', title: 'Role A' }, gates).ok === true,
+    'a poisoned empty key blocks no anonymous offer', "set con ''");
+  check(admissionVerdict({ company: 'X', title: 'T' }, gates).stage === 'NO LINK',
+    'and the first gate still refuses a missing link', 'sin url');
+}
+
+// ➤ ── ENGLISH AS AN ALTERNATIVE IS NOT A DEMAND ───────────────────────
+// ➤ "German or English speaking" accepts English, so he qualifies — it was
+// ➤ dropped as if German were mandatory. Only "and" chains both into a real
+// ➤ requirement, and a bare country name is not a language at all.
+{
+  check(!titleDemandsForeignLanguage('German or English speaking Engineer'), 'an English alternative keeps the offer', 'or');
+  check(!titleDemandsForeignLanguage('Dutch/English speaking Consultant'), 'a slash reads as an alternative too', '/');
+  check(!titleDemandsForeignLanguage('Sales Engineer - Germany'), 'a country name is not a language demand', 'Germany');
+  check(titleDemandsForeignLanguage('German speaking Support Engineer'), 'a real demand still drops', 'German only');
+  check(titleDemandsForeignLanguage('Engineer (English and German speaking)'), '"and" demands both; English does not save it', 'and');
+}
+
+// ➤ ── A HAND-TYPED TOGGLE COUNTS ───────────────────────────────────────
+// ➤ countries.yml is edited by hand, and js-yaml follows YAML 1.2: `no` and
+// ➤ `off` arrive as STRINGS, so `Germany: no` switched nothing off and said
+// ➤ nothing. Every written form of "off" must work.
+{
+  for (const v of [false, 'no', 'off', 'false', 'NO']) {
+    const f = buildCountryFilter({ countries: { Germany: v }, aliases: {} });
+    check(f.off.length === 1 && !f.fn('Berlin, Germany'), 'a written form of off switches the country off', JSON.stringify(v));
+  }
+  const on = buildCountryFilter({ countries: { Germany: true }, aliases: {} });
+  check(on.off.length === 0 && on.fn('Berlin, Germany'), 'and true leaves it on', 'true');
+}
+
+// ➤ ── A STUDENT ROLE IN GERMAN IS STILL A STUDENT ROLE ───────────────
+// ➤ "Bacheloranden (m/w/d) – Digitales Netzmonitoring & GIS" reached the
+// ➤ phone (#753): the free language detector read that title as English and
+// ➤ no negative knew the German word for a thesis student. The -en plural
+// ➤ lives in the negative tail, where it also covers Senioren or Professoren.
+{
+  check(!title('Bacheloranden (m/w/d) – Digitales Netzmonitoring & GIS'),
+    'a German thesis-student title is blocked', 'Bacheloranden #753');
+  check(!title('GIS Student Assistant'), 'a plain student title is blocked', 'Student');
+  check(!title('GIS-Doktoranden gesucht'), 'the German -en plural does not dodge the rule', 'Doktoranden');
+  check(title('GIS Engineer (m/w/d)'), 'while a real engineering title still passes', 'control');
+}
+
+// ➤ ── A DEGREE DEMANDED IN FRENCH IS STILL A DEGREE ──────────────────────
+// ➤ "Diplôme d'Ingénieur en mécanique" never matched (#798): the stem demanded
+// ➤ -nic where French writes -nique, and "électrique" opens with é where the
+// ➤ stem opened with "el". And the French way out has more shapes than
+// ➤ "ou expérience équivalente" — that same posting wrote "ou dans une
+// ➤ discipline équivalente".
+{
+  check(degreeScreen("Profil recherché : Diplôme d'Ingénieur en mécanique.", 'Project Engineer') === true,
+    'a French mechanical-degree demand now drops', 'mécanique #798');
+  check(degreeScreen("Profil : Diplôme d'ingénieur électrique.", 'Project Engineer') === true,
+    'and the French electrical spelling too', 'électrique');
+  check(degreeScreen("Profil : Diplôme d'Ingénieur en mécanique ou dans une discipline équivalente.", 'Project Engineer') === false,
+    'while "ou dans une discipline équivalente" is the way out it says', 'équivalente');
+  check(degreeScreen("Profil : Diplôme d'Ingénieur en mécanique.", 'SUBSEA EQUIPMENT ENGINEER F/H') === false,
+    'and a title from his field is never degree-dropped', 'subsea title');
+
+// ➤ German and Dutch had the same hole: whole majors exist only under their
+  // ➤ native names (Maschinenbau, Werktuigbouwkunde, Elektrotechnik), and the
+  // ➤ Dutch degree word "opleiding" was not even a degree word.
+  check(degreeScreen('Abgeschlossenes Studium im Maschinenbau erforderlich.', 'Project Engineer') === true,
+    'a German mechanical-degree demand drops', 'Maschinenbau');
+  check(degreeScreen('Afgeronde hbo-opleiding Werktuigbouwkunde vereist.', 'Project Engineer') === true,
+    'and the Dutch one too', 'Werktuigbouwkunde');
+  check(degreeScreen('Afgeronde opleiding Elektrotechniek.', 'Project Engineer') === true,
+    'Dutch electrical as well', 'Elektrotechniek');
+  check(degreeScreen('Studium im Maschinenbau oder gleichwertige Erfahrung.', 'Project Engineer') === false,
+    'while the German equivalent-experience clause still saves', 'gleichwertig');
+  check(degreeScreen("Diplôme exigé. Le poste est proche du chemin de fer.", 'Project Engineer') === false,
+    'and French "chemin" is not read as chemistry', 'chemin');
+}
+
+// ➤ ── A CURLY APOSTROPHE IS STILL AN APOSTROPHE ─────────────────────
+// ➤ A real posting wrote "A Master’s degree" with U+2019 and the master's rule
+// ➤ never matched — the one rule that pierces the automation-title exemption,
+// ➤ so the offer reached the phone and the Council said yes to it.
+{
+  const cuerpo = 'Education: A Master’s degree in Engineering or Computer Science with a heart for engineering;. Coding Mastery: deep expertise in Python.';
+  check(degreeScreen(cuerpo, 'Automation Engineer Digital Enablement Team') === true,
+    'a curly-apostrophe Master’s still pierces an automation title', 'U+2019');
+  check(degreeScreen(cuerpo.replace('A Master’s degree', 'A Master’s or Bachelor’s degree'), 'Automation Engineer') === false,
+    'while a Bachelor alternative still saves it', 'bachelor alt');
 }
 
 // ➤ ── A WAY OF WORKING IS NOT A PLACE ────────────────────────────────────
@@ -988,6 +1099,10 @@ for (const [name, ok] of COMPANY) {
   check(slugTitle('https://x.com/vacancies/mooring-engineer/?utm=1') === 'mooring engineer',
     'sitemap: a trailing slash and a tracking tail are not part of the title', 'tail');
   check(slugTitle('') === '' && slugTitle(null) === '', 'sitemap: no url, no title, no crash', 'empty');
+  // ➤ decodeURIComponent throws on malformed percent-encoding, and this runs
+  // ➤ once per sitemap URL: one bad link used to take the whole board down.
+  check(slugTitle('https://x/vacancies/%ZZ%%%-engineer') === '%ZZ%%% engineer',
+    'sitemap: a malformed encoding falls back to the raw slug instead of throwing', '%ZZ');
 
   const page = `<html><head>
     <script type="application/ld+json">{"@type":"Organization","name":"Van Oord"}</script>

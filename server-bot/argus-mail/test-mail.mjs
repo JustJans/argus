@@ -37,6 +37,11 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
     'rejected', 'a Dutch refusal phrased as continuing with others');
   eq(c('Your application', 'We have decided to move forward with other candidates'),
     'rejected', 'and the same in English');
+  // ➤ The negation BEFORE the verb (a real 2026-08-05 case): "decided not to
+  // ➤ go forward with YOUR application" — no "other candidates" in sight, and
+  // ➤ two real rejections sat as acknowledged.
+  eq(c('Your application', 'After a thorough evaluation, we have decided not to go forward with your application for the role of Cable Installation Engineer for the moment.'),
+    'rejected', 'a refusal that negates before the verb');
 
   // ➤ BELGIAN Dutch is not Netherlands Dutch, and this mailbox gets both.
   // ➤ Different words for the same thing, not different spellings.
@@ -572,6 +577,14 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
       { id: 20, state: 'interview', ts: '2026-07-20T10:00:00Z' },
     ]);
     eq(twice[0].state, 'interview', 'the newest decision is the one that counts');
+
+    // ➤ The "interview N" command writes exactly this record — for interviews
+    // ➤ the inbox cannot see (a phone call, a Calendar event you created: its
+    // ➤ invite mail comes FROM you, and mail reading skips your own). It must
+    // ➤ land on the application AND in the summary's interview counter.
+    const met = applyVerdicts(base, [{ id: 21, state: 'interview', reason: 'video call friday 9am', ts: '2026-07-19T10:00:00Z' }]);
+    eq(met[1].state, 'interview', 'a hand-recorded interview lands like any verdict');
+    eq(summarise(met).interview, 1, 'and the summary counts it');
 
     // ➤ A junk line must not take the file down with it.
     eq(applyVerdicts(base, [null, { id: 'x' }, { state: 'rejected' }])[0].state, 'noreply', 'unusable lines are ignored');

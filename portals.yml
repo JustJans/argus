@@ -640,13 +640,29 @@ title_filter:
     # Internships / student / trainee / academia — the user wants an employed engineer role
     - "Intern"
     - "Internship"
-    - "Student Worker"
-    - "Working Student"
+    # ➤ Plain "Student" covers Student Worker, Working Student, PhD Student...
+    # ➤ any title naming one is a student role. "Werkstudent" stays: a compound
+    # ➤ word hides "Student" from the whole-word match.
+    - "Student"
     - "Werkstudent"
     # ➤ German for intern/internship — "Intern" doesn't catch them. The user
     # ➤ rejected "Praktikant Network Eng..." on 2026-07-23 (#680).
     - "Praktikant"
     - "Praktikum"
+    # ➤ German thesis-student roles — the user rejected "Bacheloranden (m/w/d) –
+    # ➤ Digitales Netzmonitoring & GIS" on 2026-08-03 (#753); the free language
+    # ➤ detector read that title as English, so the negative list is the net.
+    # ➤ The -en plural is covered by the negative tail in scan.mjs.
+    - "Bachelorand"
+    - "Masterand"
+    - "Doktorand"
+    - "Bachelorarbeit"
+    - "Masterarbeit"
+    - "Abschlussarbeit"
+    - "Thesis"
+    # Spanish interns are "becarios", a word no English negative catches.
+    - "Becario"
+    - "Becaria"
     # ➤ GUARD 2026-07-25 (audit): the FR/NL word for internship also matched English "Stage 2" / "Multi-Stage".
     - term: "Stage"
       unless: ["multistage", "multi-stage", "offshore", "marine", "subsea", "wind", "pump"]
@@ -1318,19 +1334,20 @@ tracked_companies:
 
   - name: Vestas
     careers_url: https://careers.vestas.com
-    workday:
-      tenant: talentmanagementsolution
-      dc: wd3
-      site: VestaEurope
+    # ➤ Their careers site runs on SuccessFactors (careers.vestas.com/jobs.xml,
+    # ➤ 733 postings when checked). The Workday tenant this entry used to name
+    # ➤ belonged to somebody else and answered 5 postings that were not Vestas's.
+    # ➤ This edition has no SuccessFactors reader, so the board stays unread
+    # ➤ rather than wrongly read.
+    scan_method: websearch
     notes: "Denmark/NL. Wind turbine manufacturer and developer. Workday API (zero-token)."
     enabled: true
 
   - name: Siemens Gamesa
     careers_url: https://www.siemensgamesa.com/en-int/careers
-    workday:
-      tenant: siemensgamesa
-      dc: wd3
-      site: SGRE
+    # ➤ Absorbed into Siemens Energy: its own Workday answers 0 postings for any
+    # ➤ search, and Siemens Energy hires through Avature, which has no feed.
+    scan_method: websearch
     notes: "Bilbao HQ. Major offshore wind OEM. Spain-friendly. Workday API (zero-token)."
     enabled: true
 

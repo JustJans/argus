@@ -36,7 +36,7 @@ import { isPendingHeading } from './pipeline-format.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
-import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, detectTitleLang, titleDemandsForeignLanguage, bodyLanguageBlock, overrideDeadIfApply } from './scan.mjs';
+import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, detectTitleLang, NOT_AN_EMPLOYER, titleDemandsForeignLanguage, bodyLanguageBlock, overrideDeadIfApply } from './scan.mjs';
 import { experienceScreen, degreeScreen, stripHtml, extractAdzunaJd, PRIORITY_KEEP, searchProfile } from './requirements.mjs';
 // ➤ To refresh the Telegram list after deleting: otherwise you keep seeing on
 // ➤ your phone offers that no longer exist (audit 2026-07-25).
@@ -179,6 +179,10 @@ export function fuzzyKey(company, title) {
   const c = norm(company)
     .replace(/\s+(?:group|holding|nederland|netherlands|belgium|belgi[eë]|espa[ñn]a|france|deutschland|bv|b\.v\.|nv|n\.v\.|sa|s\.a\.|sl|s\.l\.|gmbh|ag|ltd|limited|inc|srl|spa)\b.*$/i, '')
     .trim() || '';
+  // ➤ An unnamed advertiser gives this key nothing to say — same rule as the
+  // ➤ scanner's roleKey, imported so the two ends cannot drift: two anonymous
+  // ➤ ads sharing a title are NOT one vacancy, and one was being deleted.
+  if (NOT_AN_EMPLOYER.has(c)) return '';
   return `${c}::${norm(title)}`;
 }
 
@@ -575,9 +579,9 @@ async function main() {
     if (filteredIdx.has(p.lineIdx)) continue;
     const u = normUrl(p.url);
     const k = fuzzyKey(p.company, p.title);
-    if (seenUrl.has(u) || seenRole.has(k)) { dupIdx.add(p.lineIdx); continue; }
+    if (seenUrl.has(u) || (k && seenRole.has(k))) { dupIdx.add(p.lineIdx); continue; }
     seenUrl.add(u);
-    seenRole.add(k);
+    if (k) seenRole.add(k);
   }
 
   // ➤ Step 2: DEAD LINKS — checks only the offers that survived the

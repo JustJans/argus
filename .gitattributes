@@ -1,0 +1,2 @@
+setup-linux-mac.sh text eol=lf
+setup-windows.bat -text
