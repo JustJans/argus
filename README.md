@@ -45,9 +45,27 @@ not returned an estimated one, so you are unlikely to ever see it.
 
 ## Setup
 
-**Get the code without git:** press the green **Code** button above and choose
-**Download ZIP**, then unzip it anywhere. Git is only a way of downloading;
-Argus never needs it to run. (Developers can clone as usual.)
+**Install with one line.** Paste this and follow the questions — it downloads
+Argus into `~/argus` (or `C:\Users\you\argus`), and re-running it later
+UPDATES the code without touching your profile, CV or data.
+
+On Windows (open PowerShell from the Start menu):
+
+```powershell
+irm https://raw.githubusercontent.com/JustJans/argus/master/install.ps1 | iex
+```
+
+On macOS or Linux (open Terminal):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JustJans/argus/master/install.sh | bash
+```
+
+**Prefer to do it by hand?** Press the green **Code** button above and choose
+**Download ZIP**, then unzip it anywhere sensible (on macOS avoid
+Desktop/Documents/Downloads — cron cannot read them) and run the setup script
+for your system, below. Git is only a way of downloading; Argus never needs it
+to run. (Developers can clone as usual.)
 
 **Required:** Node.js 20 or newer (the code uses the built-in `fetch`; the
 cover-letter printer needs 20) and a Telegram bot token. That is all the job
