@@ -360,6 +360,25 @@ export async function sendTelegram(text, opts = {}) {
   return (await sendTelegramMessage(text, opts)) !== null;
 }
 
+// ➤ Downloads a file the user sent to the bot (getFile, then the file API).
+// ➤ Exists for the CV question: people send the PDF they already have, not
+// ➤ pasted text (field test 2026-08-06). Returns a Buffer, or null when the
+// ➤ file is missing, oversized (bots can fetch up to ~20 MB; a CV is under 2)
+// ➤ or the network fails — the caller owns the apology.
+export async function downloadTelegramFile(fileId, maxBytes = 15 * 1024 * 1024) {
+  const c = loadCfg();
+  if (!c?.bot_token || !fileId) return null;
+  try {
+    const info = await api(c.bot_token, 'getFile', { file_id: fileId });
+    if (!info?.file_path || (info.file_size && info.file_size > maxBytes)) return null;
+    const res = await fetch(`https://api.telegram.org/file/bot${c.bot_token}/${info.file_path}`,
+      { signal: AbortSignal.timeout(60_000) });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    return buf.length > maxBytes ? null : buf;
+  } catch { return null; }
+}
+
 // ➤ Deletes a chat message by its id. The "live list" uses it to remove the
 // ➤ previous list before re-sending the updated one. If the message no longer
 // ➤ exists (Telegram or you deleted it), Telegram returns an error and it's
@@ -664,6 +683,17 @@ async function cliSetup() {
   let updates;
   const deadline = Date.now() + 120_000;
   for (;;) {
+    // ➤ THE LISTENER MAY HAVE LINKED THE CHAT MEANWHILE (field test
+    // ➤ 2026-08-05): once any listener polls this bot — a scheduled one from
+    // ➤ this install, or a survivor of an earlier one — it CONSUMES the very
+    // ➤ message this poll is looking for, so waiting on getUpdates alone
+    // ➤ waited for ever. telegram.json is the meeting point: the listener
+    // ➤ writes the chat_id there and this console run only has to notice.
+    const linked = loadCfg();
+    if (linked?.chat_id) {
+      console.log(`chat_id ${linked.chat_id} saved (the listener completed the link). Confirmation sent.`);
+      return;
+    }
     try {
       updates = await api(c.bot_token, 'getUpdates', {});
     } catch (e) {
@@ -678,7 +708,11 @@ async function cliSetup() {
         console.error(`and correct it in ${CFG_PATH}, or re-run the setup script to paste it again.`);
         process.exit(2);
       }
-      throw e;
+      // ➤ Anything else (a timeout, a network blip) is not worth dying over
+      // ➤ while the window is still open: keep looking until the deadline.
+      if (Date.now() >= deadline) throw e;
+      updates = [];
+      console.log(`Network hiccup (${String(e.message).slice(0, 60)}) — still looking...`);
     }
     if ((updates || []).some(u => u.message?.chat?.id) || Date.now() >= deadline) break;
     console.log('No message yet — still looking (up to 2 minutes; send it now if you have not)...');
@@ -696,7 +730,10 @@ async function cliSetup() {
   // ➤ telegram.json holds the bot token — keep it readable only by you (0600).
   // ➤ On systems without POSIX permissions (e.g. Windows) this is a harmless no-op.
   try { chmodSync(CFG_PATH, 0o600); } catch { /* not POSIX — ignore */ }
-  await sendTelegram(`Connected. I'll notify you here when there are new offers.`);
+  // ➤ This is the FIRST thing the bot ever says, and the field tester read the
+  // ➤ old wording ("I'll notify you when there are new offers") as the whole
+  // ➤ story — and never sent /start. Say what comes next instead.
+  await sendTelegram(`Connected. Finish the setup in the console; when it says Done, send /start here to build your profile.`);
   console.log(`chat_id ${c.chat_id} (${chat.first_name || chat.username || 'chat'}) saved. Confirmation sent.`);
 }
 

@@ -68,7 +68,12 @@ only user. **Set the publishing status to "In production".** While it is in
 "Testing", Google expires the refresh token after **7 days** and the nightly job
 starts failing a week later for no visible reason. Verification is not needed:
 Google exempts apps used by their own author. You will see an "app not verified"
-warning when you authorise — that is expected, continue past it.
+warning when you authorise — that is expected: removing it would mean Google's
+app verification plus a paid third-party security audit (CASA Tier 2, renewed
+yearly), which no free self-hosted tool can carry. The warning is cosmetic
+here: the "app" is YOUR OWN Google Cloud project reading YOUR OWN mailbox, and
+nobody else is involved. Click "Advanced", then "Go to <your project>", and
+continue.
 
 **3. Create the credentials.** Credentials → Create → **OAuth client ID** →
 application type **Desktop app**. Download the JSON and save the two values into

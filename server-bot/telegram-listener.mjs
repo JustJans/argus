@@ -50,7 +50,7 @@ import { refreshList } from './live-list.mjs';
 // ➤ The one-time setup / settings flow (CV + profile questions, some with
 // ➤ buttons). It writes config/profile.yml + cv.md.
 import {
-  startOnboarding, startSettings, handleOnboardingText, handleOnboardingCallback, onboardingActive,
+  startOnboarding, startSettings, handleOnboardingText, handleOnboardingCallback, handleOnboardingDocument, onboardingActive,
 } from './onboarding.mjs';
 
 // ➤ Paths and basic settings: where this script lives, the project's root
@@ -347,7 +347,9 @@ async function handle(text) {
   // ➤ "/start yes" confirms replacing a profile you already have: the first
   // ➤ question is "paste your CV", and from then on ANY text you type is stored
   // ➤ as an answer — so starting again by accident used to cost you the CV.
-  if (/^\/?start(\s+yes)?$/i.test(t)) {
+  // ➤ "/start abc12345" is the installer's deep link (t.me/bot?start=CODE):
+  // ➤ Telegram delivers the code as a payload, and it reads as a plain /start.
+  if (/^\/?start(\s+yes|\s+[a-z0-9]{6,12})?$/i.test(t)) {
     await startOnboarding(/\s+yes$/i.test(t));
     return;
   }
@@ -506,14 +508,50 @@ async function handle(text) {
 // ➤ where the reading is up to so it doesn't repeat commands if something is cut off.
 async function main() {
   const cfg = loadJson(CFG_PATH, null);
+  // ➤ A token but no chat yet: FINISH THE LINK OURSELVES (field test
+  // ➤ 2026-08-05). The moment any listener polls this bot — this one, or a
+  // ➤ survivor of an earlier install — it CONSUMES the "hi" the setup console
+  // ➤ is waiting for, and the console then waits two minutes for a message
+  // ➤ that no longer exists, for ever. The listener is the rightful owner of
+  // ➤ getUpdates, so it completes the link itself; the console notices the
+  // ➤ chat_id appearing in telegram.json and moves on.
+  if (cfg?.bot_token && !cfg?.chat_id) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${cfg.bot_token}/getUpdates?offset=-1&timeout=0`,
+        { signal: AbortSignal.timeout(15_000) });
+      const j = await res.json().catch(() => null);
+      const last = (j?.result || []).filter(u => u.message?.chat).at(-1);
+      if (!last) {
+        if (process.stdout.isTTY) console.log('Almost there: telegram.json has a token but no chat_id. Send your bot any message and this links itself within a minute.');
+        return;
+      }
+      // ➤ When the installer wrote a link_code, only the /start carrying that
+      // ➤ code may bind the chat — so a stranger who stumbles on the bot before
+      // ➤ its owner taps START cannot claim it. (The random start-token idea
+      // ➤ follows Advanced Web Machinery's write-up, advancedweb.hu, "The
+      // ➤ easiest way to set up a chat with your Telegram bot".) Without a
+      // ➤ code — the by-hand path — the first message binds, as always.
+      if (cfg.link_code && String(last.message.text || '').trim() !== `/start ${cfg.link_code}`) return;
+      cfg.chat_id = String(last.message.chat.id);
+      delete cfg.link_code;
+      writeFileSync(CFG_PATH, JSON.stringify(cfg, null, 2) + '\n', 'utf-8');
+      // ➤ Position BEFORE the linking message, not after it: this same tick
+      // ➤ then PROCESSES that message. Pressing START on the t.me link is one
+      // ➤ tap that links the chat AND begins the profile questions — the old
+      // ➤ flow linked, greeted, and swallowed the /start it was greeting.
+      writeFileAtomic(OFFSET_PATH, JSON.stringify({ offset: last.update_id }));
+      await sendTelegram('Connected.');
+      console.log(`chat_id ${cfg.chat_id} learned from the first message and saved.`);
+      // ➤ No return: the normal flow below reads the offset just written and
+      // ➤ handles the message that did the linking.
+    } catch { return; /* no network: the next tick tries again */ }
+  }
   // ➤ Not configured yet: nothing to do. It says so only when a person ran it
   // ➤ by hand — from cron, stdout is not a terminal and silence is correct, or
   // ➤ the log would gain one identical line every minute for ever.
   if (!cfg?.bot_token || !cfg?.chat_id) {
     if (process.stdout.isTTY) {
-      console.log(!cfg?.bot_token
-        ? 'Not set up yet: server-bot/telegram.json is missing its bot_token. Run setup-windows.bat (Windows) or: bash setup-linux-mac.sh'
-        : 'Almost there: telegram.json has a token but no chat_id. Send your bot any message, then run: node server-bot/notify.mjs --setup');
+      console.log('Not set up yet: server-bot/telegram.json is missing its bot_token. Run the one-line installer from the README, or setup\\setup-windows.bat / bash setup/setup-linux-mac.sh');
     }
     return;
   }
@@ -575,11 +613,16 @@ async function main() {
       continue;
     }
     const msg = u.message;
-    if (!msg?.text) continue;
+    if (!msg) continue;
     // ➤ Security: ignore any message that doesn't come from YOUR chat.
     if (String(msg.chat?.id) !== String(cfg.chat_id)) continue; // the user's chat only
     // ➤ If a command fails, you're notified via Telegram instead of dying silently.
     try {
+      // ➤ A FILE while the setup waits for the CV: people send the PDF they
+      // ➤ already have, not pasted text (field test 2026-08-06). Only the CV
+      // ➤ question eats documents; everything else needs text.
+      if (msg.document && onboardingActive() && await handleOnboardingDocument(msg.document)) continue;
+      if (!msg.text) continue;
       // ➤ While setup/settings is waiting for a typed answer, the text goes
       // ➤ there; otherwise it's a normal command.
       if (onboardingActive() && await handleOnboardingText(msg.text)) continue;

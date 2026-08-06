@@ -654,7 +654,10 @@ for (const d of DEG_DROP) check(degreeScreen(d) === true, 'degree should DROP', 
 // body demands electromechanical/civil (real: We ARE Renewables "Project
 // Engineer (Offshore Wind)" wanting "BSc in electromechanics, civil or related")
 check(degreeScreen("bachelor's degree in electromechanics, civil engineering or related", 'Project Engineer (Offshore Wind)') === false, 'degree sector-escape', 'offshore title');
-check(degreeScreen("master's degree in mechanical engineering", 'Riser Engineer') === false, 'degree sector-escape', 'riser title');
+// ➤ REVERSED 2026-08-06 (#808): a FIRM master's now pierces the own-field
+// ➤ exemption too — the shipped profile holds a BSc, so an offer demanding a
+// ➤ master's with no bachelor door is impossible whatever the title says.
+check(degreeScreen("master's degree in mechanical engineering", 'Riser Engineer') === true, 'a firm master pierces the sector escape', 'riser title');
 check(degreeScreen("master's degree in mechanical engineering", 'Project Engineer') === true, 'degree no-escape generic title', 'bare project engineer');
 // ➤ 2026-07-27 (#708 RWE): business degrees. The excluded list was all
 // ➤ engineering, so a graduate programme wanting Business Administration or
@@ -1055,6 +1058,20 @@ for (const [name, ok] of COMPANY) {
     'while the German equivalent-experience clause still saves', 'gleichwertig');
   check(degreeScreen("Diplôme exigé. Le poste est proche du chemin de fer.", 'Project Engineer') === false,
     'and French "chemin" is not read as chemistry', 'chemin');
+}
+
+// ➤ ── A FIRM MASTER'S PIERCES EVEN THE OWN FIELD ──────────────────────────
+// ➤ #808 (RINA, 2026-08-06): "South Spain Marine Surveyor" — his field, so the
+// ➤ title exemption waved it through — wearing "Education Master's Degree in
+// ➤ Naval Engineering", firm, no bachelor door. Impossible is impossible
+// ➤ whatever the title says; the guards below still save the open forms.
+{
+  check(degreeScreen("Education Master's Degree in Naval Engineering. Qualifications: English.", 'South Spain Marine Surveyor') === true,
+    'a firm master demand drops a his-field title too', '#808');
+  check(degreeScreen("MSc or BSc within Marine, Naval Architecture or equivalent.", 'Marine Installation Engineer') === false,
+    'while a bachelor alternative still saves it', 'MSc or BSc');
+  check(degreeScreen("Master's degree preferred, not required.", 'Marine Surveyor') === false,
+    'and a softened master does not drop', 'preferred');
 }
 
 // ➤ ── A CURLY APOSTROPHE IS STILL AN APOSTROPHE ─────────────────────

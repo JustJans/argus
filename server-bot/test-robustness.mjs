@@ -25,7 +25,7 @@ import { pathToFileURL, fileURLToPath } from 'url';
 // ➤ To launch real separate programs in the lock test below.
 import { spawn } from 'child_process';
 import yaml from 'js-yaml';
-import { buildProfileYaml } from './onboarding.mjs';
+import { buildProfileYaml, pdfText } from './onboarding.mjs';
 
 // ➤ Where this test file itself lives, so the lock test can launch standalone
 // ➤ programs that import the real module rather than a copy of it.
@@ -530,8 +530,10 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   // ➤ Starting again over an existing profile must ASK first.
   ok(/startOnboarding\(force = false\)/.test(ob), 'starting the setup again has to be forced');
   ok(/if \(!force && loadAnswers\(\)\)/.test(ob), 'an existing profile stops /start and asks for confirmation');
-  ok(/\/\^\\\/\?start\(\\s\+yes\)\?\$\/i/.test(li) || /start\(\\s\+yes\)\?/.test(li),
-     'the listener accepts "/start yes" as the confirmation');
+  // ➤ Since 2026-08-06 the same regex also swallows the installer's deep-link
+  // ➤ payload ("/start ab12cd34" from t.me/bot?start=CODE) as a plain /start.
+  ok(/start\(\\s\+yes\|\\s\+\[a-z0-9\]\{6,12\}\)\?/.test(li),
+     'the listener accepts "/start yes" and the deep-link payload');
 
   // ➤ The CV is backed up before it is replaced.
   ok(/backupBeforeOverwrite\(CV_PATH\);\s*\n\s*writePrivate\(CV_PATH/.test(ob),
@@ -1172,6 +1174,35 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   const m = 'no #412 needs 10 years of experience'.match(/^no[\s,:]*#?(\d+)[\s,.:—-]*(.*)$/i);
   eq(m[1], '412', 'the offer number is extracted');
   eq(m[2], 'needs 10 years of experience', 'the reason is kept whole');
+}
+
+// ── The CV arrives as a PDF ───────────────────────────────────────────────
+// ➤ Users send the file they already have, not pasted text (field test
+// ➤ 2026-08-06). This builds a real minimal PDF and runs it through the same
+// ➤ extractor the onboarding uses — so a missing/broken pdf-parse install
+// ➤ fails HERE, not in front of a user mid-setup. The extractor itself was
+// ➤ validated live (2026-08-06) against a genuine Canva-produced CV export
+// ➤ and three university sample packs with multi-column layouts: all four
+// ➤ yielded clean, ordered text. The embedded PDF below only exists to keep
+// ➤ this suite offline.
+{
+  const stream = 'BT /F1 12 Tf 72 720 Td (Marine Engineer CV probe with enough text to pass) Tj ET';
+  const objs = [
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
+    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n',
+    `4 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}\nendstream\nendobj\n`,
+    '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = [];
+  for (const o of objs) { offsets.push(pdf.length); pdf += o; }
+  const xref = pdf.length;
+  pdf += 'xref\n0 6\n0000000000 65535 f \n' + offsets.map(o => String(o).padStart(10, '0') + ' 00000 n \n').join('');
+  pdf += `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  const text = await pdfText(Buffer.from(pdf, 'latin1'));
+  ok(text.includes('Marine Engineer CV probe'), 'a PDF CV yields its text');
+  ok(!/-- \d+ of \d+ --/.test(text), 'and the page markers are stripped out');
 }
 
 // ── Result ────────────────────────────────────────────────────────────────

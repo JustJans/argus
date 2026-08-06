@@ -1,0 +1,229 @@
+# -----------------------------------------------------------------------------
+# Argus - guided setup for Windows. The one-line installer runs this; by hand,
+# double-click setup-windows.bat next to it (a .ps1 opens Notepad if clicked).
+# THE CONTRACT: the user types the bot token and taps START in Telegram, and
+# nothing else. Running the installer IS the consent, so nothing here asks
+# "are you sure" - it installs Node if missing, installs dependencies,
+# registers the scheduled tasks (hidden: no flashing console every minute)
+# and waits for the one tap that links the chat and starts the questions.
+# Runs on Windows PowerShell 5.1, the one every Windows ships.
+# -----------------------------------------------------------------------------
+$ErrorActionPreference = 'Continue'
+# ➤ This file lives in setup\; every path is spoken from the project root.
+$root = Split-Path -Parent $PSScriptRoot
+Set-Location -Path $root
+
+function Say($msg)  { Write-Host ""; Write-Host $msg }
+function Ok($msg)   { Write-Host "  OK  $msg" }
+function Warn($msg) { Write-Host "  !   $msg" }
+
+Say "Argus setup"
+
+# -- 1. Node ------------------------------------------------------------------
+# ➤ 20, not 18: playwright (which prints the cover letters) requires it.
+# ➤ If Node is missing, winget (preinstalled on Windows 10/11) installs it
+# ➤ without asking: the user already asked by running the installer.
+function Find-Node {
+    $cmd = Get-Command node -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    return $null
+}
+$node = Find-Node
+if (-not $node) {
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($winget) {
+        Say "Installing Node.js LTS (Argus runs on it) - this takes a minute or two."
+        Write-Host "  Windows will ask for permission to install it; accept that prompt."
+        # ➤ winget narrates in the machine's language, store legalese and all;
+        # ➤ its output only shows when the install FAILS.
+        $wout = winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements 2>&1
+        if ($LASTEXITCODE -ne 0) { $wout | ForEach-Object { Write-Host "  $_" } }
+        # ➤ The installer edits the PATH of FUTURE consoles, not this one.
+        $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+                    [Environment]::GetEnvironmentVariable('Path', 'User')
+        $node = Find-Node
+    }
+    if (-not $node) {
+        Warn "Node.js could not be installed automatically. Get it from https://nodejs.org"
+        Warn "(version 20 or newer), install it, then run the installer again."
+        Start-Process "https://nodejs.org"
+        Read-Host "  Press Enter to close"
+        exit 1
+    }
+}
+$nodeMajor = [int](& $node -p "process.versions.node.split('.')[0]")
+if ($nodeMajor -lt 20) {
+    Warn "Node $(& $node -v) is too old. Argus needs 20 or newer (playwright, which prints the cover letters, requires it)."
+    Read-Host "  Press Enter to close"
+    exit 1
+}
+Ok "Node $(& $node -v)"
+
+# -- 2. Dependencies ----------------------------------------------------------
+if (-not (Test-Path (Join-Path $root 'node_modules'))) {
+    Say "Installing dependencies"
+    # ➤ error level only: npm's "notice" chatter is noise to someone installing
+    # ➤ a bot, and it half-arrives in the OS language.
+    & npm install --no-audit --no-fund --loglevel=error
+    if ($LASTEXITCODE -ne 0) { Warn "npm install failed"; Read-Host "  Press Enter to close"; exit 1 }
+}
+Ok "dependencies installed"
+
+# -- 3. The schedule, registered without asking -------------------------------
+# ➤ The listener task is what answers Telegram at all, so it exists BEFORE the
+# ➤ token step: the moment the token is saved, the bot is already listening.
+# ➤ Re-registering on every run is the repair path - a broken task heals by
+# ➤ running the installer again.
+# ➤ HIDDEN via setup\run-hidden.vbs: Task Scheduler pops a console window for
+# ➤ every run of a console program, and the listener runs EVERY MINUTE - a
+# ➤ window flashing at the user sixty times an hour (field report 2026-08-06).
+# ➤ Verified live: wscript.exe -> window style 0 -> node, marker written, no
+# ➤ window. (S4U, the window-less principal, needs rights a plain user lacks -
+# ➤ tested and denied.)
+# ➤ Battery switches and the finite 10-year repetition are both field lessons:
+# ➤ Task Scheduler refuses tasks on battery by default, and REJECTS
+# ➤ [TimeSpan]::MaxValue as a duration.
+Say "Scheduling"
+$wscript = Join-Path $env:SystemRoot 'System32\wscript.exe'
+$vbs = Join-Path $root 'setup\run-hidden.vbs'
+$settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable `
+    -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+$mkAction = { param($script, $extra)
+    $arg = "//B //Nologo `"$vbs`" `"$node`" `"$(Join-Path $root $script)`""
+    if ($extra) { $arg = "$arg `"$extra`"" }
+    New-ScheduledTaskAction -Execute $wscript -Argument $arg -WorkingDirectory $root
+}
+$forever = New-TimeSpan -Days 3650
+$jobs = @(
+    @{ Name = 'Argus listener'; Script = 'server-bot\telegram-listener.mjs'; Extra = $null
+       Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration $forever },
+    # ➤ The first scan waits half an hour, so it cannot talk over the setup.
+    @{ Name = 'Argus scan'; Script = 'server-bot\scan.mjs'; Extra = $null
+       Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(30) -RepetitionInterval (New-TimeSpan -Hours 2) -RepetitionDuration $forever },
+    @{ Name = 'Argus links'; Script = 'server-bot\housekeep.mjs'; Extra = '--liveness-only'
+       Trigger = New-ScheduledTaskTrigger -Daily -At '07:30' },
+    @{ Name = 'Argus cleanup'; Script = 'server-bot\housekeep.mjs'; Extra = $null
+       Trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At '09:00' }
+)
+$created = 0
+foreach ($j in $jobs) {
+    try {
+        Register-ScheduledTask -TaskName $j.Name -Action (& $mkAction $j.Script $j.Extra) `
+            -Trigger $j.Trigger -Settings $settings -Force -ErrorAction Stop | Out-Null
+        $created += 1
+    } catch {
+        Warn "could not create '$($j.Name)': $($_.Exception.Message)"
+    }
+}
+# ➤ TRUST NOTHING: the listener is checked back and kicked once right now.
+if (Get-ScheduledTask -TaskName 'Argus listener' -ErrorAction SilentlyContinue) {
+    try { Start-ScheduledTask -TaskName 'Argus listener' } catch { }
+    Ok "$created scheduled tasks in place; the listener is running (hidden - no windows)"
+} else {
+    Warn "THE LISTENER TASK DOES NOT EXIST - the bot cannot answer any Telegram"
+    Warn "command without it. Send a photo of this window."
+}
+
+# -- 4. The bot token, the ONE thing typed by hand ----------------------------
+$cfg = Join-Path $root 'server-bot\telegram.json'
+$linked = $false
+$botUser = $null
+if (Test-Path $cfg) {
+    try {
+        $j = Get-Content $cfg -Raw | ConvertFrom-Json
+        if ($j.chat_id -match '^[0-9-]+$') { $linked = $true }
+    } catch { }
+}
+if ($linked) {
+    Ok "Telegram already linked - nothing to do here"
+} else {
+    # ➤ A repair run must not make anyone re-type: a token saved by an earlier
+    # ➤ attempt is revalidated with getMe and reused, fresh link code included.
+    if (Test-Path $cfg) {
+        try {
+            $j2 = Get-Content $cfg -Raw | ConvertFrom-Json
+            if ($j2.bot_token -match '^[0-9]{6,}:') {
+                $me = Invoke-RestMethod "https://api.telegram.org/bot$($j2.bot_token)/getMe" -TimeoutSec 15
+                if ($me.ok) {
+                    $botUser = $me.result.username
+                    $script:code = -join ((97..122) + (48..57) | Get-Random -Count 8 | ForEach-Object { [char]$_ })
+                    [System.IO.File]::WriteAllText($cfg, "{`"bot_token`": `"$($j2.bot_token)`", `"chat_id`": `"`", `"link_code`": `"$($script:code)`"}`n")
+                    Ok "found the token from an earlier run - your bot is @$botUser"
+                }
+            }
+        } catch { }
+    }
+    if (-not $botUser) {
+    Say "Your Telegram bot"
+    Write-Host "  1. In Telegram, open @BotFather and send it:  /newbot"
+    Write-Host "  2. Give it any name, and a username ending in 'bot'."
+    Write-Host "  3. Copy the token it answers with (123456789:AAHk8s...)."
+    $attempt = 0
+    while ($attempt -lt 5 -and -not $botUser) {
+        $attempt += 1
+        $token = Read-Host "  Paste the token here"
+        if ($token -notmatch '^[0-9]{6,}:[A-Za-z0-9_-]{30,}$') {
+            Warn "That does not look like a token - copy the whole line @BotFather sent."
+            continue
+        }
+        # ➤ getMe answers instantly whether the token is real, and gives the
+        # ➤ bot's username for the one-tap link below. No waiting for messages.
+        try {
+            $me = Invoke-RestMethod "https://api.telegram.org/bot$token/getMe" -TimeoutSec 15
+            if ($me.ok) { $botUser = $me.result.username }
+        } catch {
+            Warn "Telegram rejected that token - check it and paste it again."
+            continue
+        }
+        # ➤ A random code rides the START link, and only the tap carrying it may
+        # ➤ bind the chat - a stranger who finds the bot first cannot claim it.
+        # ➤ (Start-token idea: Advanced Web Machinery, advancedweb.hu, "The
+        # ➤ easiest way to set up a chat with your Telegram bot".)
+        $script:code = -join ((97..122) + (48..57) | Get-Random -Count 8 | ForEach-Object { [char]$_ })
+        # ➤ Written without a BOM: Windows PowerShell's Out-File would prepend
+        # ➤ one and Node's JSON.parse chokes on it.
+        [System.IO.File]::WriteAllText($cfg, "{`"bot_token`": `"$token`", `"chat_id`": `"`", `"link_code`": `"$($script:code)`"}`n")
+        Ok "token saved - your bot is @$botUser"
+    }
+    }
+    if (-not $botUser) {
+        Warn "No valid token. Run the installer again when you have it; everything else is ready."
+        Read-Host "  Press Enter to close"
+        exit 1
+    }
+
+    # -- 5. One tap links everything ------------------------------------------
+    # ➤ The hidden listener is already polling. The user opens the link, taps
+    # ➤ START, and that single tap links the chat AND begins the profile
+    # ➤ questions. This console just watches telegram.json for the link.
+    Say "Last step - one tap:"
+    Write-Host ""
+    Write-Host "      https://t.me/$botUser?start=$($script:code)"
+    Write-Host ""
+    Write-Host "  Open that link (phone or desktop) and press START. Waiting..."
+    $deadline = (Get-Date).AddMinutes(3)
+    while (-not $linked -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 5
+        try {
+            $j = Get-Content $cfg -Raw | ConvertFrom-Json
+            if ($j.chat_id -match '^[0-9-]+$') { $linked = $true }
+        } catch { }
+    }
+    if ($linked) {
+        Ok "linked. The bot is asking your first question in Telegram - answer it there."
+    } else {
+        Warn "No tap seen yet - no problem: the link completes the moment you press START."
+        Warn "This window can be closed."
+    }
+}
+
+# -- 6. Optional extras, only reported ----------------------------------------
+Say "Optional extras (nothing breaks without them)"
+if (Test-Path (Join-Path $root 'server-bot\adzuna-key.json')) { Ok "Adzuna key present" }
+else { Write-Host "  - Adzuna key (free, https://developer.adzuna.com/) -> one more job board. Save it to server-bot\adzuna-key.json as {`"app_id`":`"...`",`"app_key`":`"...`"}" }
+if (Get-Command claude -ErrorAction SilentlyContinue) { Ok "Claude CLI present" }
+else { Write-Host "  - Claude CLI -> AI cover letters ('cover N') and the Council. Install: npm i -g @anthropic-ai/claude-code, then: claude setup-token" }
+Write-Host "  - Chromium (npx playwright install chromium) -> cover letters as PDF"
+
+Say "Done. Everything else happens in Telegram ('help' lists the commands)."
+Read-Host "  Press Enter to close"

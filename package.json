@@ -9,6 +9,7 @@
   "dependencies": {
     "html-to-text": "^10.0.0",
     "js-yaml": "^4.1.1",
+    "pdf-parse": "^2.4.5",
     "playwright": "^1.58.1"
   },
   "engines": {

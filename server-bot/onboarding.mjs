@@ -36,7 +36,7 @@ function backupBeforeOverwrite(path) {
   } catch { /* nothing to keep, or nowhere to keep it */ }
 }
 import {
-  sendTelegram, sendTelegramButtons, editTelegramButtons, answerCallback,
+  sendTelegram, sendTelegramButtons, editTelegramButtons, answerCallback, downloadTelegramFile,
 } from './notify.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -106,7 +106,7 @@ const SENIORITY_NEGATIVES = ['Senior', 'Lead', 'Principal', 'Manager', 'Director
 // ➤ options for single/multi are {label, value}; multi answers are arrays.
 const QUESTIONS = [
   { key: 'cv', kind: 'cv',
-    prompt: 'Argus setup. First, paste the text of your CV. It becomes the basis for filtering and for your cover letters.' },
+    prompt: 'Argus setup. First, your CV: attach it as a PDF file, or paste its text. It becomes the basis for filtering and for your cover letters.' },
   { key: 'name', kind: 'text',
     prompt: 'Your full name (used to sign cover letters):' },
   { key: 'contact', kind: 'text',
@@ -297,6 +297,62 @@ export async function handleOnboardingText(text) {
     // ➤ the generated YAML. (The CV above keeps its line breaks — it's a document.)
     s.answers[q.key] = value.replace(/\s+/g, ' ');
   }
+  await advance(s);
+  return true;
+}
+
+// ➤ Extracts the text of a PDF. pdf-parse v2 (npm "pdf-parse") does the work
+// ➤ locally — no service, no key. Its "-- N of M --" page markers are noise in
+// ➤ a CV and are stripped. Exported so the tests can feed it a real PDF.
+export async function pdfText(buf) {
+  const { PDFParse } = await import('pdf-parse');
+  const parser = new PDFParse({ data: buf });
+  try {
+    const out = await parser.getText();
+    return String(out?.text || '').replace(/^\s*-- \d+ of \d+ --\s*$/gm, '');
+  } finally {
+    await parser.destroy().catch(() => {});
+  }
+}
+
+// ➤ Handles a DOCUMENT while the setup waits for the CV: users send the PDF
+// ➤ they already have, not pasted text (field test 2026-08-06). Only the CV
+// ➤ question consumes files; anywhere else the document is left unanswered
+// ➤ and the question on screen still applies. Returns true if consumed.
+export async function handleOnboardingDocument(doc) {
+  const s = loadState();
+  if (!s || !s.active) return false;
+  const q = s.mode === 'edit' ? Q_BY_KEY[s.editKey] : QUESTIONS[s.step];
+  if (!q || q.kind !== 'cv') return false;
+  const name = String(doc?.file_name || '').toLowerCase();
+  // ➤ Word documents on purpose get their own line: "export it as PDF" is a
+  // ➤ button every editor has, while a generic refusal reads as a dead end.
+  if (/\.(docx?|odt|rtf|pages)$/.test(name)) {
+    await sendTelegram('I can read PDF or plain text. Export the CV as a PDF (every editor has "Save as PDF") and send that.');
+    return true;
+  }
+  if (!/\.(pdf|txt|md)$/.test(name)) {
+    await sendTelegram('That file type I cannot read. Send the CV as a PDF, or paste its text.');
+    return true;
+  }
+  const buf = await downloadTelegramFile(doc.file_id);
+  if (!buf) {
+    await sendTelegram('The file could not be downloaded — send it again, or paste the text.');
+    return true;
+  }
+  let text = '';
+  try { text = name.endsWith('.pdf') ? await pdfText(buf) : buf.toString('utf-8'); }
+  catch { /* unreadable: the length check below answers */ }
+  text = String(text || '').trim();
+  // ➤ A scanned PDF has pages but no words; 200 characters separates that
+  // ➤ from any real CV.
+  if (text.length < 200) {
+    await sendTelegram('That PDF has no readable text — is it a scan? Export a text-based PDF from your editor, or paste the text.');
+    return true;
+  }
+  backupBeforeOverwrite(CV_PATH);
+  writePrivate(CV_PATH, text + '\n');
+  s.answers.cv = 'saved';
   await advance(s);
   return true;
 }

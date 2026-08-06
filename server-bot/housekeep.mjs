@@ -394,7 +394,14 @@ async function fetchDescriptionByUrl(url) {
       if (jd) { adzunaJdClean.add(url); return jd; }
       return stripHtml(html);
     }
-    return '';
+    // ➤ Everything else — SuccessFactors career pages and the like — reads the
+    // ➤ page itself, exactly what the scan does. Returning '' here meant a
+    // ➤ #808 whose Master's demand the scan COULD have read stayed invisible
+    // ➤ to every weekly recheck for ever. Raw page text is noisier than an
+    // ➤ API answer, but the degree and language rechecks only act on
+    // ➤ affirmative sentences, which menus do not write.
+    const res = await politeFetch(new URL(url).hostname, url, { redirect: 'follow' });
+    return res && res.ok ? stripHtml(await res.text()) : '';
   } catch { return ''; }
 }
 
