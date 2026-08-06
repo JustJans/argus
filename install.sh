@@ -33,7 +33,7 @@ cd "$DEST"
 # ➤ Under `curl … | bash` stdin IS the script, so the setup's questions must
 # ➤ read from the terminal itself or they swallow the script as answers.
 if [ -r /dev/tty ]; then
-  exec bash setup-linux-mac.sh < /dev/tty
+  exec bash setup/setup-linux-mac.sh < /dev/tty
 else
-  exec bash setup-linux-mac.sh
+  exec bash setup/setup-linux-mac.sh
 fi

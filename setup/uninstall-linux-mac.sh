@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# Argus — macOS/Linux uninstall. Run: bash uninstall-linux-mac.sh
+# Argus — macOS/Linux uninstall. Run: bash setup/uninstall-linux-mac.sh
 # It removes THIS copy's cron lines, which is everything Argus put OUTSIDE its
 # own folder. The folder itself — code, your profile, your CV, your data —
 # stays; delete it by hand if you want everything gone.
 # Written for the bash 3.2 macOS ships: no case inside $(…).
 # ─────────────────────────────────────────────────────────────────────────────
 set -u
-cd "$(dirname "$0")"
+# ➤ This file lives in setup/, but every path is spoken from the project root.
+cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 ok()   { printf '  OK  %s\n' "$*"; }
 

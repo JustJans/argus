@@ -16,7 +16,7 @@ Say "Argus diagnosis - $root"
 # -- 1. Node ------------------------------------------------------------------
 $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) { Ok "Node $(& $node.Source -v) at $($node.Source)" }
-else { Bad "Node is not on the PATH. Run setup-windows.bat first."; Read-Host "  Press Enter to close"; exit 1 }
+else { Bad "Node is not on the PATH. Run setup\setup-windows.bat first."; Read-Host "  Press Enter to close"; exit 1 }
 
 # -- 2. The listener task -----------------------------------------------------
 # ➤ The listener is what answers Telegram at all; every silent-bot report so
@@ -25,7 +25,7 @@ else { Bad "Node is not on the PATH. Run setup-windows.bat first."; Read-Host " 
 $t = Get-ScheduledTask -TaskName 'Argus listener' -ErrorAction SilentlyContinue
 if (-not $t) {
     Bad "The 'Argus listener' task DOES NOT EXIST. The bot cannot answer anything."
-    Bad "Fix: run setup-windows.bat and answer y to the scheduled-tasks question."
+    Bad "Fix: run setup\setup-windows.bat and answer y to the scheduled-tasks question."
 } else {
     Ok "task exists - state: $($t.State)"
     $act = $t.Actions[0]
@@ -33,7 +33,7 @@ if (-not $t) {
     Write-Host "      from: $($act.WorkingDirectory)"
     if ($act.WorkingDirectory -ne $root) {
         Bad "The task points at ANOTHER copy of Argus, not this folder."
-        Bad "Fix: run setup-windows.bat from THIS folder (it replaces the task)."
+        Bad "Fix: run setup\setup-windows.bat from THIS folder (it replaces the task)."
     }
     $info = Get-ScheduledTaskInfo -TaskName 'Argus listener' -ErrorAction SilentlyContinue
     if ($info) {
@@ -48,7 +48,7 @@ if (-not $t) {
 $cfgPath = Join-Path $root 'server-bot\telegram.json'
 if (-not (Test-Path $cfgPath)) {
     Bad "server-bot\telegram.json does not exist - the Telegram link never happened."
-    Bad "Fix: run setup-windows.bat (the token step)."
+    Bad "Fix: run setup\setup-windows.bat (the token step)."
 } else {
     try {
         $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json

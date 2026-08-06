@@ -534,7 +534,7 @@ async function main() {
   // ➤ the log would gain one identical line every minute for ever.
   if (!cfg?.bot_token || !cfg?.chat_id) {
     if (process.stdout.isTTY) {
-      console.log('Not set up yet: server-bot/telegram.json is missing its bot_token. Run setup-windows.bat (Windows) or: bash setup-linux-mac.sh');
+      console.log('Not set up yet: server-bot/telegram.json is missing its bot_token. Run the one-line installer from the README, or setup\\setup-windows.bat / bash setup/setup-linux-mac.sh');
     }
     return;
   }

@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# Argus — guided setup for macOS and Linux (on Windows, double-click setup-windows.bat).
-# Run it once after downloading:   bash setup-linux-mac.sh
+# Argus — guided setup for macOS and Linux (on Windows, setup\setup-windows.bat).
+# The one-line installer runs this for you; by hand: bash setup/setup-linux-mac.sh
 # It only asks for what is REQUIRED (a Telegram bot token) and offers to write
 # the cron lines for you. Everything else is optional and can wait.
 # ─────────────────────────────────────────────────────────────────────────────
 set -u
-cd "$(dirname "$0")"
+# ➤ This file lives in setup/, but every path is spoken from the project root.
+cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 
 say()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
@@ -27,7 +28,7 @@ if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
       warn "off-limits to scheduled jobs (cron). Argus would work by hand but its"
       warn "schedule would silently never run. Move it somewhere plain and rerun:"
       echo
-      echo "  mv \"$ROOT\" \"\$HOME/argus\" && cd \"\$HOME/argus\" && bash setup-linux-mac.sh"
+      echo "  mv \"$ROOT\" \"\$HOME/argus\" && cd \"\$HOME/argus\" && bash setup/setup-linux-mac.sh"
       echo
       exit 1 ;;
   esac
@@ -51,7 +52,9 @@ ok "Node $(node -v)"
 # ── 2. Dependencies ──────────────────────────────────────────────────────
 if [ ! -d node_modules ]; then
   say "Installing dependencies (npm install)"
-  npm install --no-audit --no-fund || { warn "npm install failed"; exit 1; }
+  # ➤ error level only: npm's "notice" chatter (new-version adverts included)
+  # ➤ is noise to someone installing a bot, and it half-arrives in the OS language.
+  npm install --no-audit --no-fund --loglevel=error || { warn "npm install failed"; exit 1; }
 fi
 ok "dependencies installed"
 
@@ -185,28 +188,16 @@ CRON_LINES="\
 if crontab -l 2>/dev/null | grep -qF "cd $ROOT &&"; then
   ok "This copy of Argus is already in your crontab — leaving it alone"
 elif ! command -v crontab >/dev/null 2>&1; then
-  # ➤ Windows has no cron, and printing the lines above would be worse than
-  # ➤ printing nothing: they carry /c/... paths and flock, neither of which
-  # ➤ exists here. Task Scheduler is the equivalent, so give the four commands
-  # ➤ that actually work, with Windows paths.
+  # ➤ No cron here. On Windows this script is the wrong door — the native
+  # ➤ setup registers Task Scheduler itself; anywhere else, the lines are
+  # ➤ printed for whatever scheduler the machine does have.
   case "$(uname -s 2>/dev/null)" in
-    MINGW*|MSYS*|CYGWIN*)
-      WROOT="$(cygpath -w "$ROOT" 2>/dev/null || echo "$ROOT")"
-      WNODE="$(cygpath -w "$(command -v node)" 2>/dev/null || command -v node)"
-      warn "Windows has no cron. Paste these four into PowerShell (no admin needed):"
-      echo
-      echo "  schtasks /create /tn \"Argus listener\" /sc minute /mo 1 /tr '\"$WNODE\" \"$WROOT\\server-bot\\telegram-listener.mjs\"'"
-      echo "  schtasks /create /tn \"Argus scan\"     /sc hourly /mo 2 /tr '\"$WNODE\" \"$WROOT\\server-bot\\scan.mjs\"'"
-      echo "  schtasks /create /tn \"Argus links\"    /sc daily /st 07:30 /tr '\"$WNODE\" \"$WROOT\\server-bot\\housekeep.mjs\" --liveness-only'"
-      echo "  schtasks /create /tn \"Argus cleanup\"  /sc weekly /d SUN /st 09:00 /tr '\"$WNODE\" \"$WROOT\\server-bot\\housekeep.mjs\"'"
-      echo
-      echo "  The machine only runs them while it is awake, which is fine: a laptop"
-      echo "  you close simply searches when you open it again."
-      ;;
-    *)
+    (MINGW*|MSYS*|CYGWIN*)
+      warn "This is Windows: use the native setup instead (it schedules everything itself):"
+      echo "  double-click setup\\setup-windows.bat" ;;
+    (*)
       warn "No crontab on this machine. Schedule these yourself:"
-      echo "$CRON_LINES"
-      ;;
+      echo "$CRON_LINES" ;;
   esac
 else
   echo "  Argus needs to run on a schedule. The listener (every minute) is what"

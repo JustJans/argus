@@ -1,13 +1,13 @@
 # -----------------------------------------------------------------------------
 # Argus - guided setup for Windows.
-# Double-click setup-windows.bat (in the folder above) to run this; the .bat
+# Double-click setup-windows.bat, right next to this file; the .bat
 # exists because double-clicking a .ps1 opens Notepad instead of running it.
 # No Git Bash, no WSL, no admin rights. It mirrors setup-linux-mac.sh step by
 # step: only the Telegram token is required, it can install Node.js by itself,
 # and it offers to create the scheduled tasks.
 # -----------------------------------------------------------------------------
 $ErrorActionPreference = 'Continue'
-# ➤ This file lives in server-bot\, but every path in the setup is spoken from
+# ➤ This file lives in setup\, but every path in the setup is spoken from
 # ➤ the project root, one level up.
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location -Path $root
@@ -63,7 +63,7 @@ if (-not $node) {
     }
     if (-not $node) {
         Warn "Get Node.js from https://nodejs.org (version 20 or newer), install it,"
-        Warn "then double-click setup-windows.bat again."
+        Warn "then double-click setup\setup-windows.bat again."
         Start-Process "https://nodejs.org"
         Read-Host "  Press Enter to close"
         exit 1
@@ -238,7 +238,7 @@ if ($existing -and $existing.Actions[0].WorkingDirectory -eq $root) {
             Write-Host "  schtasks /create /f /tn `"Argus listener`" /sc minute /mo 1 /tr '`"$node`" `"$(Join-Path $root 'server-bot\telegram-listener.mjs')`"'"
         }
     } else {
-        Warn "Skipped. Run setup-windows.bat again when you are ready, or create them in Task Scheduler yourself (the four commands are in the README)."
+        Warn "Skipped. Run setup\setup-windows.bat again when you are ready, or create them in Task Scheduler yourself (the four commands are in the README)."
     }
 }
 

@@ -36,5 +36,5 @@ try {
 if ($env:ARGUS_NO_SETUP) {
     Write-Host "ARGUS_NO_SETUP is set - skipping the setup."
 } else {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dest 'server-bot\setup-windows.ps1')
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dest 'setup\setup-windows.ps1')
 }

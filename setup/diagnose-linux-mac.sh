@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # Argus — macOS/Linux diagnosis. Run it when the bot answers nothing:
-#   bash diagnose-linux-mac.sh
+#   bash setup/diagnose-linux-mac.sh
 # Read-only except for one thing: it runs the listener once in the foreground,
 # so any crash that cron swallows is printed HERE, on screen. Twin of
 # diagnose-windows.bat, born from the same mute field installs (2026-08-05).
 # ─────────────────────────────────────────────────────────────────────────────
 set -u
-cd "$(dirname "$0")"
+# ➤ This file lives in setup/, but every path is spoken from the project root.
+cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 ok()   { printf '  OK  %s\n' "$*"; }
 bad()  { printf '  !!  %s\n' "$*"; }
@@ -17,7 +18,7 @@ say "Argus diagnosis — $ROOT"
 
 # ── 1. Node ──────────────────────────────────────────────────────────────
 if command -v node >/dev/null 2>&1; then ok "Node $(node -v) at $(command -v node)"
-else bad "Node is not installed. Run: bash setup-linux-mac.sh"; exit 1; fi
+else bad "Node is not installed. Run: bash setup/setup-linux-mac.sh"; exit 1; fi
 
 # ── 2. The macOS privacy fence ───────────────────────────────────────────
 if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
@@ -25,7 +26,7 @@ if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
     "$HOME/Desktop"*|"$HOME/Documents"*|"$HOME/Downloads"*)
       bad "This folder is inside Desktop/Documents/Downloads: macOS blocks cron"
       bad "from reading here, so the schedule silently never runs. Fix:"
-      echo "      mv \"$ROOT\" \"\$HOME/argus\" && cd \"\$HOME/argus\" && bash setup-linux-mac.sh" ;;
+      echo "      mv \"$ROOT\" \"\$HOME/argus\" && cd \"\$HOME/argus\" && bash setup/setup-linux-mac.sh" ;;
     *) ok "the folder is somewhere cron can read" ;;
   esac
 fi
@@ -40,7 +41,7 @@ elif crontab -l 2>/dev/null | grep -qF "cd $ROOT && "; then
   crontab -l | grep -F "cd $ROOT && " | sed 's/^/      /'
 else
   bad "THIS copy is not in the crontab: the bot cannot answer anything."
-  bad "Fix: run setup-linux-mac.sh and answer y to the cron question."
+  bad "Fix: run bash setup/setup-linux-mac.sh and answer y to the cron question."
   OTHER="$(crontab -l 2>/dev/null | grep -F 'server-bot/telegram-listener.mjs' || true)"
   [ -n "$OTHER" ] && bad "a DIFFERENT copy is scheduled instead:" && printf '%s\n' "$OTHER" | sed 's/^/      /'
 fi

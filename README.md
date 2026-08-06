@@ -77,20 +77,15 @@ when a scan is due: on an always-on machine it works round the clock, and on a
 laptop you close at night it simply searches when the laptop is open. Nothing
 breaks either way.
 
-**On Windows**, first take the internet mark off the ZIP so nothing warns
-later: right-click the downloaded ZIP, **Properties**, tick **Unblock**, OK —
-and only then extract it. (Skip that and Windows shows "this file has no valid
-digital signature" on the first double-click; that is what it says about ANY
-free program not signed with a paid publisher certificate, and Run continues
-anyway. The unblock step just spares you the scare.)
-
-Then double-click **`setup-windows.bat`** in the unzipped folder (shown as just
-"setup-windows" when Windows hides file extensions). No Git Bash, no WSL, no
-admin rights beyond Windows's own permission prompt when Node.js has to be
-installed: it installs Node.js by itself if it is missing (via winget),
-installs the dependencies, walks you through the Telegram token, and creates
-the four scheduled tasks in Task Scheduler. On macOS and Linux, run
-`bash setup-linux-mac.sh` — same steps, cron instead of Task Scheduler.
+**Going the ZIP way on Windows?** First take the internet mark off the ZIP:
+right-click it, **Properties**, tick **Unblock**, OK — then extract. (Skip
+that and Windows warns about a missing digital signature on the first
+double-click; that is what it says about ANY free program not signed with a
+paid publisher certificate. The one-line installer avoids all of this.) Then
+double-click **`setup\setup-windows.bat`**: it installs Node.js by itself if
+it is missing (via winget), installs the dependencies, walks you through the
+Telegram token, and creates the four scheduled tasks. On macOS and Linux,
+`bash setup/setup-linux-mac.sh` — same steps, cron instead of Task Scheduler.
 
 **Optional extras**, each one only unlocks its own feature and nothing breaks
 without it:
@@ -101,9 +96,7 @@ without it:
 | The Claude CLI, installed and logged in (`npm i -g @anthropic-ai/claude-code`, then `claude setup-token` → `server-bot/claude-token.json`) | `cover N` (AI cover letters) and the Council | searching, filtering and Telegram work exactly the same; the Council ships **off** |
 | Chromium (`npx playwright install chromium`) | the cover letter as a PDF | — |
 
-**Quickest way:** `setup-windows.bat` (Windows) or `bash setup-linux-mac.sh`
-(macOS/Linux) walks you through all of it (dependencies, bot token, chat
-linking and the scheduling). Or do it by hand:
+**Entirely by hand, without any script:**
 
 ```bash
 npm install
@@ -118,7 +111,7 @@ node server-bot/notify.mjs --setup
 Next, run it on a schedule (the bot does not schedule itself). Do this **before**
 the step below: the listener line is the one that receives your Telegram
 commands, so until it is running the bot cannot answer, not even `/start`.
-`setup-linux-mac.sh` offers to install all four for you. If you skipped it,
+`setup/setup-linux-mac.sh` offers to install all four for you. If you skipped it,
 here they are:
 
 ```cron
@@ -128,7 +121,7 @@ here they are:
 0 9   * * 0 cd /path/to/argus && /usr/bin/node server-bot/housekeep.mjs >> server-bot/scan.log 2>&1
 ```
 
-On **Windows**, the same four go into Task Scheduler — `setup-windows.bat`
+On **Windows**, the same four go into Task Scheduler — `setup\setup-windows.bat`
 creates them for you. Doing it by hand instead, the shape is:
 
 ```powershell
@@ -142,10 +135,10 @@ No administrator rights needed. Windows only runs them while the machine is
 awake, which is fine — a laptop you close simply searches when you open it.
 
 **If the bot answers nothing**, run the diagnosis: double-click
-`diagnose-windows.bat` (Windows) or run `bash diagnose-linux-mac.sh`
+`setup\diagnose-windows.bat` (Windows) or run `bash setup/diagnose-linux-mac.sh`
 (macOS/Linux). It checks every piece in order and says which one is broken and
-how to fix it. **To uninstall**, `uninstall-windows.bat` / `bash
-uninstall-linux-mac.sh` removes the schedule — the only thing Argus keeps
+how to fix it. **To uninstall**, `setup\uninstall-windows.bat` / `bash
+setup/uninstall-linux-mac.sh` removes the schedule — the only thing Argus keeps
 outside its folder — and then you just delete the folder.
 
 Finally, build your profile: **send `/start` to the bot.** It walks you through a
