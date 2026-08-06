@@ -41,7 +41,7 @@ elif crontab -l 2>/dev/null | grep -qF "cd $ROOT && "; then
   crontab -l | grep -F "cd $ROOT && " | sed 's/^/      /'
 else
   bad "THIS copy is not in the crontab: the bot cannot answer anything."
-  bad "Fix: run bash setup/setup-linux-mac.sh and answer y to the cron question."
+  bad "Fix: run the installer (or bash setup/setup-linux-mac.sh) again - it repairs the schedule."
   OTHER="$(crontab -l 2>/dev/null | grep -F 'server-bot/telegram-listener.mjs' || true)"
   [ -n "$OTHER" ] && bad "a DIFFERENT copy is scheduled instead:" && printf '%s\n' "$OTHER" | sed 's/^/      /'
 fi
@@ -60,10 +60,10 @@ fi
 # ── 5. Has the listener ever ticked? ─────────────────────────────────────
 # ➤ The offset file is written on the first successful tick, so its absence
 # ➤ separates "never ran" from "runs but something else fails".
-if [ -f data/telegram-offset.json ]; then
-  ok "the listener has ticked before (data/telegram-offset.json, last: $(date -r data/telegram-offset.json 2>/dev/null || stat -c %y data/telegram-offset.json 2>/dev/null))"
+if [ -f server-bot/telegram-offset.json ]; then
+  ok "the listener has ticked before (server-bot/telegram-offset.json, last: $(date -r server-bot/telegram-offset.json 2>/dev/null || stat -c %y server-bot/telegram-offset.json 2>/dev/null))"
 else
-  bad "data/telegram-offset.json does not exist: the listener has NEVER completed a tick."
+  bad "server-bot/telegram-offset.json does not exist: the listener has NEVER completed a tick."
 fi
 
 # ── 6. What cron saw (the log) ───────────────────────────────────────────

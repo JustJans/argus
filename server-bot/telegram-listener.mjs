@@ -347,7 +347,9 @@ async function handle(text) {
   // ➤ "/start yes" confirms replacing a profile you already have: the first
   // ➤ question is "paste your CV", and from then on ANY text you type is stored
   // ➤ as an answer — so starting again by accident used to cost you the CV.
-  if (/^\/?start(\s+yes)?$/i.test(t)) {
+  // ➤ "/start abc12345" is the installer's deep link (t.me/bot?start=CODE):
+  // ➤ Telegram delivers the code as a payload, and it reads as a plain /start.
+  if (/^\/?start(\s+yes|\s+[a-z0-9]{6,12})?$/i.test(t)) {
     await startOnboarding(/\s+yes$/i.test(t));
     return;
   }
@@ -518,16 +520,31 @@ async function main() {
       const res = await fetch(`https://api.telegram.org/bot${cfg.bot_token}/getUpdates?offset=-1&timeout=0`,
         { signal: AbortSignal.timeout(15_000) });
       const j = await res.json().catch(() => null);
-      const chat = (j?.result || []).map(u => u.message?.chat).filter(Boolean).at(-1);
-      if (chat) {
-        writeFileSync(CFG_PATH, JSON.stringify({ ...cfg, chat_id: String(chat.id) }, null, 2) + '\n', 'utf-8');
-        await sendTelegram('Connected. Finish the setup in the console; when it says Done, send /start here to build your profile.');
-        console.log(`chat_id ${chat.id} learned from the first message and saved.`);
-      } else if (process.stdout.isTTY) {
-        console.log('Almost there: telegram.json has a token but no chat_id. Send your bot any message and this links itself within a minute.');
+      const last = (j?.result || []).filter(u => u.message?.chat).at(-1);
+      if (!last) {
+        if (process.stdout.isTTY) console.log('Almost there: telegram.json has a token but no chat_id. Send your bot any message and this links itself within a minute.');
+        return;
       }
-    } catch { /* no network: the next tick tries again */ }
-    return;
+      // ➤ When the installer wrote a link_code, only the /start carrying that
+      // ➤ code may bind the chat — so a stranger who stumbles on the bot before
+      // ➤ its owner taps START cannot claim it. (The random start-token idea
+      // ➤ follows Advanced Web Machinery's write-up, advancedweb.hu, "The
+      // ➤ easiest way to set up a chat with your Telegram bot".) Without a
+      // ➤ code — the by-hand path — the first message binds, as always.
+      if (cfg.link_code && String(last.message.text || '').trim() !== `/start ${cfg.link_code}`) return;
+      cfg.chat_id = String(last.message.chat.id);
+      delete cfg.link_code;
+      writeFileSync(CFG_PATH, JSON.stringify(cfg, null, 2) + '\n', 'utf-8');
+      // ➤ Position BEFORE the linking message, not after it: this same tick
+      // ➤ then PROCESSES that message. Pressing START on the t.me link is one
+      // ➤ tap that links the chat AND begins the profile questions — the old
+      // ➤ flow linked, greeted, and swallowed the /start it was greeting.
+      writeFileAtomic(OFFSET_PATH, JSON.stringify({ offset: last.update_id }));
+      await sendTelegram('Connected.');
+      console.log(`chat_id ${cfg.chat_id} learned from the first message and saved.`);
+      // ➤ No return: the normal flow below reads the offset just written and
+      // ➤ handles the message that did the linking.
+    } catch { return; /* no network: the next tick tries again */ }
   }
   // ➤ Not configured yet: nothing to do. It says so only when a person ran it
   // ➤ by hand — from cron, stdout is not a terminal and silence is correct, or

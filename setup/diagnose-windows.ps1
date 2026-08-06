@@ -25,7 +25,7 @@ else { Bad "Node is not on the PATH. Run setup\setup-windows.bat first."; Read-H
 $t = Get-ScheduledTask -TaskName 'Argus listener' -ErrorAction SilentlyContinue
 if (-not $t) {
     Bad "The 'Argus listener' task DOES NOT EXIST. The bot cannot answer anything."
-    Bad "Fix: run setup\setup-windows.bat and answer y to the scheduled-tasks question."
+    Bad "Fix: run the installer (or setup\setup-windows.bat) again - it repairs the tasks."
 } else {
     Ok "task exists - state: $($t.State)"
     $act = $t.Actions[0]
@@ -62,9 +62,9 @@ if (-not (Test-Path $cfgPath)) {
 # -- 4. Has the listener ever ticked? -----------------------------------------
 # ➤ The offset file is written on the listener's very first successful tick,
 # ➤ so its absence separates "never ran" from "runs but something else fails".
-$off = Join-Path $root 'data\telegram-offset.json'
-if (Test-Path $off) { Ok "the listener has ticked before (data\telegram-offset.json, last $((Get-Item $off).LastWriteTime))" }
-else { Bad "data\telegram-offset.json does not exist: the listener has NEVER completed a tick." }
+$off = Join-Path $root 'server-bot\telegram-offset.json'
+if (Test-Path $off) { Ok "the listener has ticked before (server-bot\telegram-offset.json, last $((Get-Item $off).LastWriteTime))" }
+else { Bad "server-bot\telegram-offset.json does not exist: the listener has NEVER completed a tick." }
 
 # -- 5. One live run, on screen -----------------------------------------------
 # ➤ Task Scheduler swallows all output; this run swallows nothing. If the

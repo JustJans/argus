@@ -45,9 +45,12 @@ not returned an estimated one, so you are unlikely to ever see it.
 
 ## Setup
 
-**Install with one line.** Paste this and follow the questions — it downloads
-Argus into `~/argus` (or `C:\Users\you\argus`), and re-running it later
-UPDATES the code without touching your profile, CV or data.
+**Install with one line.** Paste this — it downloads Argus into `~/argus`
+(or `C:\Users\you\argus`), installs what is missing, registers the schedule
+(hidden — no flashing console windows), asks for your bot token and then gives
+you a `t.me` link: **one tap on START and the bot begins your profile
+questions**. Re-running the same line later updates the code — and repairs a
+broken install — without touching your profile, CV or data.
 
 On Windows (open PowerShell from the Start menu):
 
@@ -133,6 +136,8 @@ schtasks /create /tn "Argus cleanup"  /sc weekly /d SUN /st 09:00 /tr '"C:\Progr
 
 No administrator rights needed. Windows only runs them while the machine is
 awake, which is fine — a laptop you close simply searches when you open it.
+(The setup registers them through `setup\run-hidden.vbs` so no console window
+flashes on every run; the bare shapes above work too, but they flash.)
 
 **If the bot answers nothing**, run the diagnosis: double-click
 `setup\diagnose-windows.bat` (Windows) or run `bash setup/diagnose-linux-mac.sh`
