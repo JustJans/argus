@@ -392,11 +392,15 @@ export function degreeScreen(text, title) {
   // ➤ pierces the automation-title exemption below — never matched it, so the
   // ➤ offer sailed through to the phone.
   const t0 = String(text || '').replace(/[’‘]/g, "'").toLowerCase().replace(/\s+/g, ' ');
-  // ➤ Order matters: a title from HIS field is always saved, even from the
-  // ➤ master's rule — there the user is a real candidate and the false drop is the
-  // ➤ expensive one. The master's only pierces automation and generic titles.
-  if (USER_FIELDS.test(ttl)) return false;
+  // ➤ Order matters. The master's rule goes FIRST, piercing every title
+  // ➤ exemption (own-field included, 2026-08-06 #808: "Marine Surveyor" wearing
+  // ➤ "Education: Master's Degree in Naval Engineering" reached the phone):
+  // ➤ a FIRMLY required master's is impossible whatever the title says, and
+  // ➤ the rule already stands down for a bachelor alternative, a softener or
+  // ➤ an equivalence clause. Own-field titles remain exempt from the MAJORS
+  // ➤ scan below — there the false drop is the expensive one.
   if (masterRequired(t0)) return true;
+  if (USER_FIELDS.test(ttl)) return false;
   if (DEGREE_TITLE_SAFE.test(ttl)) return false;
   const t = t0;
   DEGREE_WORD.lastIndex = 0;
