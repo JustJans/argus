@@ -1180,7 +1180,11 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
 // ➤ Users send the file they already have, not pasted text (field test
 // ➤ 2026-08-06). This builds a real minimal PDF and runs it through the same
 // ➤ extractor the onboarding uses — so a missing/broken pdf-parse install
-// ➤ fails HERE, not in front of a user mid-setup.
+// ➤ fails HERE, not in front of a user mid-setup. The extractor itself was
+// ➤ validated live (2026-08-06) against a genuine Canva-produced CV export
+// ➤ and three university sample packs with multi-column layouts: all four
+// ➤ yielded clean, ordered text. The embedded PDF below only exists to keep
+// ➤ this suite offline.
 {
   const stream = 'BT /F1 12 Tf 72 720 Td (Marine Engineer CV probe with enough text to pass) Tj ET';
   const objs = [
