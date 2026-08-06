@@ -360,6 +360,25 @@ export async function sendTelegram(text, opts = {}) {
   return (await sendTelegramMessage(text, opts)) !== null;
 }
 
+// ➤ Downloads a file the user sent to the bot (getFile, then the file API).
+// ➤ Exists for the CV question: people send the PDF they already have, not
+// ➤ pasted text (field test 2026-08-06). Returns a Buffer, or null when the
+// ➤ file is missing, oversized (bots can fetch up to ~20 MB; a CV is under 2)
+// ➤ or the network fails — the caller owns the apology.
+export async function downloadTelegramFile(fileId, maxBytes = 15 * 1024 * 1024) {
+  const c = loadCfg();
+  if (!c?.bot_token || !fileId) return null;
+  try {
+    const info = await api(c.bot_token, 'getFile', { file_id: fileId });
+    if (!info?.file_path || (info.file_size && info.file_size > maxBytes)) return null;
+    const res = await fetch(`https://api.telegram.org/file/bot${c.bot_token}/${info.file_path}`,
+      { signal: AbortSignal.timeout(60_000) });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    return buf.length > maxBytes ? null : buf;
+  } catch { return null; }
+}
+
 // ➤ Deletes a chat message by its id. The "live list" uses it to remove the
 // ➤ previous list before re-sending the updated one. If the message no longer
 // ➤ exists (Telegram or you deleted it), Telegram returns an error and it's

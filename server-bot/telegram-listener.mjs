@@ -50,7 +50,7 @@ import { refreshList } from './live-list.mjs';
 // ➤ The one-time setup / settings flow (CV + profile questions, some with
 // ➤ buttons). It writes config/profile.yml + cv.md.
 import {
-  startOnboarding, startSettings, handleOnboardingText, handleOnboardingCallback, onboardingActive,
+  startOnboarding, startSettings, handleOnboardingText, handleOnboardingCallback, handleOnboardingDocument, onboardingActive,
 } from './onboarding.mjs';
 
 // ➤ Paths and basic settings: where this script lives, the project's root
@@ -613,11 +613,16 @@ async function main() {
       continue;
     }
     const msg = u.message;
-    if (!msg?.text) continue;
+    if (!msg) continue;
     // ➤ Security: ignore any message that doesn't come from YOUR chat.
     if (String(msg.chat?.id) !== String(cfg.chat_id)) continue; // the user's chat only
     // ➤ If a command fails, you're notified via Telegram instead of dying silently.
     try {
+      // ➤ A FILE while the setup waits for the CV: people send the PDF they
+      // ➤ already have, not pasted text (field test 2026-08-06). Only the CV
+      // ➤ question eats documents; everything else needs text.
+      if (msg.document && onboardingActive() && await handleOnboardingDocument(msg.document)) continue;
+      if (!msg.text) continue;
       // ➤ While setup/settings is waiting for a typed answer, the text goes
       // ➤ there; otherwise it's a normal command.
       if (onboardingActive() && await handleOnboardingText(msg.text)) continue;
