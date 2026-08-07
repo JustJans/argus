@@ -27,3 +27,23 @@ extraction, and the profile the bot writes at the end.
 What it does **not** cover (needs the real OS, verified separately by hand):
 Node install via winget, Task Scheduler / cron registration, the hidden-window
 launcher, and macOS's privacy fence. Those are OS-level, not Telegram-level.
+
+## The full install, on a machine that owns nothing
+
+`drive-setup.mjs` above rehearses the conversation. To rehearse the **install
+itself** — the real one-line installer, fetched from GitHub — use a throwaway
+system account, so the schedule it writes lands in that account's crontab and
+never yours:
+
+```bash
+sudo useradd -m argustest
+sudo -u argustest bash setup/test/fresh-install-linux.sh
+sudo userdel -r argustest        # afterwards
+```
+
+It prints the console and the chat side by side and then the state the machine
+ended up in: folder, dependencies, crontab, `telegram.json`, profile.
+
+Its first run earned its keep: `install.sh` died at `exec … < /dev/tty` in a
+session with no controlling terminal — code downloaded, no dependencies, no
+schedule, no token, a bot mute for ever. Fixed in `802f8ce`.
