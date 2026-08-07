@@ -97,7 +97,7 @@ without it:
 |---|---|---|
 | An [Adzuna API key](https://developer.adzuna.com/) (free) | the Adzuna job board | the other portals still work |
 | The Claude CLI, installed and logged in (`npm i -g @anthropic-ai/claude-code`, then `claude setup-token` → `server-bot/claude-token.json`) | `cover N` (AI cover letters) and the Council | searching, filtering and Telegram work exactly the same; the Council ships **off** |
-| Chromium (`npx playwright install chromium`) | the cover letter as a PDF | — |
+| Chromium | the cover letter as a PDF | installed on its own at the first `cover N` (~115 MB), or by hand: `npx playwright install chromium` |
 
 **Entirely by hand, without any script:**
 
@@ -391,7 +391,7 @@ wrong is knowingly left alone. Both are written down, with the reasoning, in
 
 - **Secrets** (Telegram/Claude tokens, API keys) and **activity data** (offers,
   applications, feedback) are NOT in the repository.
-- Everything is plain Node with three dependencies (`js-yaml`, `playwright`,
+- Everything is plain Node with four dependencies (`js-yaml`, `playwright`, `pdf-parse`,
   `html-to-text`), no
   database and no service to sign up for beyond the portals themselves.
 - The scan costs zero AI tokens: it is HTTP and JSON. Only `cover N` and the

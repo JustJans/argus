@@ -264,11 +264,31 @@ export function letterHtml(offer, letter) {
   </body></html>`;
 }
 
-// ➤ Turns the HTML page into an A4 PDF using Playwright's Chromium
-// ➤ (installed on the server). Opens the browser with no window, "prints" and closes.
+// ➤ Turns the HTML page into an A4 PDF using Playwright's Chromium.
+// ➤ IT INSTALLS THE BROWSER IF IT IS NOT THERE (2026-08-06). Playwright ships
+// ➤ as a library and downloads its browser separately, so `npm install` alone
+// ➤ leaves a hole that only shows up at the first `cover N` — and it reopens
+// ➤ on its own whenever npm updates playwright to a version whose browser
+// ➤ build is not the one on disk (that is exactly what happened here: an
+// ➤ unrelated install bumped 1.58→1.62 and every letter would have failed).
+// ➤ One attempt, then the error stands: a second failure is a real problem.
 async function renderPdf(html, outPath) {
   const { chromium } = await import('playwright');
-  const browser = await chromium.launch({ headless: true });
+  const launch = () => chromium.launch({ headless: true });
+  let browser;
+  try {
+    browser = await launch();
+  } catch (e) {
+    if (!/Executable doesn't exist|playwright install/i.test(String(e.message))) throw e;
+    console.log('Playwright has no browser for this version — installing Chromium once (~115 MB)...');
+    const { execFile } = await import('child_process');
+    await new Promise(resolve => {
+      execFile('npx', ['playwright', 'install', 'chromium'],
+        { cwd: ROOT, timeout: 15 * 60 * 1000, maxBuffer: 8 * 1024 * 1024, shell: process.platform === 'win32' },
+        () => resolve());
+    });
+    browser = await launch();
+  }
   try {
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'load' });

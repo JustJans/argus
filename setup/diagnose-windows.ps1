@@ -66,6 +66,15 @@ $off = Join-Path $root 'server-bot\telegram-offset.json'
 if (Test-Path $off) { Ok "the listener has ticked before (server-bot\telegram-offset.json, last $((Get-Item $off).LastWriteTime))" }
 else { Bad "server-bot\telegram-offset.json does not exist: the listener has NEVER completed a tick." }
 
+# -- 4b. The cover-letter browser ---------------------------------------------
+# ➤ Playwright downloads its browser separately from `npm install`, and an npm
+# ➤ update can leave the library newer than the browser on disk - which breaks
+# ➤ `cover N` only, silently, until you ask for a letter. The generator repairs
+# ➤ this by itself now; this only reports it.
+$pw = Join-Path $env:USERPROFILE 'AppData\Local\ms-playwright'
+if (Test-Path $pw) { Ok "Playwright browsers present ($(@(Get-ChildItem $pw -Directory).Count) builds)" }
+else { Write-Host "  --  no Playwright browser yet: the first 'cover N' downloads it (~115 MB)" }
+
 # -- 5. One live run, on screen -----------------------------------------------
 # ➤ Task Scheduler swallows all output; this run swallows nothing. If the
 # ➤ listener crashes on this machine, the reason prints right here.
