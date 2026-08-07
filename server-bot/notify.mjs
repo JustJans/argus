@@ -46,6 +46,11 @@ const COUNTRIES_PATH = join(SCRIPT_DIR, 'countries.yml');
 const ROOT = dirname(SCRIPT_DIR);
 const PORTALS_PATH = join(ROOT, 'portals.yml');
 const JUDGE_JOURNAL_PATH = join(ROOT, 'data', 'judge-shadow.jsonl');
+// ➤ The Telegram host, overridable for testing. Default is the real one;
+// ➤ ARGUS_TG_API points a local mock server in its place so the whole setup
+// ➤ conversation can be replayed end-to-end with no account (the baseApiUrl
+// ➤ pattern every Telegram-bot test harness uses). Never set in production.
+export const TG_API = process.env.ARGUS_TG_API || 'https://api.telegram.org';
 
 // ➤ How much text goes in one message before it is sent and a new one begun.
 // ➤ TELEGRAM REFUSES ANYTHING OVER 4096 CHARACTERS, and refusing means you get
@@ -318,7 +323,7 @@ export function telegramConfigured() {
 // ➤ says and retries ONCE before giving up.
 async function api(token, method, payload) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+    const res = await fetch(`${TG_API}/bot${token}/${method}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload || {}),
@@ -371,7 +376,7 @@ export async function downloadTelegramFile(fileId, maxBytes = 15 * 1024 * 1024) 
   try {
     const info = await api(c.bot_token, 'getFile', { file_id: fileId });
     if (!info?.file_path || (info.file_size && info.file_size > maxBytes)) return null;
-    const res = await fetch(`https://api.telegram.org/file/bot${c.bot_token}/${info.file_path}`,
+    const res = await fetch(`${TG_API}/file/bot${c.bot_token}/${info.file_path}`,
       { signal: AbortSignal.timeout(60_000) });
     if (!res.ok) return null;
     const buf = Buffer.from(await res.arrayBuffer());
@@ -479,7 +484,7 @@ export async function sendTelegramDocument(filePath, caption = '') {
   if (caption) fd.append('caption', String(caption).slice(0, 1000));
   const name = filePath.split(/[\\/]/).pop();
   fd.append('document', new Blob([readFileSync(filePath)]), name);
-  const res = await fetch(`https://api.telegram.org/bot${c.bot_token}/sendDocument`, {
+  const res = await fetch(`${TG_API}/bot${c.bot_token}/sendDocument`, {
     method: 'POST', body: fd, signal: AbortSignal.timeout(60_000),
   });
   const j = await res.json().catch(() => null);

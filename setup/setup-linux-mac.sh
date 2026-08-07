@@ -18,6 +18,10 @@ say()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
 ok()   { printf '  OK  %s\n' "$*"; }
 warn() { printf '  !   %s\n' "$*"; }
 
+# ➤ The Telegram host, overridable for testing only (setup/test replays the
+# ➤ whole install against a local mock). Default is the real one.
+TG_API="${ARGUS_TG_API:-https://api.telegram.org}"
+
 say "Argus setup"
 
 # ── 0. Where the folder lives (macOS privacy) ────────────────────────────
@@ -112,7 +116,7 @@ else
   # ➤ attempt is revalidated with getMe and reused, fresh link code included.
   OLDTOKEN="$(sed -n 's/.*"bot_token": *"\([^"]*\)".*/\1/p' "$CFG" 2>/dev/null | head -1)"
   if [ -n "$OLDTOKEN" ]; then
-    ME="$(curl -fsS --max-time 15 "https://api.telegram.org/bot$OLDTOKEN/getMe" 2>/dev/null || true)"
+    ME="$(curl -fsS --max-time 15 "$TG_API/bot$OLDTOKEN/getMe" 2>/dev/null || true)"
     BOTUSER="$(printf '%s' "$ME" | sed -n 's/.*"username":"\([^"]*\)".*/\1/p')"
     if [ -n "$BOTUSER" ]; then
       CODE="$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom 2>/dev/null | head -c 8)"
@@ -137,7 +141,7 @@ else
     fi
     # ➤ getMe answers instantly whether the token is real, and gives the bot's
     # ➤ username for the one-tap link below. No waiting for messages.
-    ME="$(curl -fsS --max-time 15 "https://api.telegram.org/bot$TOKEN/getMe" 2>/dev/null || true)"
+    ME="$(curl -fsS --max-time 15 "$TG_API/bot$TOKEN/getMe" 2>/dev/null || true)"
     BOTUSER="$(printf '%s' "$ME" | sed -n 's/.*"username":"\([^"]*\)".*/\1/p')"
     if [ -z "$BOTUSER" ]; then
       warn "Telegram rejected that token — check it and paste it again."

@@ -41,7 +41,7 @@ import { writeFileAtomic } from './fs-atomic.mjs';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { sendTelegram, sendTelegramMessage, deleteTelegramMessage, esc } from './notify.mjs';
+import { sendTelegram, sendTelegramMessage, deleteTelegramMessage, esc, TG_API } from './notify.mjs';
 import { pendingOffers } from './list-offers.mjs';
 // ➤ The "live list": deletes the previous list and re-sends the updated one to the
 // ➤ bottom of the chat every time it changes (after list/seen/no/applied).
@@ -76,7 +76,7 @@ function loadJson(path, fallback) {
 // ➤ comes to the same thing and is harmless.
 async function resyncOffset(cfg) {
   try {
-    const res = await fetch(`https://api.telegram.org/bot${cfg.bot_token}/getUpdates?offset=-1&timeout=0`,
+    const res = await fetch(`${TG_API}/bot${cfg.bot_token}/getUpdates?offset=-1&timeout=0`,
       { signal: AbortSignal.timeout(15_000) });
     const j = await res.json().catch(() => null);
     if (!j?.ok) return false;
@@ -517,7 +517,7 @@ async function main() {
   // ➤ chat_id appearing in telegram.json and moves on.
   if (cfg?.bot_token && !cfg?.chat_id) {
     try {
-      const res = await fetch(`https://api.telegram.org/bot${cfg.bot_token}/getUpdates?offset=-1&timeout=0`,
+      const res = await fetch(`${TG_API}/bot${cfg.bot_token}/getUpdates?offset=-1&timeout=0`,
         { signal: AbortSignal.timeout(15_000) });
       const j = await res.json().catch(() => null);
       const last = (j?.result || []).filter(u => u.message?.chat).at(-1);
@@ -586,7 +586,7 @@ async function main() {
     return;
   }
   const res = await fetch(
-    `https://api.telegram.org/bot${cfg.bot_token}/getUpdates?offset=${state.offset}&timeout=0`,
+    `${TG_API}/bot${cfg.bot_token}/getUpdates?offset=${state.offset}&timeout=0`,
     { signal: AbortSignal.timeout(15_000) },
   );
   const j = await res.json().catch(() => null);

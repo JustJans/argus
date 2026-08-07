@@ -45,3 +45,6 @@ output/*
 
 # The blind-spot record: local diagnostic data, one per installation.
 data/blind-spots.json
+
+# local setup-replay scratch copy
+.setup-test-work/

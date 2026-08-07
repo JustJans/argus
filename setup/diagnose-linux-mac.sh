@@ -72,6 +72,17 @@ if [ -s server-bot/listener.log ]; then
   tail -8 server-bot/listener.log | sed 's/^/      /'
 fi
 
+# ── 6b. The cover-letter browser ─────────────────────────────────────────
+# ➤ Playwright downloads its browser separately from `npm install`, and an npm
+# ➤ update can leave the library newer than the browser on disk — which breaks
+# ➤ `cover N` only, silently, until you ask for a letter. The generator repairs
+# ➤ this by itself now; this only reports it.
+if [ -d "$HOME/.cache/ms-playwright" ]; then
+  ok "Playwright browsers present ($(ls "$HOME/.cache/ms-playwright" | wc -l | tr -d ' ') builds)"
+else
+  echo "  --  no Playwright browser yet: the first 'cover N' downloads it (~115 MB)"
+fi
+
 # ── 7. One live run, on screen ───────────────────────────────────────────
 # ➤ cron swallows all output; this run swallows nothing. If the listener
 # ➤ crashes on this machine, the reason prints right here.

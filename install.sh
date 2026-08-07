@@ -32,7 +32,13 @@ fi
 cd "$DEST"
 # ➤ Under `curl … | bash` stdin IS the script, so the setup's questions must
 # ➤ read from the terminal itself or they swallow the script as answers.
-if [ -r /dev/tty ]; then
+# ➤ THE TEST HAS TO BE AN ACTUAL OPEN, not `[ -r /dev/tty ]` (found by the
+# ➤ replay harness, 2026-08-07): with no controlling terminal — a detached
+# ➤ session, a runner, some SSH shapes — /dev/tty passes the readable test and
+# ➤ then fails to open, and because this line is an `exec` the installer DIED
+# ➤ right there: code downloaded, no dependencies, no schedule, no token. That
+# ➤ is precisely the "it stopped halfway" a field tester reported.
+if ( : < /dev/tty ) 2>/dev/null; then
   exec bash setup/setup-linux-mac.sh < /dev/tty
 else
   exec bash setup/setup-linux-mac.sh

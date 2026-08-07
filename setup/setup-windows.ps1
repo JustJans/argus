@@ -17,6 +17,9 @@ function Say($msg)  { Write-Host ""; Write-Host $msg }
 function Ok($msg)   { Write-Host "  OK  $msg" }
 function Warn($msg) { Write-Host "  !   $msg" }
 
+# ➤ The Telegram host, overridable for testing only. Default is the real one.
+$tgApi = if ($env:ARGUS_TG_API) { $env:ARGUS_TG_API } else { 'https://api.telegram.org' }
+
 Say "Argus setup"
 
 # -- 1. Node ------------------------------------------------------------------
@@ -143,7 +146,7 @@ if ($linked) {
         try {
             $j2 = Get-Content $cfg -Raw | ConvertFrom-Json
             if ($j2.bot_token -match '^[0-9]{6,}:') {
-                $me = Invoke-RestMethod "https://api.telegram.org/bot$($j2.bot_token)/getMe" -TimeoutSec 15
+                $me = Invoke-RestMethod "$tgApi/bot$($j2.bot_token)/getMe" -TimeoutSec 15
                 if ($me.ok) {
                     $botUser = $me.result.username
                     $script:code = -join ((97..122) + (48..57) | Get-Random -Count 8 | ForEach-Object { [char]$_ })
@@ -169,7 +172,7 @@ if ($linked) {
         # ➤ getMe answers instantly whether the token is real, and gives the
         # ➤ bot's username for the one-tap link below. No waiting for messages.
         try {
-            $me = Invoke-RestMethod "https://api.telegram.org/bot$token/getMe" -TimeoutSec 15
+            $me = Invoke-RestMethod "$tgApi/bot$token/getMe" -TimeoutSec 15
             if ($me.ok) { $botUser = $me.result.username }
         } catch {
             Warn "Telegram rejected that token - check it and paste it again."
