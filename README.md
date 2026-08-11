@@ -139,12 +139,22 @@ awake, which is fine — a laptop you close simply searches when you open it.
 (The setup registers them through `setup\run-hidden.vbs` so no console window
 flashes on every run; the bare shapes above work too, but they flash.)
 
+On Windows, Argus behaves like a normal installed program: it appears in
+**Settings → Installed apps** with a working Uninstall button, and its
+processes show in Task Manager as **argus.exe** — the setup copies your Node
+runtime under the product's name (the copy keeps Node's valid signature), so
+you can always tell at a glance that it is Argus running and not some
+anonymous `node.exe`.
+
 **If the bot answers nothing**, run the diagnosis: double-click
 `setup\diagnose-windows.bat` (Windows) or run `bash setup/diagnose-linux-mac.sh`
 (macOS/Linux). It checks every piece in order and says which one is broken and
-how to fix it. **To uninstall**, `setup\uninstall-windows.bat` / `bash
-setup/uninstall-linux-mac.sh` removes the schedule — the only thing Argus keeps
-outside its folder — and then you just delete the folder.
+how to fix it. **To uninstall**, use Windows' own Settings → Installed apps →
+Argus → Uninstall (or `setup\uninstall-windows.bat`); on macOS/Linux, `bash
+setup/uninstall-linux-mac.sh`. Both remove the schedule and the app entry —
+everything Argus keeps outside its folder — and then you just delete the
+folder. Your profile, CV and application history live in that folder and are
+never deleted for you.
 
 Finally, build your profile: **send `/start` to the bot.** It walks you through a
 short questionnaire (CV + a few questions, some with buttons) and writes

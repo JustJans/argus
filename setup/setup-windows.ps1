@@ -62,6 +62,26 @@ if ($nodeMajor -lt 20) {
 }
 Ok "Node $(& $node -v)"
 
+# -- 1b. The app's face -------------------------------------------------------
+# ➤ Task Manager shows the process NAME, and "node.exe" tells the user nothing
+# ➤ — worse, it reads as something foreign eating their CPU. Node copied under
+# ➤ the product's name IS still Node: the Authenticode signature covers the
+# ➤ bytes, not the filename, so it stays valid — and every Argus process (the
+# ➤ listener and the children it spawns via process.execPath) then appears in
+# ➤ Task Manager as argus.exe. Refreshed on every run, so a Node upgrade
+# ➤ reaches the copy the next time the installer or the repair runs.
+$argusExe = Join-Path $root 'argus.exe'
+try { Stop-ScheduledTask -TaskName 'Argus listener' -ErrorAction Stop | Out-Null } catch { }
+try {
+    Copy-Item $node $argusExe -Force -ErrorAction Stop
+    Ok "argus.exe in place (Node wearing the product's name)"
+} catch {
+    # ➤ A busy listener can hold the file. Yesterday's copy still works; with
+    # ➤ none at all, the schedule falls back to node.exe - unbranded, not broken.
+    if (Test-Path $argusExe) { Ok "argus.exe kept from the previous run (the file is busy right now)" }
+    else { $argusExe = $node; Warn "could not create argus.exe - the tasks will show as node.exe" }
+}
+
 # -- 2. Dependencies ----------------------------------------------------------
 # ➤ Not only when node_modules is missing (audit 2026-08-08): an UPDATE copies
 # ➤ a fresh package-lock.json over the install, and the old gate then skipped
@@ -106,7 +126,7 @@ $vbs = Join-Path $root 'setup\run-hidden.vbs'
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 $mkAction = { param($script, $extra)
-    $arg = "//B //Nologo `"$vbs`" `"$node`" `"$(Join-Path $root $script)`""
+    $arg = "//B //Nologo `"$vbs`" `"$argusExe`" `"$(Join-Path $root $script)`""
     if ($extra) { $arg = "$arg `"$extra`"" }
     New-ScheduledTaskAction -Execute $wscript -Argument $arg -WorkingDirectory $root
 }
@@ -140,6 +160,33 @@ if (Get-ScheduledTask -TaskName 'Argus listener' -ErrorAction SilentlyContinue) 
     Warn "THE LISTENER TASK DOES NOT EXIST - the bot cannot answer any Telegram"
     Warn "command without it. Send a photo of this window."
 }
+
+# -- 3b. A real entry in Settings > Installed apps ----------------------------
+# ➤ Uninstalling must not require knowing that setup\uninstall-windows.bat
+# ➤ exists: the standard per-user Uninstall key puts Argus in Settings >
+# ➤ Installed apps with a working Uninstall button, like any other program.
+# ➤ HKCU, so no administrator is involved - the same way every per-user
+# ➤ installer (VS Code, Chrome) registers itself. Refreshed on every run.
+try {
+    $reg = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Argus'
+    $ver = '1.0.0'
+    try { $ver = (Get-Content (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version } catch { }
+    New-Item -Path $reg -Force | Out-Null
+    Set-ItemProperty -Path $reg -Name DisplayName -Value 'Argus'
+    Set-ItemProperty -Path $reg -Name DisplayVersion -Value "$ver"
+    Set-ItemProperty -Path $reg -Name Publisher -Value 'JustJans (github.com/JustJans/argus)'
+    Set-ItemProperty -Path $reg -Name InstallLocation -Value $root
+    Set-ItemProperty -Path $reg -Name DisplayIcon -Value $argusExe
+    Set-ItemProperty -Path $reg -Name UninstallString -Value "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $root 'setup\uninstall-windows.ps1')`""
+    Set-ItemProperty -Path $reg -Name NoModify -Value 1 -Type DWord
+    Set-ItemProperty -Path $reg -Name NoRepair -Value 1 -Type DWord
+    # ➤ The size Settings shows, in KB. Best effort: a wrong size is cosmetic.
+    try {
+        $kb = [int]((Get-ChildItem $root -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1KB)
+        Set-ItemProperty -Path $reg -Name EstimatedSize -Value $kb -Type DWord
+    } catch { }
+    Ok "Argus is listed in Settings > Installed apps (the Uninstall button works)"
+} catch { Warn "could not register in Installed apps: $($_.Exception.Message)" }
 
 # -- 4. The bot token, the ONE thing typed by hand ----------------------------
 $cfg = Join-Path $root 'server-bot\telegram.json'

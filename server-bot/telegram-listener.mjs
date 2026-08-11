@@ -96,9 +96,14 @@ async function resyncOffset(cfg) {
 
 // ➤ Runs another of the bot's scripts (for example seen.mjs, the one that marks
 // ➤ offers as seen) and collects everything it prints, to forward to you via Telegram.
+// ➤ process.execPath, not 'node' (2026-08-12): children run on the EXACT same
+// ➤ runtime as this process — immune to PATH surprises, and on Windows, where
+// ➤ the schedule runs the bot as argus.exe, every child shows up in Task
+// ➤ Manager under the product's name instead of as an anonymous node.exe.
+// ➤ scan.mjs already did it this way.
 function runNode(script, args) {
   return new Promise(resolve => {
-    execFile('node', [join(SCRIPT_DIR, script), ...args], { cwd: ROOT, timeout: 60_000 },
+    execFile(process.execPath, [join(SCRIPT_DIR, script), ...args], { cwd: ROOT, timeout: 60_000 },
       (err, stdout, stderr) => resolve((stdout || '') + (stderr || '') + (err && !stdout && !stderr ? String(err.message) : '')));
   });
 }
@@ -253,7 +258,7 @@ async function rejectWithReason(n, reason) {
 // ➤ (10 min) because it queries many portals. It's a task separate from the bot.
 function runScan() {
   return new Promise(resolve => {
-    execFile('node', [join(SCRIPT_DIR, 'scan.mjs')],
+    execFile(process.execPath, [join(SCRIPT_DIR, 'scan.mjs')],
       // ➤ ARGUS_SKIP_LIST_REFRESH: tells the scanner NOT to refresh the list
       // ➤ itself; this listener refreshes it at the end of forceScan(), so that
       // ➤ the list ends up BELOW the "Search finished" message (at the bottom of the chat).
@@ -282,7 +287,7 @@ async function coverCommand(n) {
   // ➤ the lock is released the moment we finish, not when the letter is written.
   const args = [join(SCRIPT_DIR, 'cover-letter.mjs'), '--offer', String(n)];
   if (progressId != null) args.push('--progress-msg', String(progressId));
-  const child = execFile('node', args, { cwd: ROOT, detached: true, stdio: 'ignore' });
+  const child = execFile(process.execPath, args, { cwd: ROOT, detached: true, stdio: 'ignore' });
   child.unref();
 }
 
@@ -438,7 +443,7 @@ async function handle(text) {
     const { formatStatus } = await import('./argus-mail/report.mjs');
     const workingId = await sendTelegramMessage('Reading your inbox — this takes a minute.', { silent: true });
     const refreshed = await new Promise(resolve => {
-      execFile('node', [join(SCRIPT_DIR, 'argus-mail', 'listen.mjs')],
+      execFile(process.execPath, [join(SCRIPT_DIR, 'argus-mail', 'listen.mjs')],
         { cwd: ROOT, timeout: 5 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 },
         (err) => resolve(!err));
     });
