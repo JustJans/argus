@@ -39,7 +39,7 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
 // ➤ Atomic full-file overwrite (temp file + rename) so a crash mid-write can't
 // ➤ truncate the pending list. Used for the pipeline.md rewrite below.
-import { writeFileAtomic, withFileLock } from './fs-atomic.mjs';
+import { writeFileAtomic, withFileLock, trimLog } from './fs-atomic.mjs';
 import { PENDING_HEADING, PROCESSED_HEADING, pendingIndex } from './pipeline-format.mjs';
 // ➜ The blind-spot record: what the title filter throws away. Fed here,
 // ➜ read by argus-discover. See that file for why recurrence is the signal.
@@ -864,6 +864,18 @@ export function overrideDeadIfApply(verdict, body) {
   return verdict;
 }
 
+// ➤ The verdict on evidence already in hand, split out (audit 2026-08-08) so
+// ➤ the liveness step can judge from the page the experience screen ALREADY
+// ➤ downloaded instead of fetching the same URL a second time.
+function deadFromEvidence(status, finalUrl, body) {
+  // ➤ Classifier verdict + anti-false-dead second opinion.
+  const { result, reason } = overrideDeadIfApply(
+    classifyLiveness({ status, finalUrl, bodyText: body }), body);
+  // ➤ Only considered dead if the verdict is "expired" AND it wasn't due to
+  // ➤ lack of content (pages that load bit by bit are deceptive).
+  return result === 'expired' && !reason.includes('insufficient content');
+}
+
 async function isLikelyDead(url) {
   try {
     const controller = new AbortController();
@@ -872,12 +884,7 @@ async function isLikelyDead(url) {
     let body = '';
     try { body = (await res.text()).slice(0, 20_000); } catch {}
     clearTimeout(timer);
-    // ➤ Classifier verdict + anti-false-dead second opinion.
-    const { result, reason } = overrideDeadIfApply(
-      classifyLiveness({ status: res.status, finalUrl: res.url, bodyText: body }), body);
-    // ➤ Only considered dead if the verdict is "expired" AND it wasn't due to
-    // ➤ lack of content (pages that load bit by bit are deceptive).
-    return result === 'expired' && !reason.includes('insufficient content');
+    return deadFromEvidence(res.status, res.url, body);
   } catch {
     return false;
   }
@@ -902,13 +909,27 @@ const DESC_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (K
 // ➤ mechanism the cleaner (housekeep) already uses — rule: NEVER draw
 // ➤ conclusions from a 429.
 const SCAN_HOST_GAP_MS = { adzuna: 1500, linkedin: 1200 };
-const scanHostLast = new Map();
+// ➤ Slot allocator per host, not a last-request timestamp (audit 2026-08-08).
+// ➤ The old check-then-act — read the timestamp, sleep, write — let the five
+// ➤ callers of parallel(checks, 5) compute the same wait from the same base,
+// ➤ wake at the same deadline and fire TOGETHER: the 1.5 s gap became bursts
+// ➤ of 5, and the 429s those bursts provoke are what defer offers to the next
+// ➤ scan. Claiming the slot synchronously (no await between read and write)
+// ➤ hands each concurrent caller its own moment, one gap apart.
+const scanHostNext = new Map();   // per host: when the NEXT request may fire
+const scanHostFloor = new Map();  // per host: floor imposed by a 429 penalty
 async function scanPoliteFetch(hostKey, url, opts = {}) {
   const gap = SCAN_HOST_GAP_MS[hostKey] || 0;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const wait = (scanHostLast.get(hostKey) || 0) + gap - Date.now();
-    if (wait > 0) await new Promise(r => setTimeout(r, wait));
-    scanHostLast.set(hostKey, Date.now());
+    let slot;
+    for (;;) {
+      slot = Math.max(Date.now(), scanHostNext.get(hostKey) || 0, scanHostFloor.get(hostKey) || 0);
+      scanHostNext.set(hostKey, slot + gap);   // claimed before any await
+      const wait = slot - Date.now();
+      if (wait > 0) await new Promise(r => setTimeout(r, wait));
+      // ➤ A 429 penalty can land while asleep; if it did, claim a fresh slot.
+      if ((scanHostFloor.get(hostKey) || 0) <= slot) break;
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
@@ -916,7 +937,7 @@ async function scanPoliteFetch(hostKey, url, opts = {}) {
       if (res.status === 429) {
         // ➤ 15 s penalty after a 429 (previously 8 s: it fell short and the 3
         // ➤ attempts died within the same rate-limit window).
-        scanHostLast.set(hostKey, Date.now() + 15_000); // back off the whole host
+        scanHostFloor.set(hostKey, Date.now() + 15_000); // back off the whole host
         continue;
       }
       return res;
@@ -927,6 +948,13 @@ async function scanPoliteFetch(hostKey, url, opts = {}) {
 
 async function fetchOfferDescription(o, targetsByName) {
   try {
+    // ➤ A body some earlier step already extracted wins outright (audit
+    // ➤ 2026-08-08). The sitemap parser stores the whole JD in _jd and the
+    // ➤ Workday location enrichment now stashes it too — yet this function
+    // ➤ fell through to o.description, which is EMPTY for sitemap offers, so
+    // ➤ Van Oord and Boskalis skipped the years/degree/language screens
+    // ➤ entirely — the same failure class fixed for greenhouse/ashby/lever.
+    if (o._jd) return o._jd;
     // ➤ Workday recipe: the offer's detail page is requested.
     if (o.source === 'workday-api') {
       const t = targetsByName.get(o.company);
@@ -994,11 +1022,19 @@ async function fetchOfferDescription(o, targetsByName) {
           const jd = extractAdzunaJd(html);
           if (jd) o._jd = jd;
           body = jd || stripHtml(html);
+          // ➤ Status + page stashed for the liveness step (audit 2026-08-08):
+          // ➤ it used to re-download this same URL minutes later — a second
+          // ➤ full pass over the host whose 429s defer offers, and without the
+          // ➤ 1.5 s pacing.
+          o._live = { status: res.status, finalUrl: res.url, body: html.slice(0, 20_000) };
         } else if (res === null) {
           // ➤ 429 exhausted or network down: the body could NOT be read. It's flagged
           // ➤ to DEFER the offer (real case #626/#627, 2026-07-18: without
           // ➤ this flag they went to the list half-examined).
           o._bodyUnread = true;
+        } else {
+          // ➤ A definitive non-OK answer (404 and friends) IS liveness evidence.
+          o._live = { status: res.status, finalUrl: res.url, body: '' };
         }
       } catch { o._bodyUnread = true; }
       return `${stripHtml(o.description || '')} ${body}`.trim();
@@ -1528,7 +1564,15 @@ export function admissionVerdict(job, gates) {
   // ➤ Also out if the blocked country is named in the TITLE, which is where
   // ➤ multi-location postings hide it ("... Programme - Qatar").
   if (locationFilter.blockHit(job.title)) return { ok: false, stage: 'LOCATION', reason: 'the title names a country outside your range' };
-  if (!country.fn(job.location)) return { ok: false, stage: 'COUNTRY', reason: `country turned off by you: ${job.location || ''}` };
+  // ➤ Judged SEAT BY SEAT (audit 2026-08-08), like the location gate one line
+  // ➤ up and the Workday enrichment: fed the joined string, the toggle killed
+  // ➤ "Rotterdam, NL; Esbjerg, DK" whole with Denmark off, though the Dutch
+  // ➤ seat passed both gates on its own — one seat you can take is enough.
+  const seats = String(job.location || '').split(';').map(x => x.trim()).filter(Boolean);
+  const countryOk = seats.length > 1
+    ? seats.some(s => locationFilter(s) && country.fn(s))
+    : country.fn(job.location);
+  if (!countryOk) return { ok: false, stage: 'COUNTRY', reason: `country turned off by you: ${job.location || ''}` };
 
   if (seenUrls?.has(normUrl(job.url))) return { ok: false, stage: 'DUPLICATE', reason: 'already seen (same link)' };
   // ➤ An empty key means the advertiser is not named, so there is nothing to
@@ -1743,6 +1787,9 @@ function writeExplainReport(rows, found) {
 // ➤ remove dead links → save and notify via Telegram → summary.
 
 async function main() {
+  // ➤ The cron log this run appends to must not grow for ever (Linux/mac; the
+  // ➤ file does not exist on Windows, where output is discarded).
+  trimLog(join(SCRIPT_DIR, 'scan.log'));
   // ➤ Reads the options the program was launched with: --dry-run
   // ➤ (dry run: writes nothing) and --company (scan only one company).
   const args = process.argv.slice(2);
@@ -1789,6 +1836,16 @@ async function main() {
   const adzunaCfg = profileQueries
     ? { ...(config.adzuna || {}), queries: profileQueries.map(q => ({ what_or: q })) }
     : (config.adzuna || {});
+  // ➤ The COUNTRIES must follow the profile too (audit 2026-08-08). Only the
+  // ➤ queries did: an onboarded user's whole Adzuna budget went to the marine
+  // ➤ example's seven countries — whose results their own location filter then
+  // ➤ killed — while the countries they chose, whose adzuna codes the
+  // ➤ onboarding records for exactly this, were never queried. LinkedIn
+  // ➤ already followed the profile; Adzuna, the biggest source, did not.
+  const profileAdzunaCountries = Array.isArray(searchProfile.countries)
+    ? searchProfile.countries.filter(c => c && c.adzuna && c.name).map(c => ({ name: c.name, code: c.adzuna }))
+    : [];
+  if (profileAdzunaCountries.length) adzunaCfg.countries = profileAdzunaCountries;
 
   // ➤ Of all the companies in portals.yml, it keeps the active ones, the
   // ➤ ones that match --company (if used), and the ones that have a
@@ -1820,7 +1877,15 @@ async function main() {
   const titleDrops = [];
   // ➜ The same filter minus the field list, used only to tell the two kinds of
   // ➜ drop apart. Built once per scan.
-  const titleFilterNoFields = buildTitleFilter({ ...(config.title_filter || {}), positive: [] });
+  // ➤ Same negatives as the LIVE filter (audit 2026-08-08): built from the
+  // ➤ example's list, a title killed by a profile-only veto re-tested as
+  // ➤ "no-field" and the blind-spot report told the user "nothing objected"
+  // ➤ about titles their own rule had blocked.
+  const titleFilterNoFields = buildTitleFilter({
+    ...(config.title_filter || {}),
+    negative: searchProfile.negative_titles || (config.title_filter || {}).negative,
+    positive: [],
+  });
   const seenUrls = loadSeenUrls();
   const seenRoles = loadSeenCompanyRoles();
   const date = new Date().toISOString().slice(0, 10);
@@ -2014,6 +2079,10 @@ async function main() {
         try {
           const j = await fetchJson(`https://${tenant}.${dc}.myworkdayjobs.com/wday/cxs/${tenant}/${site}${path}`);
           const info = j?.jobPostingInfo || {};
+          // ➤ The description travels in this same response; stashing it saves
+          // ➤ fetchOfferDescription re-downloading the identical URL minutes
+          // ➤ later (audit 2026-08-08 — every enriched offer paid it twice).
+          if (info.jobDescription) o._jd = stripHtml(info.jobDescription);
           const locs = [info.location, ...(info.additionalLocations || [])].filter(Boolean);
           if (!locs.length) return; // still unknown — keep as-is
           // ➤ Generous rule: as long as ONE of the locations is allowed,
@@ -2153,7 +2222,15 @@ async function main() {
     const candidates = newOffers.map((o, i) => ({ o, i })).filter(x => x.o.source === 'adzuna');
     const dead = new Set();
     const checks = candidates.map(({ o, i }) => async () => {
-      if (await isLikelyDead(o.url)) { dead.add(i); o._why = 'the link no longer works (offer withdrawn or expired)'; }
+      // ➤ The experience screen already downloaded this very page and left the
+      // ➤ verdict's evidence on the offer — judging from it avoids a second
+      // ➤ download of the whole batch (audit 2026-08-08). Only offers that
+      // ➤ arrived without evidence (screen skipped or errored) still fetch.
+      const isDead = o._live
+        ? deadFromEvidence(o._live.status, o._live.finalUrl, o._live.body)
+        : await isLikelyDead(o.url);
+      if (isDead) { dead.add(i); o._why = 'the link no longer works (offer withdrawn or expired)'; }
+      delete o._live;   // evidence served its purpose — keep it off the pipeline file
     });
     await parallel(checks, LIVENESS_CONCURRENCY);
     if (explain) for (const i of dead) logDrop('DEAD', newOffers[i]._why || 'link down', newOffers[i]);

@@ -37,7 +37,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { writeFileAtomic } from './fs-atomic.mjs';
+import { writeFileAtomic, trimLog } from './fs-atomic.mjs';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -142,6 +142,19 @@ const FEEDBACK_PATH = join(SCRIPT_DIR, 'feedback.jsonl');
 // ➤ list is the only thing worth believing.
 // ➤ Exported and pure so it can be tested: the command surface of this file had
 // ➤ no test at all, which is why a reply could go on lying for a week.
+// ➤ Splits a long report on line boundaries into Telegram-sized messages —
+// ➤ the same 3500-char discipline notify.mjs applies to the offers list.
+export function chunkLines(text, max = 3500) {
+  const out = [];
+  let cur = '';
+  for (const line of String(text).split('\n')) {
+    if (cur && cur.length + line.length + 1 > max) { out.push(cur); cur = line; }
+    else cur = cur ? `${cur}\n${line}` : line;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
 export function seenReply(ids, out) {
   const text = String(out || '');
   const marked = ids.filter(i => new RegExp(`^\\s*✓ #${i}\\b`, 'm').test(text));
@@ -225,7 +238,12 @@ async function rejectWithReason(n, reason) {
   // ➤ Besides recording it, mark it as seen so it drops off the list.
   const seenOut = await runNode('seen.mjs', [String(n)]);
   console.log(`[${new Date().toISOString()}] no #${n} → ${off.title} — ${off.company} | seen: ${seenOut.trim().split('\n').pop()}`);
-  await sendTelegram(`Discarded #${n}: ${off.title} — ${off.company}.${rec.reason ? ` Reason: ${rec.reason}` : ''}`);
+  // ➤ Read what seen.mjs SAYS it removed before confirming (audit 2026-08-08):
+  // ➤ the plain `seen` command was hardened exactly this way, but this reuse
+  // ➤ kept confirming success over a failed write — the confirmed-but-not-done
+  // ➤ reply the 2026-07-31 audit removed, reintroduced by the side door.
+  const gone = new RegExp(`^\\s*✓ #${n}\\b`, 'm').test(String(seenOut || ''));
+  await sendTelegram(`Discarded #${n}: ${off.title} — ${off.company}.${rec.reason ? ` Reason: ${rec.reason}` : ''}${gone ? '' : '\nWarning: it could not be removed from the pending list (write failed) — it may show up again. Try "seen ' + n + '".'}`);
   // ➤ The confirmation stays; the list refreshes without this offer.
   await refreshList({ markSeen: true });
 }
@@ -319,12 +337,16 @@ async function markApplied(n, { longshot = false, reason = '' } = {}) {
     if (reason) rec.reason = reason;
   }
   writeFileSync(APPLIED_PATH, JSON.stringify(rec) + '\n', { flag: 'a' });
-  await runNode('seen.mjs', [String(n)]);
+  // ➤ Same honesty as `seen` and `no` (audit 2026-08-08): confirm only what
+  // ➤ seen.mjs reports actually removed, and say so when the write failed.
+  const seenOut = await runNode('seen.mjs', [String(n)]);
+  const gone = new RegExp(`^\\s*✓ #${n}\\b`, 'm').test(String(seenOut || ''));
   const tag = longshot ? 'longshot' : 'applied';
   console.log(`[${new Date().toISOString()}] ${tag} #${n} → ${off.title} — ${off.company}${reason ? ` | ${reason}` : ''}`);
-  await sendTelegram(longshot
+  await sendTelegram((longshot
     ? `Longshot recorded: #${n} ${off.title} — ${off.company}.${reason ? `\nShort on: ${reason}` : ''}`
-    : `Application recorded: #${n} ${off.title} — ${off.company}.`);
+    : `Application recorded: #${n} ${off.title} — ${off.company}.`)
+    + (gone ? '' : `\nWarning: it could not be removed from the pending list (write failed) — it may show up again. Try "seen ${n}".`));
   // ➤ The confirmation stays; the list refreshes without this offer.
   await refreshList({ markSeen: true });
 }
@@ -430,13 +452,25 @@ async function handle(text) {
     // ➤ ONE mail report in the chat, not a pile: each "mail" replaces the
     // ➤ previous report, the same discipline as the live list. Send FIRST,
     // ➤ delete after — a failed send must never leave the chat with no report
-    // ➤ at all. The previous id rides in data/mail-message.json.
+    // ➤ at all. The previous ids ride in data/mail-message.json.
+    // ➤ CHUNKED like the offers list (audit 2026-08-08): the report grows one
+    // ➤ line per application and Telegram refuses anything over 4096 chars —
+    // ➤ around 60-odd listed applications the single send started failing
+    // ➤ EVERY time, exactly when there was most to report.
     const MAIL_MSG_PATH = join(ROOT, 'data', 'mail-message.json');
     const prev = loadJson(MAIL_MSG_PATH, null);
-    const id = await sendTelegramMessage(formatStatus(status) + esc(stale), { html: true });
-    if (id != null) {
-      writeFileAtomic(MAIL_MSG_PATH, JSON.stringify({ message_id: id, ts: new Date().toISOString() }));
-      if (prev?.message_id != null && prev.message_id !== id) await deleteTelegramMessage(prev.message_id);
+    const ids = [];
+    for (const chunk of chunkLines(formatStatus(status) + esc(stale))) {
+      const id = await sendTelegramMessage(chunk, { html: true });
+      if (id != null) ids.push(id);
+    }
+    if (ids.length) {
+      writeFileAtomic(MAIL_MSG_PATH, JSON.stringify({ message_ids: ids, ts: new Date().toISOString() }));
+      // ➤ Older installs stored a single message_id; both shapes are honoured.
+      const prevIds = prev?.message_ids || (prev?.message_id != null ? [prev.message_id] : []);
+      for (const pid of prevIds) {
+        if (!ids.includes(pid)) await deleteTelegramMessage(pid);
+      }
     }
     return;
   }
@@ -507,6 +541,9 @@ async function handle(text) {
 // ➤ last time, processes them one by one ONLY those coming from your chat, and records
 // ➤ where the reading is up to so it doesn't repeat commands if something is cut off.
 async function main() {
+  // ➤ The cron log this run appends to must not grow for ever (Linux/mac; the
+  // ➤ file does not exist on Windows, where output is discarded).
+  trimLog(join(SCRIPT_DIR, 'listener.log'));
   const cfg = loadJson(CFG_PATH, null);
   // ➤ A token but no chat yet: FINISH THE LINK OURSELVES (field test
   // ➤ 2026-08-05). The moment any listener polls this bot — this one, or a
@@ -517,11 +554,18 @@ async function main() {
   // ➤ chat_id appearing in telegram.json and moves on.
   if (cfg?.bot_token && !cfg?.chat_id) {
     try {
-      const res = await fetch(`${TG_API}/bot${cfg.bot_token}/getUpdates?offset=-1&timeout=0`,
+      // ➤ The WHOLE backlog, not offset=-1 (audit 2026-08-08). A negative
+      // ➤ offset returns only the newest update and — per Telegram's own API
+      // ➤ doc — forgets every earlier one. So an owner who tapped START and
+      // ➤ then typed anything before this tick had the /start permanently
+      // ➤ confirmed away: the tick saw only the second message, refused to
+      // ➤ bind, and the bot stayed mute with nothing to show why. A plain
+      // ➤ getUpdates confirms nothing and hands back everything pending.
+      const res = await fetch(`${TG_API}/bot${cfg.bot_token}/getUpdates?timeout=0`,
         { signal: AbortSignal.timeout(15_000) });
       const j = await res.json().catch(() => null);
-      const last = (j?.result || []).filter(u => u.message?.chat).at(-1);
-      if (!last) {
+      const backlog = (j?.result || []).filter(u => u.message?.chat);
+      if (!backlog.length) {
         if (process.stdout.isTTY) console.log('Almost there: telegram.json has a token but no chat_id. Send your bot any message and this links itself within a minute.');
         return;
       }
@@ -531,15 +575,21 @@ async function main() {
       // ➤ follows Advanced Web Machinery's write-up, advancedweb.hu, "The
       // ➤ easiest way to set up a chat with your Telegram bot".) Without a
       // ➤ code — the by-hand path — the first message binds, as always.
-      if (cfg.link_code && String(last.message.text || '').trim() !== `/start ${cfg.link_code}`) return;
-      cfg.chat_id = String(last.message.chat.id);
+      const binder = cfg.link_code
+        ? backlog.find(u => String(u.message.text || '').trim() === `/start ${cfg.link_code}`)
+        : backlog[0];
+      if (!binder) return; // code set, tap not seen yet — leave the queue untouched
+      cfg.chat_id = String(binder.message.chat.id);
       delete cfg.link_code;
-      writeFileSync(CFG_PATH, JSON.stringify(cfg, null, 2) + '\n', 'utf-8');
+      // ➤ Atomic like every other state file (audit 2026-08-08): a crash mid-
+      // ➤ write here leaves invalid JSON in the ONE file holding the token,
+      // ➤ and the bot goes mute until the setup is run again.
+      writeFileAtomic(CFG_PATH, JSON.stringify(cfg, null, 2) + '\n');
       // ➤ Position BEFORE the linking message, not after it: this same tick
       // ➤ then PROCESSES that message. Pressing START on the t.me link is one
       // ➤ tap that links the chat AND begins the profile questions — the old
       // ➤ flow linked, greeted, and swallowed the /start it was greeting.
-      writeFileAtomic(OFFSET_PATH, JSON.stringify({ offset: last.update_id }));
+      writeFileAtomic(OFFSET_PATH, JSON.stringify({ offset: binder.update_id }));
       await sendTelegram('Connected.');
       console.log(`chat_id ${cfg.chat_id} learned from the first message and saved.`);
       // ➤ No return: the normal flow below reads the offset just written and
@@ -594,6 +644,14 @@ async function main() {
 
   // ➤ Iterate over each new message, in order of arrival.
   for (const u of j.result || []) {
+    // ➤ ANOTHER RUN MAY HAVE TAKEN OVER (audit 2026-08-08). "search" and
+    // ➤ "mail" hold this loop for minutes; on installs without a lock (macOS
+    // ➤ ships no flock) the next minute's run reads the advanced offset and
+    // ➤ handles the rest of the batch — and this run, resuming its stale
+    // ➤ in-memory array, used to execute those same commands a second time.
+    // ➤ The offset file on disk is the single truth of what is already done.
+    const disk = loadJson(OFFSET_PATH, null);
+    if (disk && Number.isInteger(disk.offset) && disk.offset > u.update_id) continue;
     // ➤ Save progress BEFORE running the command: if the program
     // ➤ crashed midway, on restart it wouldn't repeat commands already done.
     state.offset = u.update_id + 1;

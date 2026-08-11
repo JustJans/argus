@@ -25,7 +25,7 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { writeFileAtomic } from './fs-atomic.mjs';
+import { writeFileAtomic, withFileLock } from './fs-atomic.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
@@ -361,17 +361,27 @@ export async function makeCoverLetter(offer) {
   mkdirSync(dir, { recursive: true });
   // ➤ Ask the index which name belongs to this offer, then write the answer
   // ➤ back so the next letter knows the name is taken.
-  const index = loadJson(LETTER_INDEX_PATH, {});
-  const base = resolveCoverBase(offer.company, offer.id, index);
-  if (Number.isInteger(offer.id) && offer.id > 0) {
-    index[String(offer.id)] = base;
-    // ➤ Written aside and renamed, like every other file that is the only copy
-    // ➤ of something. Half-written this is invalid JSON, the reader falls back to
-    // ➤ an empty index, and the next letter to the same employer takes a name
-    // ➤ that is already taken — overwriting a PDF you may already have sent.
-    try { mkdirSync(dirname(LETTER_INDEX_PATH), { recursive: true }); writeFileAtomic(LETTER_INDEX_PATH, JSON.stringify(index)); }
-    catch { /* the letter matters more than the bookkeeping */ }
-  }
+  // ➤ UNDER LOCK (audit 2026-08-08): each `cover N` is its own detached
+  // ➤ process, so two overlapping covers for the same company could both load
+  // ➤ the index before either wrote — resolving the SAME file base (one PDF
+  // ➤ silently overwriting the other, the very collision the index exists to
+  // ➤ prevent) and losing the loser's entry to last-writer-wins. The lock
+  // ➤ covers the load-resolve-write milliseconds, not the letter writing.
+  let base;
+  try { mkdirSync(dirname(LETTER_INDEX_PATH), { recursive: true }); } catch { /* exists */ }
+  withFileLock(LETTER_INDEX_PATH, () => {
+    const index = loadJson(LETTER_INDEX_PATH, {});
+    base = resolveCoverBase(offer.company, offer.id, index);
+    if (Number.isInteger(offer.id) && offer.id > 0) {
+      index[String(offer.id)] = base;
+      // ➤ Written aside and renamed, like every other file that is the only copy
+      // ➤ of something. Half-written this is invalid JSON, the reader falls back to
+      // ➤ an empty index, and the next letter to the same employer takes a name
+      // ➤ that is already taken — overwriting a PDF you may already have sent.
+      try { writeFileAtomic(LETTER_INDEX_PATH, JSON.stringify(index)); }
+      catch { /* the letter matters more than the bookkeeping */ }
+    }
+  });
   const pdfPath = join(dir, base + '.pdf');
   const txtPath = join(dir, base + '.txt');
   // ➤ The letter is also saved as plain text, in case you want to tweak it.
@@ -407,7 +417,12 @@ export async function coverToTelegram(id, deps = {}) {
   }
   // ➤ Warn if the portal gave no text: the letter is then written from the title
   // ➤ and company alone, so it will be generic. Better you know before sending.
-  const caption = `Cover letter #${id}: ${offer.title} — ${offer.company}`;
+  // ➤ AND THE WARNING IS NOW ACTUALLY SAID (audit 2026-08-08): `thin` was
+  // ➤ computed, returned, and read by nobody — this comment promised a warning
+  // ➤ the caption never carried, and the 3-empty-letters-of-14 incident that
+  // ➤ motivated it was still happening in silence.
+  const caption = `Cover letter #${id}: ${offer.title} — ${offer.company}`
+    + (res.thin ? '\nWarning: the portal gave no offer text, so this letter was written from the title and company alone — read it before sending.' : '');
   if (!await sendTelegramDocument(res.pdfPath, caption)) {
     await sendTelegram(`The cover letter was generated but couldn't be attached. File on the server: ${res.pdfPath}`);
   }

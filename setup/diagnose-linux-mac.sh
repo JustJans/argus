@@ -36,9 +36,11 @@ fi
 # ➤ so far came down to it missing, failing, or belonging to another copy.
 if ! command -v crontab >/dev/null 2>&1; then
   bad "no crontab on this machine — nothing is scheduled"
-elif crontab -l 2>/dev/null | grep -qF "cd $ROOT && "; then
+# ➤ Both spellings: the setup quotes the path since 2026-08-08, but installs
+# ➤ made before that carry it bare.
+elif crontab -l 2>/dev/null | grep -qF -e "cd '$ROOT' && " -e "cd $ROOT && "; then
   ok "this copy is in the crontab:"
-  crontab -l | grep -F "cd $ROOT && " | sed 's/^/      /'
+  crontab -l | grep -F -e "cd '$ROOT' && " -e "cd $ROOT && " | sed 's/^/      /'
 else
   bad "THIS copy is not in the crontab: the bot cannot answer anything."
   bad "Fix: run the installer (or bash setup/setup-linux-mac.sh) again - it repairs the schedule."
@@ -61,7 +63,12 @@ fi
 # ➤ The offset file is written on the first successful tick, so its absence
 # ➤ separates "never ran" from "runs but something else fails".
 if [ -f server-bot/telegram-offset.json ]; then
-  ok "the listener has ticked before (server-bot/telegram-offset.json, last: $(date -r server-bot/telegram-offset.json 2>/dev/null || stat -c %y server-bot/telegram-offset.json 2>/dev/null))"
+  # ➤ Three fallbacks because the first two are GNU-only (audit 2026-08-08):
+  # ➤ BSD `date -r` takes seconds-since-epoch, not a filename, and BSD stat
+  # ➤ spells -c as -f — so on macOS, the OS this script is FOR, the timestamp
+  # ➤ printed empty. `stat -f %Sm` is the Darwin spelling.
+  TICKED="$(date -r server-bot/telegram-offset.json 2>/dev/null || stat -c %y server-bot/telegram-offset.json 2>/dev/null || stat -f %Sm server-bot/telegram-offset.json 2>/dev/null)"
+  ok "the listener has ticked before (server-bot/telegram-offset.json, last: $TICKED)"
 else
   bad "server-bot/telegram-offset.json does not exist: the listener has NEVER completed a tick."
 fi
@@ -77,8 +84,13 @@ fi
 # ➤ update can leave the library newer than the browser on disk — which breaks
 # ➤ `cover N` only, silently, until you ask for a letter. The generator repairs
 # ➤ this by itself now; this only reports it.
-if [ -d "$HOME/.cache/ms-playwright" ]; then
-  ok "Playwright browsers present ($(ls "$HOME/.cache/ms-playwright" | wc -l | tr -d ' ') builds)"
+# ➤ Per-OS registry path (audit 2026-08-08): Playwright keeps browsers under
+# ➤ ~/Library/Caches on macOS, ~/.cache on Linux. Checking only the Linux path
+# ➤ made every Mac report the browser missing even when it was installed.
+if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then PW_DIR="$HOME/Library/Caches/ms-playwright"
+else PW_DIR="$HOME/.cache/ms-playwright"; fi
+if [ -d "$PW_DIR" ]; then
+  ok "Playwright browsers present ($(ls "$PW_DIR" | wc -l | tr -d ' ') builds)"
 else
   echo "  --  no Playwright browser yet: the first 'cover N' downloads it (~115 MB)"
 fi

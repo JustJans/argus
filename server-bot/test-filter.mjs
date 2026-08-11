@@ -1143,6 +1143,60 @@ for (const [name, ok] of COMPANY) {
     'sitemap: a block with no title is not an offer', 'null');
 }
 
+// ➤ ── THE 2026-08-08 AUDIT, GUARDED FOR EVER ───────────────────────────────
+// ➤ Every case below reproduced a confirmed finding before its fix; each one
+// ➤ dropped a good offer in silence or let a firm requirement through.
+{
+  // ➤ Company boasts matched MULTI_YEARS with no NEG guard: "many years of
+  // ➤ experience" in an about-us dropped junior offers whenever max_years < 3.
+  check(experienceScreen('Thanks to our many years of experience, we are a leading provider of offshore services. Junior role, training provided.', 'Junior Engineer', 2) === null,
+    'an English company boast is not a years requirement', 'many years boast');
+  check(experienceScreen('Dank unserer langjährigen Erfahrung sind wir ein führender Anbieter von Offshore-Diensten. Junior Position.', 'Junior Engineer', 2) === null,
+    'nor is the German one', 'langjährige boast');
+  check(experienceScreen('Mehrjährige Berufserfahrung im Bereich Automatisierung zwingend erforderlich.', 'Automation Engineer', 2)?.drop === true,
+    'while a real multi-year demand still drops', 'mehrjährige real');
+  // ➤ The years path had no curly-apostrophe fold, so NEG_YEARS's "don't"
+  // ➤ could not see U+2019 and the offer SAYING it needs no years was dropped.
+  check(extractRequiredYears('You don’t need 5 years of experience to apply') === null,
+    'a curly-apostrophe "don’t need N years" is a negation, not a demand', 'U+2019 years');
+  // ➤ "…, ideally/preferably in <field>" softens the FIELD, not the years —
+  // ➤ it used to cancel a firm requirement one segment before.
+  check(extractRequiredYears('Minimum 5 years of experience in engineering, ideally in offshore wind') === 5,
+    'a field preference after the comma does not soften the years', 'ideally in');
+  check(extractRequiredYears('5 years of experience with cranes, preferred') === null,
+    'while a bare ", preferred" still does', 'bare preferred');
+  // ➤ "mehrere Jahre Berufserfahrung": the noun phrasing, as common as the
+  // ➤ adjective, slipped through.
+  check(experienceScreen('Mehrere Jahre Berufserfahrung in der Automatisierung erforderlich.', 'Automation Engineer', 2)?.drop === true,
+    'the German noun phrasing of "several years" drops too', 'mehrere Jahre');
+  // ➤ Two dead degree stems: licenciatur's trailing \b could never match the
+  // ➤ full word, and German/Dutch compounds were invisible to the bare words.
+  check(degreeScreen('Se requiere licenciatura en ingeniería eléctrica para el puesto', 'Project Engineer') === true,
+    'a licenciatura demand is a degree demand', 'licenciatura');
+  check(degreeScreen('Bachelorabschluss in Elektrotechnik zwingend erforderlich', 'Project Engineer') === true,
+    'a German compound degree word is one too', 'Bachelorabschluss');
+  // ➤ The country toggle judged the joined multi-seat string, so one off-
+  // ➤ country seat killed the whole offer against the one-seat-is-enough rule.
+  const seatGates = {
+    companyFilter: Object.assign(() => true, { explain: () => '' }),
+    titleFilter: Object.assign(() => true, { explain: () => '' }),
+    locationFilter: buildLocationFilter({ allow: [] }),
+    country: buildCountryFilter({ countries: { Denmark: false }, aliases: { Denmark: ['Danmark', 'Esbjerg'] } }),
+    seenUrls: new Set(), seenRoles: new Set(),
+  };
+  check(admissionVerdict({ url: 'https://x/j1', company: 'X', title: 'Engineer', location: 'Rotterdam, NL; Esbjerg, DK' }, seatGates).ok === true,
+    'a multi-seat offer survives on the seat you can take', 'NL;DK seat');
+  check(admissionVerdict({ url: 'https://x/j2', company: 'X', title: 'Engineer', location: 'Esbjerg, DK' }, seatGates).ok === false,
+    'while a single off-country seat still dies', 'DK only');
+  // ➤ The onboarding wrote English-only country names and the allow gate
+  // ➤ compares substrings with no translation, so native-spelled locations
+  // ➤ ("Deutschland", "España") died at the gate for onboarded users.
+  const nativeAllow = buildLocationFilter({ allow: ['Germany', 'Deutschland', 'Spain', 'España', 'Netherlands', 'Nederland'] });
+  check(nativeAllow('München, Bayern, Deutschland') === true, 'a native-spelled location passes the allow gate', 'Deutschland');
+  check(nativeAllow('Madrid, Comunidad de Madrid, España') === true, 'in Spanish too', 'España');
+  check(nativeAllow('Lisboa, Portugal') === false, 'while elsewhere still fails', 'Portugal');
+}
+
 // ➤ Final tally: reports the result and returns an exit code (0 = all good)
 // ➤ so other scripts can detect it.
 console.log(failures === 0

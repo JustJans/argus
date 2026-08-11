@@ -2,8 +2,21 @@
 // ➤ pending list and the judges' journal. writeFileSync killed halfway leaves
 // ➤ them truncated; writing aside and renaming does not, a rename being atomic.
 
-import { writeFileSync, renameSync, mkdirSync, rmdirSync, statSync, unlinkSync } from 'fs';
+import { writeFileSync, renameSync, mkdirSync, rmdirSync, statSync, unlinkSync, readFileSync } from 'fs';
 import { randomBytes } from 'crypto';
+
+// ➤ Keeps a cron log from growing for ever (audit 2026-08-08): the Linux/mac
+// ➤ schedule appends listener.log and scan.log on every run and nothing ever
+// ➤ rotated them. Called by the writer itself at startup — the shell keeps the
+// ➤ file open with O_APPEND, so a truncation here never corrupts its writes,
+// ➤ they simply continue at the new end. Over the cap, the newest tail is kept.
+export function trimLog(path, maxBytes = 5 * 1024 * 1024, keepBytes = 1024 * 1024) {
+  try {
+    if (statSync(path).size <= maxBytes) return;
+    const tail = readFileSync(path).subarray(-keepBytes);
+    writeFileSync(path, tail);
+  } catch { /* no log yet, or unreadable — nothing to trim */ }
+}
 
 // ➤ The scratch name to write to before renaming. UNIQUE per write (audit
 // ➤ 2026-07-25): with a fixed ".tmp" the 07:30 housekeep and a seen.mjs fired

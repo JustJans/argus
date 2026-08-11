@@ -8,4 +8,12 @@ cmd = ""
 For i = 0 To WScript.Arguments.Count - 1
   cmd = cmd & """" & WScript.Arguments(i) & """ "
 Next
-sh.Run Trim(cmd), 0, False
+' WAIT for node (True), do not fire-and-forget (audit 2026-08-08). With False,
+' wscript exited in milliseconds while node ran on detached - so the task's
+' -MultipleInstances IgnoreNew had no running instance to ignore and listener
+' runs could overlap, answering the same message twice (the duplicate-reply
+' bug Linux solves with flock). Waiting makes wscript live exactly as long as
+' node: IgnoreNew becomes a real per-task lock, still with no window, and the
+' task's LastTaskResult now carries node's real exit code instead of always 0.
+rc = sh.Run(Trim(cmd), 0, True)
+WScript.Quit rc

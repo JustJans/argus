@@ -40,6 +40,21 @@ if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
   esac
 fi
 
+# ➤ Characters cron cannot survive (audit 2026-08-08). The schedule below
+# ➤ single-quotes every path, which a quote in the path would break out of —
+# ➤ and cron reads a bare % as a newline mid-command. A path like "my argus"
+# ➤ used to produce a crontab whose lines failed every minute for ever while
+# ➤ this setup still printed "schedule installed".
+case "$ROOT" in
+  (*"'"*|*"%"*)
+    warn "This folder's path contains a quote (') or a percent sign (%), which the"
+    warn "cron schedule cannot carry. Move the folder to a plainer path and rerun:"
+    echo
+    echo "  mv \"$ROOT\" \"\$HOME/argus\" && cd \"\$HOME/argus\" && bash setup/setup-linux-mac.sh"
+    echo
+    exit 1 ;;
+esac
+
 # ── 1. Node ──────────────────────────────────────────────────────────────
 # ➤ 20, not 18: playwright (which prints the cover letters) requires it.
 if ! command -v node >/dev/null 2>&1; then
@@ -55,11 +70,18 @@ fi
 ok "Node $(node -v)"
 
 # ── 2. Dependencies ──────────────────────────────────────────────────────
-if [ ! -d node_modules ]; then
+# ➤ Not only when node_modules is missing (audit 2026-08-08): an UPDATE copies
+# ➤ a fresh package-lock.json over the install, and the old gate then skipped
+# ➤ npm entirely — the first release to add a dependency would leave every
+# ➤ updating user crashing on import, and re-running the installer (the
+# ➤ advertised repair) took the same skip branch. The lock file being newer
+# ➤ than node_modules is the tell; a no-op npm install costs seconds.
+if [ ! -d node_modules ] || [ package-lock.json -nt node_modules ]; then
   say "Installing dependencies"
   # ➤ error level only: npm's "notice" chatter is noise to someone installing
   # ➤ a bot, and it half-arrives in the OS language.
   npm install --no-audit --no-fund --loglevel=error || { warn "npm install failed"; exit 1; }
+  touch node_modules 2>/dev/null || true
 fi
 ok "dependencies installed"
 
@@ -87,12 +109,17 @@ if command -v crontab >/dev/null 2>&1; then
     FLOCK_L="$(command -v flock) -n /tmp/argus-listener.lock "
     FLOCK_S="$(command -v flock) -n /tmp/argus-scan.lock "
   fi
+  # ➤ Paths SINGLE-QUOTED (audit 2026-08-08): unquoted, a folder with a space
+  # ➤ produced "cd /home/u/my && argus/..." — four cron lines failing every
+  # ➤ run for ever, with the diagnosis greping for the broken line and
+  # ➤ reporting OK. Quotes and % in the path are refused at the top.
+  NODE_BIN="$(command -v node)"
   {
     cat "$CRON_TMP"
-    echo "* * * * * cd $ROOT && ${FLOCK_L}$(command -v node) server-bot/telegram-listener.mjs >> $ROOT/server-bot/listener.log 2>&1"
-    echo "0 */2 * * * cd $ROOT && ${FLOCK_S}$(command -v node) server-bot/scan.mjs >> $ROOT/server-bot/scan.log 2>&1"
-    echo "30 7 * * * cd $ROOT && $(command -v node) server-bot/housekeep.mjs --liveness-only >> $ROOT/server-bot/scan.log 2>&1"
-    echo "0 9 * * 0 cd $ROOT && $(command -v node) server-bot/housekeep.mjs >> $ROOT/server-bot/scan.log 2>&1"
+    echo "* * * * * cd '$ROOT' && ${FLOCK_L}'$NODE_BIN' server-bot/telegram-listener.mjs >> '$ROOT/server-bot/listener.log' 2>&1"
+    echo "0 */2 * * * cd '$ROOT' && ${FLOCK_S}'$NODE_BIN' server-bot/scan.mjs >> '$ROOT/server-bot/scan.log' 2>&1"
+    echo "30 7 * * * cd '$ROOT' && '$NODE_BIN' server-bot/housekeep.mjs --liveness-only >> '$ROOT/server-bot/scan.log' 2>&1"
+    echo "0 9 * * 0 cd '$ROOT' && '$NODE_BIN' server-bot/housekeep.mjs >> '$ROOT/server-bot/scan.log' 2>&1"
   } | crontab - && ok "schedule installed (this copy is now the only Argus scheduled)"
   rm -f "$CRON_TMP"
   # ➤ TRUST NOTHING: one listener tick right now, so the bot answers within

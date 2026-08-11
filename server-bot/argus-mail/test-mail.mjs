@@ -499,15 +499,26 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(fresh[0].state, 'noreply', 'one sent an hour ago is unanswered too, not a state of its own');
   eq(fresh[0].daysWaiting, 0, 'and it says how fresh it is');
 
-  // ➤ A BOUNCE OUTRANKS EVERYTHING, because it is not a verdict on you — it is
-  // ➤ the reason there is no verdict, and the only state here you can still act
-  // ➤ on. Even a rejection afterwards does not change that the first attempt
-  // ➤ never arrived.
+  // ➤ A BOUNCE WINS ONLY WHEN NOTHING EVER CAME BACK (audit 2026-08-08). It
+  // ➤ used to outrank everything — but match.mjs deliberately fans an
+  // ➤ ambiguous bounce out to every application at the same employer, so a
+  // ➤ bounce sitting next to a receipt, a rejection or an interview is proof
+  // ➤ the bounce belonged to ANOTHER application there, not that this one
+  // ➤ never arrived. The old rule buried an interview under "Never arrived".
   const bounced = buildStatus([{ id: 7, company: 'Q', title: 'T', ts: '2026-07-01T09:00:00Z' }], [
+    { application: { id: 7 }, kind: 'bounced', message: { date: '2026-07-01T10:00:00Z', kind: 'bounced' }, why: ['company'], score: 12 },
+  ], { today: new Date('2026-07-10T00:00:00Z') });
+  eq(bounced[0].state, 'bounced', 'a bounce with no reply of any kind is a bounce');
+  const bouncedButAcked = buildStatus([{ id: 7, company: 'Q', title: 'T', ts: '2026-07-01T09:00:00Z' }], [
     { application: { id: 7 }, kind: 'bounced', message: { date: '2026-07-01T10:00:00Z', kind: 'bounced' }, why: ['company'], score: 12 },
     { application: { id: 7 }, kind: 'acknowledged', message: { date: '2026-07-02T10:00:00Z', kind: 'acknowledged' }, why: ['company'], score: 12 },
   ], { today: new Date('2026-07-10T00:00:00Z') });
-  eq(bounced[0].state, 'bounced', 'a bounce wins over anything else on the same application');
+  eq(bouncedButAcked[0].state, 'acknowledged', 'a receipt proves the application arrived — the fanned-out bounce loses');
+  const bouncedButInterview = buildStatus([{ id: 8, company: 'Q', title: 'T', ts: '2026-07-01T09:00:00Z' }], [
+    { application: { id: 8 }, kind: 'bounced', message: { date: '2026-07-01T10:00:00Z', kind: 'bounced' }, why: ['company'], score: 12 },
+    { application: { id: 8 }, kind: 'interview', message: { date: '2026-07-03T10:00:00Z', kind: 'interview' }, why: ['company'], score: 12 },
+  ], { today: new Date('2026-07-10T00:00:00Z') });
+  eq(bouncedButInterview[0].state, 'interview', 'an interview invitation is never buried under "Never arrived" — the loss this module calls its most expensive');
 
   // ➤ GHOSTED. Two months of nothing and waiting stops being waiting.
   {

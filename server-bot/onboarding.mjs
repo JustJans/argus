@@ -50,20 +50,27 @@ const COVER_EXAMPLE_PATH = join(ROOT, 'config', 'cover-example.md');
 // ── Catalogs for the button questions ────────────────────────────────────
 // ➤ Countries offered as buttons. Each carries the display label and (when it
 // ➤ exists) the Adzuna domain code, so the written profile is complete.
+// ➤ aliases = the country's NATIVE spellings, emitted into locations.allow
+// ➤ (audit 2026-08-08). The allow gate is a plain substring test with no
+// ➤ translation, and offers arrive written in their own language —
+// ➤ "München, Bayern, Deutschland" contains no "Germany", so for onboarded
+// ➤ users nearly every native-spelled location died at the gate in silence
+// ➤ (the FR/DE-blocked-for-days incident portals.yml already documents).
+// ➤ Full names only: the substring match makes short codes ("ES") unsafe.
 const COUNTRY_CATALOG = [
-  { name: 'Spain', label: 'SPAIN', adzuna: 'es' },
+  { name: 'Spain', label: 'SPAIN', adzuna: 'es', aliases: ['España'] },
   { name: 'France', label: 'FRANCE', adzuna: 'fr' },
-  { name: 'Germany', label: 'GERMANY', adzuna: 'de' },
-  { name: 'Netherlands', label: 'NETHERLANDS', adzuna: 'nl' },
-  { name: 'Belgium', label: 'BELGIUM', adzuna: 'be' },
-  { name: 'United Kingdom', label: 'UK', adzuna: 'gb' },
-  { name: 'Ireland', label: 'IRELAND', adzuna: 'ie' },
-  { name: 'Italy', label: 'ITALY', adzuna: 'it' },
-  { name: 'Switzerland', label: 'SWITZERLAND', adzuna: 'ch' },
-  { name: 'Austria', label: 'AUSTRIA', adzuna: 'at' },
-  { name: 'Norway', label: 'NORWAY' },
-  { name: 'Denmark', label: 'DENMARK' },
-  { name: 'United States', label: 'US', adzuna: 'us' },
+  { name: 'Germany', label: 'GERMANY', adzuna: 'de', aliases: ['Deutschland'] },
+  { name: 'Netherlands', label: 'NETHERLANDS', adzuna: 'nl', aliases: ['Nederland', 'Holland'] },
+  { name: 'Belgium', label: 'BELGIUM', adzuna: 'be', aliases: ['België', 'Belgique'] },
+  { name: 'United Kingdom', label: 'UK', adzuna: 'gb', aliases: ['UK', 'Great Britain'] },
+  { name: 'Ireland', label: 'IRELAND', adzuna: 'ie', aliases: ['Éire'] },
+  { name: 'Italy', label: 'ITALY', adzuna: 'it', aliases: ['Italia'] },
+  { name: 'Switzerland', label: 'SWITZERLAND', adzuna: 'ch', aliases: ['Schweiz', 'Suisse', 'Svizzera'] },
+  { name: 'Austria', label: 'AUSTRIA', adzuna: 'at', aliases: ['Österreich'] },
+  { name: 'Norway', label: 'NORWAY', aliases: ['Norge'] },
+  { name: 'Denmark', label: 'DENMARK', aliases: ['Danmark'] },
+  { name: 'United States', label: 'US', adzuna: 'us', aliases: ['USA'] },
   { name: 'Canada', label: 'CANADA', adzuna: 'ca' },
   { name: 'Remote', label: 'REMOTE' },
 ];
@@ -190,14 +197,19 @@ async function askCurrent(s) {
   // ➤ waiting for text your normal commands stop working — whatever you type is
   // ➤ taken as the answer — so the way out has to be written where you're looking.
   const prompt = (q.kind === 'single' || q.kind === 'multi') ? q.prompt : `${q.prompt}\n\n(or type "cancel" to stop)`;
+  // ➤ SEND FIRST, persist AFTER (audit 2026-08-08). The state used to be saved
+  // ➤ before the prompt went out, so one failed Telegram send left the file
+  // ➤ pointing at a question nobody ever saw — and the next thing the user
+  // ➤ typed was silently recorded as its answer. Failing before the save just
+  // ➤ re-asks the same question, which is harmless.
   if (q.kind === 'single' || q.kind === 'multi') {
     const msgId = await sendTelegramButtons(prompt, buttonRows(q, s.answers[q.key]));
     s.msgId = msgId;
     saveState(s);
   } else {
+    await sendTelegram(prompt);
     s.msgId = null;
     saveState(s);
-    await sendTelegram(prompt);
   }
 }
 
@@ -416,7 +428,8 @@ async function advance(s) {
   }
   s.step += 1;
   if (s.step >= QUESTIONS.length) return finish(s);
-  saveState(s);
+  // ➤ No saveState here (audit 2026-08-08): askCurrent persists AFTER the
+  // ➤ prompt is delivered — saving the advanced step first was the bug.
   await askCurrent(s);
 }
 
@@ -510,7 +523,10 @@ export function buildProfileYaml(a) {
   // ➤ working are the same entry to the filter, and writing both put the word in
   // ➤ the file twice.
   const allowLocations = [...new Map([
-    ...countries.map(c => c.name),
+    // ➤ Name AND native spellings (audit 2026-08-08): the allow gate compares
+    // ➤ substrings with no translation, and offers name their country the way
+    // ➤ the posting's own language does.
+    ...countries.flatMap(c => [c.name, ...(c.aliases || [])]),
     ...(homeCity ? [homeCity] : []),
     ...((a.countries || []).includes('Remote') ? ['remote'] : []),
   ].map(v => [v.toLowerCase(), v])).values()];

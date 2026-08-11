@@ -104,6 +104,18 @@ async function main() {
   console.log(`Reading ${ids.length} messages since ${gmailDate(since)}, the day of your oldest`);
   console.log('recorded application, skipping anything you sent yourself.');
   console.log('Read and dropped: what is kept is the kind of message and its date.');
+  // ➤ SAY SO WHEN THE CEILING BINDS (audit 2026-08-08). Gmail answers
+  // ➤ newest-first and the window only grows, so hitting the cap silently
+  // ➤ drops the OLDEST messages — the replies to the oldest applications —
+  // ➤ and, because this status is rebuilt from scratch each run, rejections
+  // ➤ and interviews already reported would quietly regress to "no reply".
+  // ➤ That is the same failure the 2026-07-31 note above says was fixed, back
+  // ➤ at a higher number; at least it must never again happen in silence.
+  if (ids.length >= PAGE) {
+    console.error(`WARNING: the mailbox has more than ${PAGE} messages in the window — the oldest`);
+    console.error('were NOT read, and their applications may wrongly show as "no reply".');
+    console.error('Raise PAGE in server-bot/argus-mail/listen.mjs if this keeps happening.');
+  }
 
   // ➤ A few at a time. This is a mailbox, not a load test, and the whole job
   // ➤ runs unattended: there is nothing to gain by being in a hurry.

@@ -22,7 +22,11 @@ try {
     # ➤ An UPDATE must never clobber what the user built: the profile, the CV
     # ➤ and the letter example are theirs once they exist (telegram.json and
     # ➤ data/ are not in the download at all, so they survive on their own).
-    foreach ($rel in 'config\profile.yml', 'cv.md', 'config\cover-example.md') {
+    # ➤ countries.yml and portals.yml joined the list 2026-08-08: both are
+    # ➤ documented as hand-editable — the country toggles and any boards the
+    # ➤ user added — and the update was silently reverting those edits while
+    # ➤ the README promised it touched nothing of theirs.
+    foreach ($rel in 'config\profile.yml', 'cv.md', 'config\cover-example.md', 'server-bot\countries.yml', 'portals.yml') {
         if ((Test-Path (Join-Path $dest $rel)) -and (Test-Path (Join-Path $src $rel))) {
             Remove-Item (Join-Path $src $rel)
         }

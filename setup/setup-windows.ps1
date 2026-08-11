@@ -63,12 +63,26 @@ if ($nodeMajor -lt 20) {
 Ok "Node $(& $node -v)"
 
 # -- 2. Dependencies ----------------------------------------------------------
-if (-not (Test-Path (Join-Path $root 'node_modules'))) {
+# ➤ Not only when node_modules is missing (audit 2026-08-08): an UPDATE copies
+# ➤ a fresh package-lock.json over the install, and the old gate then skipped
+# ➤ npm entirely — the first release to add a dependency would leave every
+# ➤ updating user with a bot crashing on import every minute, and re-running
+# ➤ the installer (the advertised repair) took the same skip branch. The lock
+# ➤ file being newer than node_modules is the tell; a no-op install is seconds.
+$nmPath = Join-Path $root 'node_modules'
+$lockPath = Join-Path $root 'package-lock.json'
+$needInstall = -not (Test-Path $nmPath)
+if (-not $needInstall -and (Test-Path $lockPath)) {
+    try { $needInstall = (Get-Item $lockPath).LastWriteTime -gt (Get-Item $nmPath).LastWriteTime } catch { }
+}
+if ($needInstall) {
     Say "Installing dependencies"
     # ➤ error level only: npm's "notice" chatter is noise to someone installing
     # ➤ a bot, and it half-arrives in the OS language.
     & npm install --no-audit --no-fund --loglevel=error
     if ($LASTEXITCODE -ne 0) { Warn "npm install failed"; Read-Host "  Press Enter to close"; exit 1 }
+    # ➤ "Touch" so the gate above stays quiet until the NEXT update.
+    try { (Get-Item $nmPath).LastWriteTime = Get-Date } catch { }
 }
 Ok "dependencies installed"
 

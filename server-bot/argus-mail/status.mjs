@@ -84,7 +84,14 @@ export function buildStatus(applications, links, { today = new Date() } = {}) {
     // ➤ IT NEVER ARRIVED, so nothing else that happened to it matters. First
     // ➤ because it is not a verdict on you but the reason there is none — and
     // ➤ the only one of these states you can still do something about.
-    if (kinds.includes('bounced')) state = 'bounced';
+    // ➤ UNLESS SOMETHING CAME BACK (audit 2026-08-08): match.mjs deliberately
+    // ➤ fans an ambiguous bounce out to every application at the same
+    // ➤ employer, so a bounce sitting next to a receipt, a rejection or an
+    // ➤ interview is proof the bounce belonged to ANOTHER application there —
+    // ➤ not that this one never arrived. The old rule buried an interview
+    // ➤ under "Never arrived", the loss this module calls its most expensive.
+    const replied = kinds.some(k => k === 'acknowledged' || k === 'interview' || k === 'rejected');
+    if (kinds.includes('bounced') && !replied) state = 'bounced';
     else if (kinds.includes('rejected')) state = 'rejected';
     else if (kinds.length) {
       // ➤ The furthest it got, not the latest thing that arrived: a second

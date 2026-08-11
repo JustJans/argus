@@ -164,6 +164,14 @@ const WINDOW = 50; // chars of context scanned around each number match
 // ➤ match, not the whole sentence — a "preferred" about another topic used to
 // ➤ cancel a real requirement. Plus the previous segment when short ("Ideally,
 // ➤ 4 años…") and the next one always ("5 años, aunque no imprescindibles,…").
+// ➤ A softener that opens the NEXT segment and then names a FIELD ("…, ideally
+// ➤ in offshore wind", "…, preferably in the maritime sector") modifies the
+// ➤ field, not the requirement — yet it used to cancel a firm "5 years" the
+// ➤ segment before (audit 2026-08-08). Softener + preposition = about the
+// ➤ field → that segment stays out of the guard zone. A bare ", preferred" or
+// ➤ ", aunque no imprescindible" still cancels, as it should.
+const SOFT_FIELD_NEXT = /\b(?:ideally|preferably|preferable|preferiblemente|idealmente|idealerweise|bij voorkeur|de pr[ée]f[ée]rence|voorkeur)\s+(?:in|en|im|dans|with|met|op|auf|from|de|du|des)\b/i;
+
 function guardZone(t, cs, ce, idx) {
   const clause = t.slice(cs, ce);
   const rel = Math.min(Math.max(idx - cs, 0), clause.length);
@@ -174,7 +182,7 @@ function guardZone(t, cs, ce, idx) {
   if (i === -1) i = 0;
   let zone = parts[i].seg;
   if (i > 0 && parts[i - 1].seg.trim().length <= 25) zone = parts[i - 1].seg + ',' + zone;
-  if (i + 1 < parts.length) zone = zone + ',' + parts[i + 1].seg;
+  if (i + 1 < parts.length && !SOFT_FIELD_NEXT.test(parts[i + 1].seg)) zone = zone + ',' + parts[i + 1].seg;
   return zone;
 }
 
@@ -185,8 +193,11 @@ function collectYearHits(text) {
   if (!text) return [];
   // ➤ Lowercases the whole text, unifies spaces and translates years written
   // ➤ as words to digits ("vijf jaar" → "5 jaar"), so the rest of the
-  // ➤ detector sees them the same as "5 jaar".
-  const t = normalizeSpelledYears(String(text).toLowerCase().replace(/\s+/g, ' '));
+  // ➤ detector sees them the same as "5 jaar". Typographic apostrophes fold
+  // ➤ first (audit 2026-08-08): NEG_YEARS's "don'?t" can't see U+2019, so
+  // ➤ "You don’t need 5 years" was read as a firm 5-year requirement — the
+  // ➤ same bug degreeScreen already fixed for the Heerema master's.
+  const t = normalizeSpelledYears(String(text).replace(/[’‘]/g, "'").toLowerCase().replace(/\s+/g, ' '));
   const hits = [];
   let m;
   YEARS_RE.lastIndex = 0;
@@ -260,10 +271,13 @@ const ZERO_SKILLS = ('zero_skill_fields' in _SEARCH) ? profileRegex(_SEARCH.zero
 // ➤ returned nothing). Asking for varios/several/mehrere years of experience
 // ➤ means at least 3, over the default threshold of 2. Only forms attached to
 // ➤ "experience" in 5 languages, with the same negated/soft guards.
-const MULTI_YEARS = /\b(?:several|multiple|many)\s+years[''s]*\s+(?:of\s+)?(?:[\w-]+\s+){0,3}?experience|\bvarios\s+a[ñn]os\s+de\s+(?:\w+\s+){0,2}?experiencia|\bplusieurs\s+ann[ée]es\s+d.(?:\w+\s+){0,2}?exp[ée]rience|\b(?:mehr|lang)j[äa]hrige?\w*\s+(?:\w+\s+){0,2}?\w*erfahrung\w*|\bmeerdere\s+jaren\s+(?:\w+\s+){0,2}?\w*ervaring|\bmeerjarige\s+(?:\w+\s+){0,2}?\w*ervaring/gi;
+// ➤ German noun phrasing added 2026-08-08: "mehrere Jahre Berufserfahrung" is
+// ➤ as common as the adjective "mehrjährige" and slipped through — Dutch always
+// ➤ had both forms ("meerdere jaren" / "meerjarige").
+const MULTI_YEARS = /\b(?:several|multiple|many)\s+years[''s]*\s+(?:of\s+)?(?:[\w-]+\s+){0,3}?experience|\bvarios\s+a[ñn]os\s+de\s+(?:\w+\s+){0,2}?experiencia|\bplusieurs\s+ann[ée]es\s+d.(?:\w+\s+){0,2}?exp[ée]rience|\b(?:mehr|lang)j[äa]hrige?\w*\s+(?:\w+\s+){0,2}?\w*erfahrung\w*|\bmehrere\s+jahre\s+(?:\w+\s+){0,2}?\w*erfahrung\w*|\bmeerdere\s+jaren\s+(?:\w+\s+){0,2}?\w*ervaring|\bmeerjarige\s+(?:\w+\s+){0,2}?\w*ervaring/gi;
 
 function multiYearScreen(text, maxYears) {
-  const t = String(text || '').toLowerCase().replace(/\s+/g, ' ');
+  const t = String(text || '').replace(/[’‘]/g, "'").toLowerCase().replace(/\s+/g, ' ');
   MULTI_YEARS.lastIndex = 0;
   let m;
   while ((m = MULTI_YEARS.exec(t)) !== null) {
@@ -272,6 +286,11 @@ function multiYearScreen(text, maxYears) {
     let cs = m.index, ce = m.index;
     while (cs > 0 && !/[.!?;]/.test(t[cs - 1])) cs--;
     while (ce < t.length && !/[.!?;]/.test(t[ce])) ce++;
+    // ➤ Company boasts too (audit 2026-08-08): "Thanks to our many years of
+    // ➤ experience, we are a leading provider…" matched MULTI_YEARS and dropped
+    // ➤ junior offers — the numbered path always consulted NEG (the boast
+    // ➤ list); this path never did. Whole sentence, same as there.
+    if (NEG.test(t.slice(cs, ce))) continue;
     const zone = guardZone(t, cs, ce, m.index);
     if (NEG_YEARS.test(zone) || SOFT_YEARS.test(zone)) continue;
     // ➤ "varios" only discards if the user's threshold is below 3.
@@ -310,7 +329,13 @@ export function experienceScreen(text, title, maxYears) {
 // ➤ discipline and fired on "5 años de experiencia en ingeniería mecánica".
 // ➤ "opleiding" is how Dutch postings say it ("afgeronde hbo-opleiding..."):
 // ➤ without it the whole Dutch demand was invisible, majors and all.
-const DEGREE_WORD = /\b(?:degree|master'?s?|bachelor'?s?|m\.?sc|b\.?sc|b\.?eng|diploma|dipl[oô]me?|grado|m[áa]ster|titulaci[óo]n|licenciatur|studium|hochschulabschluss|abschluss|opleiding)\b/gi;
+// ➤ Two dead stems revived 2026-08-08: "licenciatur" could never match
+// ➤ "licenciatura" (the trailing \b landed mid-word), and German/Dutch
+// ➤ COMPOUNDS ("Bachelorabschluss", "bacheloropleiding", "Bachelorstudium")
+// ➤ were invisible to the standalone words — masterabschluss was covered in
+// ➤ MASTER_DEGREE, the bachelor/generic path was not. \w* on both sides of
+// ➤ the compound heads closes the family.
+const DEGREE_WORD = /\b(?:degree|master'?s?|bachelor'?s?|m\.?sc|b\.?sc|b\.?eng|diploma|dipl[oô]me?|grado|m[áa]ster|titulaci[óo]n|licenciatur\w*|\w*studium|hochschulabschluss|\w*abschluss|\w*opleiding)\b/gi;
 // ➤ Named majors the user does NOT have: if the requested degree is only these
 // ➤ and names none of their fields, the offer is impossible for them. In the
 // ➤ marine example "industrial" and "civil" only count next to "engineer/génie"

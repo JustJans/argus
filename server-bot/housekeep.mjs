@@ -312,40 +312,40 @@ const DESC_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (K
 // ➤ read that as "alive", and a dead offer (#61) reached the phone. Tomorrow's
 // ➤ cron retries with fresh quota.
 const HOST_GAP_MS = { 'adzuna': 1500, 'linkedin': 1200 };
-const hostLast = new Map();
+// ➤ Slot allocator, not a last-request timestamp (audit 2026-08-08, the same
+// ➤ fix as scan.mjs): under 5-way concurrency every waiter computed its wait
+// ➤ from the same stale timestamp, woke at the same moment and fired together
+// ➤ — bursts that provoke the very 429s whose "inconclusive → keep" verdict
+// ➤ lets dead offers survive the daily check (the #61 failure above).
+const hostNext = new Map();    // per host: when the NEXT request may fire
+const hostFloor = new Map();   // per host: floor imposed by a 429 penalty
 async function politeFetch(hostKey, url, opts = {}) {
   const gap = HOST_GAP_MS[hostKey] || 0;
   for (let attempt = 0; attempt < 3; attempt++) {
-    // ➤ If the minimum gap since the last request to this portal hasn't passed yet, wait.
-    const wait = (hostLast.get(hostKey) || 0) + gap - Date.now();
-    if (wait > 0) await new Promise(r => setTimeout(r, wait));
-    hostLast.set(hostKey, Date.now());
+    let slot;
+    for (;;) {
+      slot = Math.max(Date.now(), hostNext.get(hostKey) || 0, hostFloor.get(hostKey) || 0);
+      hostNext.set(hostKey, slot + gap);   // claimed before any await
+      const wait = slot - Date.now();
+      if (wait > 0) await new Promise(r => setTimeout(r, wait));
+      // ➤ A 429 penalty can land while asleep; if it did, claim a fresh slot.
+      if ((hostFloor.get(hostKey) || 0) <= slot) break;
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15_000);
     try {
       const res = await fetch(url, { ...opts, signal: controller.signal, headers: { 'User-Agent': DESC_UA, ...(opts.headers || {}) } });
-      // ➤ "Too many requests": penalizes the whole portal with an 8-second wait and retries.
       if (res.status === 429) {
         // ➤ 15 s penalty after a 429, same as scan.mjs (audit 2026-07-25): the
         // ➤ fix was applied there in July but this copy kept the old 8 s, so the
         // ➤ retries here still died inside the same rate-limit window.
-        hostLast.set(hostKey, Date.now() + 15_000); // back off the whole host
+        hostFloor.set(hostKey, Date.now() + 15_000); // back off the whole host
         continue;
       }
       return res;
     } catch { return null; } finally { clearTimeout(timer); }
   }
   return null; // still rate-limited → inconclusive
-}
-
-// ➤ Downloads a page's text with a 12-second cap; if it fails, returns empty.
-async function fetchText(url, opts = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12_000);
-  try {
-    const res = await fetch(url, { ...opts, signal: controller.signal });
-    return res.ok ? await res.text() : '';
-  } catch { return ''; } finally { clearTimeout(timer); }
 }
 
 // ➤ Recovers an offer's full text from its URL alone, depending on the
@@ -526,7 +526,15 @@ async function main() {
   // ➤ language the user can't work in (allows English/Spanish/Catalan).
   const langCfg = config.title_language_filter || {};
   if (langCfg.enabled !== false) {
-    const allow = new Set((langCfg.allow || ['en', 'es', 'ca']).map(s => String(s).toLowerCase()));
+    // ➤ SAME FALLBACK CHAIN AS THE SCANNER (audit 2026-08-08). This recheck
+    // ➤ read only portals.yml's allow list and ignored the profile's declared
+    // ➤ languages — so offers in a language the user works in, admitted
+    // ➤ correctly by the scan, were deleted every Sunday and written to the
+    // ➤ anti-repeat history: the project's only PERMANENT delete, applied by
+    // ➤ the copy with the stale rule. The 2026-07-25 note above ("SAME RULES
+    // ➤ AS THE SCANNER") set out to close exactly this class of drift and
+    // ➤ missed the language list.
+    const allow = new Set((searchProfile.languages || langCfg.allow || ['en', 'es', 'ca']).map(s => String(s).toLowerCase()));
     const candidates = pending.filter(p => !filteredIdx.has(p.lineIdx));
     const checks = candidates.map(p => async () => {
       const lang = await detectTitleLang(p.title);

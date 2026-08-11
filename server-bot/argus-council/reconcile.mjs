@@ -21,7 +21,7 @@
 
 import { readFileSync, existsSync } from 'fs';
 // ➤ Atomic overwrite so a crash mid-write can't truncate the judges' journal.
-import { writeFileAtomic } from '../fs-atomic.mjs';
+import { writeFileAtomic, withFileLock } from '../fs-atomic.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -97,24 +97,33 @@ function main() {
     pipelineText: existsSync(PIPELINE_PATH) ? readFileSync(PIPELINE_PATH, 'utf-8') : '',
   });
 
-  const records = readJsonl(JOURNAL_PATH);
+  // ➤ READ-FILL-REWRITE UNDER LOCK (audit 2026-08-08). This runs by hand or on
+  // ➤ its own cron, OUTSIDE the scan+council flock — and the Council appends a
+  // ➤ verdict per offer across a batch that lasts minutes. A line appended
+  // ➤ between this read and the rewrite was erased: that offer was re-judged
+  // ➤ later (three paid AI calls repeated) and its history vanished. The lock
+  // ➤ is held for the milliseconds of the read and write only; the shrink
+  // ➤ guard stays as the second line of defence.
   let filled = 0;
-  for (const rec of records) {
-    // ➤ Only the ones without a decision yet are filled (already-set values are not overwritten).
-    if (rec.userDecision) continue;
-    const d = decideFor(rec, idx);
-    if (d) { rec.userDecision = d; filled++; }
-  }
-  // ➤ SAFETY 2026-07-25 (audit): this rewrites the WHOLE journal from the lines
-  // ➤ it managed to parse, so any line it could not read was silently deleted.
-  // ➤ A journal is history: we refuse to shrink it.
-  const onDisk = readFileSync(JOURNAL_PATH, 'utf-8').split('\n').filter(l => l.trim()).length;
-  if (records.length < onDisk) {
-    console.error(`Refusing to rewrite the journal: ${onDisk} lines on disk but only ${records.length} readable. Nothing was changed.`);
-    return;
-  }
-  writeFileAtomic(JOURNAL_PATH, records.map(r => JSON.stringify(r)).join('\n') + (records.length ? '\n' : ''));
-  console.log(`Reconciled ${filled} offer(s) with the user's real decision (out of ${records.length} in the log).`);
+  withFileLock(JOURNAL_PATH, () => {
+    const records = readJsonl(JOURNAL_PATH);
+    for (const rec of records) {
+      // ➤ Only the ones without a decision yet are filled (already-set values are not overwritten).
+      if (rec.userDecision) continue;
+      const d = decideFor(rec, idx);
+      if (d) { rec.userDecision = d; filled++; }
+    }
+    // ➤ SAFETY 2026-07-25 (audit): this rewrites the WHOLE journal from the lines
+    // ➤ it managed to parse, so any line it could not read was silently deleted.
+    // ➤ A journal is history: we refuse to shrink it.
+    const onDisk = readFileSync(JOURNAL_PATH, 'utf-8').split('\n').filter(l => l.trim()).length;
+    if (records.length < onDisk) {
+      console.error(`Refusing to rewrite the journal: ${onDisk} lines on disk but only ${records.length} readable. Nothing was changed.`);
+      return;
+    }
+    writeFileAtomic(JOURNAL_PATH, records.map(r => JSON.stringify(r)).join('\n') + (records.length ? '\n' : ''));
+    console.log(`Reconciled ${filled} offer(s) with the user's real decision (out of ${records.length} in the log).`);
+  });
 }
 
 // ➤ Guard anchored to the filename: run main() ONLY when launched directly, not

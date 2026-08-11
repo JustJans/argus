@@ -36,6 +36,7 @@ import { fetchOfferBody } from '../cover-letter.mjs';
 import { JUDGES } from './judges.mjs';
 import { runJudge } from './engine.mjs';
 import { councilVote } from './vote.mjs';
+import { withFileLock } from '../fs-atomic.mjs';
 
 // ➤ Paths: council/ → server-bot/ → argus/ (the project root).
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -123,7 +124,12 @@ export function readCouncilConfig() {
 // ➤ file does NOT carry the URL, so these offers are judged BY title ONLY
 // ➤ (empty body). Line format:
 // ➤   [REASON] explanation — Title | Company | Location (source)
-export function sampleDropped(text, limit) {
+// ➤ `judgedKeys` makes the limit count only offers NOT yet judged (audit
+// ➤ 2026-08-08): scan-explain.txt is rewritten each scan with a deterministic
+// ➤ sort and dropped offers persist for weeks, so the first N lines were the
+// ➤ SAME already-judged offers every run — filterUnjudged then deleted them
+// ➤ all, and the false-negative monitoring this sample exists for starved.
+export function sampleDropped(text, limit, judgedKeys = new Set()) {
   if (!limit || limit <= 0) return [];
   const wanted = new Set(['TITLE', 'LANGUAGE', 'YEARS/DEGREE']);
   const out = [];
@@ -144,7 +150,9 @@ export function sampleDropped(text, limit) {
     // ➤ The location (if any) has "(source)" at the end: it gets cleaned.
     let location = (fields[2] || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
     if (location === '(no location)') location = '';
-    out.push({ url: '', company, title, location, id: null, source: 'dropped', botDecision: `dropped:${stage}` });
+    const cand = { url: '', company, title, location, id: null, source: 'dropped', botDecision: `dropped:${stage}` };
+    if (judgedKeys.has(offerKey(cand))) continue;   // already judged: not part of the quota
+    out.push(cand);
     if (out.length >= limit) break;
   }
   return out;
@@ -212,15 +220,17 @@ async function main() {
 
   // ➤ 1) The PRESENTED ones: the pending offers Argus showed (they carry URL and id).
   const presented = pendingOffers().map(o => ({ ...o, source: 'pending', botDecision: 'presented' }));
-  // ➤ 2) The SAMPLE of dropped ones (by title), if the file exists.
+  // ➤ 2) The SAMPLE of dropped ones (by title), if the file exists. The judged
+  // ➤ keys go in so the quota is spent on offers the Council has NOT seen yet.
+  const judgedKeys = loadJudgedKeys();
   const dropped = (!pendingOnly && existsSync(EXPLAIN_PATH))
-    ? sampleDropped(readFileSync(EXPLAIN_PATH, 'utf-8'), cfg.sample_dropped)
+    ? sampleDropped(readFileSync(EXPLAIN_PATH, 'utf-8'), cfg.sample_dropped, judgedKeys)
     : [];
   let work = [...presented, ...dropped];
   // ➤ Removes the ones ALREADY judged: this way each offer goes through the Council ONCE,
   // ➤ even if it stays pending and cron sees it again in 2 h.
   const before = work.length;
-  work = filterUnjudged(work, loadJudgedKeys());
+  work = filterUnjudged(work, judgedKeys);
   const skipped = before - work.length;
   if (Number.isFinite(limit)) work = work.slice(0, limit);
 
@@ -243,20 +253,29 @@ async function main() {
   const tally = { show: 0, hide: 0, tie: 0 };
   for (const offer of work) {
     const rec = await judgeOffer(offer, cfg.model);
-    // ➤ If NO judge could speak (Claude out of credit, not authenticated, down),
-    // ➤ this is NOT a verdict: we do not journal it. Journalling it would mark
-    // ➤ the offer as "already judged" and it would never be looked at again —
-    // ➤ which is exactly what happened on 2026-07-24. Skipping it means the next
-    // ➤ run retries it; we stop the batch because the rest would fail the same.
+    // ➤ If ANY judge could not speak (Claude out of credit, not authenticated,
+    // ➤ down), this is NOT a verdict: we do not journal it. Journalling it
+    // ➤ would mark the offer as "already judged" and it would never be looked
+    // ➤ at again — which is exactly what happened on 2026-07-24.
+    // ➤ ANY, not ALL (audit 2026-08-08): the judges run one after another for
+    // ➤ minutes, so a spend limit reached MID-OFFER left one real vote and two
+    // ➤ failures — and the old all-failed check waved that through: a 1-vote
+    // ➤ "tie" journalled as final, never retried, against the exact contract
+    // ➤ engine.mjs states for failed:true. Skipping means the next run
+    // ➤ retries; we stop the batch because the rest would fail the same.
     const votes = Object.values(rec.verdicts || {});
-    if (votes.length && votes.every(v => v && v.failed)) {
+    if (votes.some(v => v && v.failed)) {
       failed++;
-      const why = String(votes[0].reason || '').replace(/\s+/g, ' ').slice(0, 120);
-      console.log(`  [!] ${rec.title} — ${rec.company}: the judges could not answer (${why}). NOT journalled; it will be retried.`);
+      const why = String((votes.find(v => v && v.failed)).reason || '').replace(/\s+/g, ' ').slice(0, 120);
+      console.log(`  [!] ${rec.title} — ${rec.company}: a judge could not answer (${why}). NOT journalled; it will be retried.`);
       break;
     }
     // ➤ It APPENDS to BOTH logs; it never overwrites anything.
-    appendFileSync(JOURNAL_PATH, JSON.stringify(rec) + '\n');   // ➤ for the machine
+    // ➤ Under the journal's lock (audit 2026-08-08): reconcile.mjs rewrites
+    // ➤ the whole file under it, and an append landing between its read and
+    // ➤ its write was erased — the offer re-judged later, three paid AI calls
+    // ➤ repeated. Held for the one appendFileSync, nothing more.
+    withFileLock(JOURNAL_PATH, () => appendFileSync(JOURNAL_PATH, JSON.stringify(rec) + '\n'));   // ➤ for the machine
     appendFileSync(LOG_PATH, formatCouncilEntry(rec));          // ➤ readable by you
     tally[rec.council] = (tally[rec.council] || 0) + 1;
     done++;

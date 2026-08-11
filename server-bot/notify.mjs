@@ -33,6 +33,7 @@ import { readFileSync, writeFileSync, existsSync, chmodSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
+import { writeFileAtomic } from './fs-atomic.mjs';
 // ➤ The user's fields (mooring/offshore/survey...) — the same list the filters
 // ➤ use — to push what's "most theirs" to the top within each country.
 import { USER_FIELDS, searchProfile } from './requirements.mjs';
@@ -236,6 +237,35 @@ export function cityOf(location) {
 // ➤ twice within one send.
 const _tcache = new Map();
 
+// ➤ AND ON DISK ACROSS PROCESSES (audit 2026-08-08). The listener is a fresh
+// ➤ process every minute and the in-memory cache died with it, so every list
+// ➤ refresh — each `seen`, each `list`, each scan — re-translated the WHOLE
+// ➤ pending list through 1-2 Google requests per title: ~50-100 sequential
+// ➤ external calls to redo work already done. A title is now translated once
+// ➤ in its lifetime. Only real answers are persisted — a network failure must
+// ➤ stay retryable, or a French title would stay French for ever.
+const TRANSLATIONS_PATH = join(ROOT, 'data', 'title-translations.json');
+const TRANSLATIONS_MAX = 2000;   // keep the file small: oldest entries fall off
+let _tdisk = null;
+function hydrateTranslationCache() {
+  if (_tdisk) return;
+  try { _tdisk = JSON.parse(readFileSync(TRANSLATIONS_PATH, 'utf-8')) || {}; } catch { _tdisk = {}; }
+  for (const [k, v] of Object.entries(_tdisk)) {
+    if (typeof v === 'string' && !_tcache.has(k)) _tcache.set(k, v);
+  }
+}
+function persistTranslation(key, out) {
+  _tdisk[key] = out;
+  const keys = Object.keys(_tdisk);
+  if (keys.length > TRANSLATIONS_MAX) {
+    for (const k of keys.slice(0, keys.length - TRANSLATIONS_MAX)) delete _tdisk[k];
+  }
+  // ➤ Atomic but unlocked on purpose: two processes racing lose a few fresh
+  // ➤ entries to last-writer-wins, which just means one extra translation
+  // ➤ later — never a corrupt file.
+  try { writeFileAtomic(TRANSLATIONS_PATH, JSON.stringify(_tdisk)); } catch { /* disk full — cache still works in memory */ }
+}
+
 // ➤ Which language a job title in a given country is written in. Used only as
 // ➤ a second attempt, when the automatic detection has already given up.
 // ➤ Written WITHOUT accents, and the text is stripped of them before matching.
@@ -284,23 +314,28 @@ async function askTranslator(title, sl, fetchImpl = fetch) {
 // ➤ wrong about it costs nothing — an English title handed over as French comes
 // ➤ back unchanged, which is what a wrong guess should do.
 export async function translateTitle(title, place = '', { fetchImpl = fetch, cache = _tcache } = {}) {
+  // ➤ The disk layer only backs the REAL cache: a test that injects its own
+  // ➤ cache touches no file.
+  if (cache === _tcache) hydrateTranslationCache();
   const key = `${title} ${place}`;
   if (cache.has(key)) return cache.get(key);
   let out = title;
+  let answered = false;
   try {
     const auto = await askTranslator(title, 'auto', fetchImpl);
-    if (auto) out = auto;
+    if (auto) { out = auto; answered = true; }
     // ➤ Unchanged means one of two things: it was already English, or the
     // ➤ detection failed. Only the country can tell those apart.
     if (out.toLowerCase() === title.toLowerCase()) {
       const sl = languageOfPlace(place);
       if (sl) {
         const forced = await askTranslator(title, sl, fetchImpl);
-        if (forced) out = forced;
+        if (forced) { out = forced; answered = true; }
       }
     }
   } catch { /* keep original */ }
   cache.set(key, out);
+  if (answered && cache === _tcache) persistTranslation(key, out);
   return out;
 }
 
@@ -731,7 +766,9 @@ async function cliSetup() {
   }
   const chat = withChat.message.chat;
   c.chat_id = String(chat.id);
-  writeFileSync(CFG_PATH, JSON.stringify(c, null, 2) + '\n', 'utf-8');
+  // ➤ Atomic (audit 2026-08-08): a crash mid-write corrupts the ONE file
+  // ➤ holding the token and the bot goes mute until the setup is re-run.
+  writeFileAtomic(CFG_PATH, JSON.stringify(c, null, 2) + '\n');
   // ➤ telegram.json holds the bot token — keep it readable only by you (0600).
   // ➤ On systems without POSIX permissions (e.g. Windows) this is a harmless no-op.
   try { chmodSync(CFG_PATH, 0o600); } catch { /* not POSIX — ignore */ }

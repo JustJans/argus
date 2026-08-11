@@ -19,6 +19,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { pendingOffers } from './list-offers.mjs';
 import { notifyNewOffers, sendTelegramMessage, deleteTelegramMessage, telegramConfigured } from './notify.mjs';
+import { withFileLock } from './fs-atomic.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(SCRIPT_DIR);
@@ -122,8 +123,22 @@ export async function refreshList({ alert = false, markSeen = false, deps } = {}
     //    remove the old list. If the send above failed, ids is empty and the old
     //    list stays put rather than leaving your chat with nothing at all.
     if (ids.length) {
-      d.saveListIds(ids);
-      for (const id of oldIds) await d.deleteTelegramMessage(id);
+      // ➤ RECONCILED UNDER LOCK (audit 2026-08-08). Scanner, housekeep and
+      // ➤ listener are separate processes and both used to work from the ids
+      // ➤ loaded before their sends: whoever saved second erased the other's
+      // ➤ freshly-sent list from the state without deleting it — a stale list
+      // ➤ of possibly-dead offers orphaned in the chat for ever, the exact
+      // ➤ artifact this module exists to remove. The lock covers only the
+      // ➤ read-and-save milliseconds (never the sends); whatever the state
+      // ➤ named at that instant joins the delete pile, so the loser's list is
+      // ➤ swept instead of stranded.
+      let toDelete = oldIds;
+      withFileLock(STATE_PATH, () => {
+        const current = d.loadListIds();
+        toDelete = [...new Set([...oldIds, ...current])].filter(id => !ids.includes(id));
+        d.saveListIds(ids);
+      });
+      for (const id of toDelete) await d.deleteTelegramMessage(id);
     } else {
       console.log(`[${new Date().toISOString()}] live-list: the new list could not be sent; the previous one is kept.`);
       // ➤ FIX (audit 2026-07-31): SAY OUT LOUD THAT IT FAILED. This used to hand
