@@ -35,9 +35,9 @@ const mkState = (over = {}) => ({
 {
   const kb = reviewKeyboard(mkState());
   check(kb.length, 4, 'a pending card has four rows');
-  check(kb[0], [{ label: 'Open offer', url: 'https://example.com/a' }], 'the first row is the link to the posting');
-  check(kb[1], [{ label: 'Applied', data: 'rv:applied' }, { label: 'Cover', data: 'rv:cover' }], 'then Applied and Cover');
-  check(kb[2], [{ label: 'Seen', data: 'rv:seen' }, { label: 'No', data: 'rv:no' }], 'then Seen and No');
+  check(kb[0], [{ label: '🔗 Open offer', url: 'https://example.com/a' }], 'the first row is the link to the posting');
+  check(kb[1], [{ label: '✉ Applied', data: 'rv:applied' }, { label: '📄 Cover', data: 'rv:cover' }], 'then Applied and Cover');
+  check(kb[2], [{ label: '👁 Seen', data: 'rv:seen' }, { label: '✖ No', data: 'rv:no' }], 'then Seen and No');
   check(kb[3], [{ label: '1/3', data: 'rv:cur' }, { label: '▶', data: 'rv:next' }], 'the first card has no back arrow');
 
   const mid = reviewKeyboard(mkState({ idx: 1 }));
@@ -46,9 +46,9 @@ const mkState = (over = {}) => ({
 
   const done = reviewKeyboard(mkState({ decisions: { 855: { kind: 'no', at: 't' } } }));
   check(done, [
-    [{ label: 'Undo', data: 'rv:undo' }],
+    [{ label: '↩ Undo', data: 'rv:undo' }],
     [{ label: '1/3', data: 'rv:cur' }, { label: '▶', data: 'rv:next' }],
-  ], 'a decided card offers only Undo and the arrows');
+  ], 'a decided card offers only Undo and the arrows — the arrows stay bare');
 }
 
 // ── The card text ──────────────────────────────────────────────────────────
@@ -60,10 +60,10 @@ const mkState = (over = {}) => ({
     '<b>#856 — Instrumentation &lt;Engineer&gt;</b>\nTechnip &amp; Co · Cartagena · €30k',
     'portal text is escaped — a title with < must not kill the card');
   check(reviewCardText(mkState({ decisions: { 855: { kind: 'no', at: 't' } } })),
-    '<s>#855 — Offshore Project Engineer</s>\nDiscarded',
-    'a decided card: struck title and one word');
+    '<s>#855 — Offshore Project Engineer</s>\n✖ Discarded',
+    'a decided card: struck title, an icon and one word');
   check(reviewCardText(mkState({ decisions: { 855: { kind: 'applied', at: 't', warn: 'Recorded, but <x>' } } })),
-    '<s>#855 — Offshore Project Engineer</s>\nApplied\nRecorded, but &lt;x&gt;',
+    '<s>#855 — Offshore Project Engineer</s>\n✉ Applied\nRecorded, but &lt;x&gt;',
     'a warning rides the card, escaped');
 }
 
@@ -124,7 +124,7 @@ const wire = (state) => {
   check(typeof st.decisions[855].at, 'string', 'and when it happened');
   const drawn = calls.filter(c => c[0] === 'edit').pop();
   check(drawn[2].includes('Discarded'), true, 'the card now says Discarded');
-  check(drawn[3][0], [{ label: 'Undo', data: 'rv:undo' }], 'and offers Undo');
+  check(drawn[3][0], [{ label: '↩ Undo', data: 'rv:undo' }], 'and offers Undo');
 
   const before = calls.filter(c => c[0] === 'reject').length;
   await handleReviewCallback('rv:no', 500, 'cb', deps);
