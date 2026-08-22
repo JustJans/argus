@@ -41,9 +41,10 @@ function loadJson(path, fallback) {
   try { return JSON.parse(readFileSync(path, 'utf-8')); } catch { return fallback; }
 }
 
-// ➤ What the card SAYS about each decision: an icon and one word, as the
-// ➤ owner asked (2026-08-22: icons on actions and states; arrows stay bare).
-const KIND_LABEL = { seen: '👁 Seen', no: '✖ Discarded', applied: '✉ Applied' };
+// ➤ What the card SAYS about each decision: one word. Icons were tried on
+// ➤ buttons and states (2026-08-22) and the owner pulled them the same day —
+// ➤ plain labels only, and bare arrows.
+const KIND_LABEL = { seen: 'Seen', no: 'Discarded', applied: 'Applied' };
 
 // ➤ The card's keyboard. A decided offer offers only Undo and the arrows; a
 // ➤ pending one offers the link plus the four actions. Only arrows that lead
@@ -55,13 +56,13 @@ export function reviewKeyboard(state) {
   if (state.idx > 0) nav.push({ label: '◀', data: 'rv:prev' });
   nav.push({ label: `${state.idx + 1}/${total}`, data: 'rv:cur' });
   if (state.idx < total - 1) nav.push({ label: '▶', data: 'rv:next' });
-  if (state.decisions[o.id]) return [[{ label: '↩ Undo', data: 'rv:undo' }], nav];
+  if (state.decisions[o.id]) return [[{ label: 'Undo', data: 'rv:undo' }], nav];
   const rows = [];
   // ➤ A URL button with a malformed link makes Telegram refuse the WHOLE
   // ➤ message, buttons, card and all — so the row only exists for real links.
-  if (/^https?:\/\//.test(o.url || '')) rows.push([{ label: '🔗 Open offer', url: o.url }]);
-  rows.push([{ label: '✉ Applied', data: 'rv:applied' }, { label: '📄 Cover', data: 'rv:cover' }]);
-  rows.push([{ label: '👁 Seen', data: 'rv:seen' }, { label: '✖ No', data: 'rv:no' }]);
+  if (/^https?:\/\//.test(o.url || '')) rows.push([{ label: 'Open offer', url: o.url }]);
+  rows.push([{ label: 'Applied', data: 'rv:applied' }, { label: 'Cover', data: 'rv:cover' }]);
+  rows.push([{ label: 'Seen', data: 'rv:seen' }, { label: 'No', data: 'rv:no' }]);
   rows.push(nav);
   return rows;
 }

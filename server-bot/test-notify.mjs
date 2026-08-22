@@ -316,7 +316,7 @@ check(languageOfPlace('Francesca Ltd, Aberdeen'), '', 'a name that merely contai
 {
   // ➤ The nav row shows only the arrows that lead somewhere; every list also
   // ➤ carries the review entry (2026-08-22), single-page lists included.
-  const REVIEW_ROW = [{ label: '🔎 Review', data: 'rv:start' }];
+  const REVIEW_ROW = [{ label: 'Review', data: 'rv:start' }];
   check(JSON.stringify(listPageKeyboard(1, 3)),
     JSON.stringify([[{ label: '1/3', data: 'pg:cur' }, { label: 'Next ▶', data: 'pg:2' }], REVIEW_ROW]),
     'page 1 offers only Next, plus the review entry');

@@ -525,7 +525,7 @@ export function listPageKeyboard(page, total) {
   if (total > 1) row.push({ label: `${page}/${total}`, data: 'pg:cur' });
   if (page < total) row.push({ label: 'Next ▶', data: `pg:${page + 1}` });
   const rows = row.length ? [row] : [];
-  rows.push([{ label: '🔎 Review', data: 'rv:start' }]);
+  rows.push([{ label: 'Review', data: 'rv:start' }]);
   return rows;
 }
 
