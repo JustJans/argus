@@ -1080,6 +1080,17 @@ export function titleDemandsForeignLanguage(title) {
   return TITLE_LANG_DEMAND.test(t) && !ENGLISH_ALTERNATIVE.test(t);
 }
 
+// ➤ Broken-encoding detector (field case 2026-08-22): Adzuna delivered
+// ➤ "Automation Engineer ??????" — the non-Latin half of the title destroyed
+// ➤ upstream and replaced by literal question marks — geotagged France,
+// ➤ actually a Shanghai job. A run of ??? (or any U+FFFD) in a title can only
+// ➤ be a portal mangling text it could not encode, and the mangled half is
+// ➤ precisely the half naming the real language or place. No legitimate title
+// ➤ carries either, so this drops nothing real.
+export function titleEncodingBroken(title) {
+  return /\?{3,}|�/.test(String(title || ''));
+}
+
 // ➤ BODY LANGUAGE RULE (refined by the user on 2026-07-18): the language in
 // ➤ which the offer IS WRITTEN no longer matters (a Dutch offer that doesn't
 // ➤ ask you to speak Dutch can be good). What DOES discard it is the
@@ -2117,6 +2128,8 @@ async function main() {
   if (langEnabled && newOffers.length > 0) {
     const drops = new Set();
     const checks = newOffers.map((o, i) => async () => {
+      // ➤ Garbled titles first: deterministic, and saves the network lookup.
+      if (titleEncodingBroken(o.title)) { drops.add(i); o._why = 'the title arrived garbled from the portal (broken encoding)'; return; }
       if (titleDemandsForeignLanguage(o.title)) { drops.add(i); o._why = 'the title requires a language you do not speak'; return; }
       const lang = await detectTitleLang(o.title);
       if (lang && !langAllow.has(lang)) { drops.add(i); o._why = `the title is in ${lang}, a language you do not work in`; }

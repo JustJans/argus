@@ -36,7 +36,7 @@ import { isPendingHeading } from './pipeline-format.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
-import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, detectTitleLang, NOT_AN_EMPLOYER, titleDemandsForeignLanguage, bodyLanguageBlock, overrideDeadIfApply } from './scan.mjs';
+import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, detectTitleLang, NOT_AN_EMPLOYER, titleDemandsForeignLanguage, titleEncodingBroken, bodyLanguageBlock, overrideDeadIfApply } from './scan.mjs';
 import { experienceScreen, degreeScreen, stripHtml, extractAdzunaJd, PRIORITY_KEEP, searchProfile } from './requirements.mjs';
 // ➤ To refresh the Telegram list after deleting: otherwise you keep seeing on
 // ➤ your phone offers that no longer exist (audit 2026-07-25).
@@ -516,7 +516,7 @@ async function main() {
     for (const p of pending) {
       if (!companyOk(p.company) || !titleOk(p.title)
           || (p.location && !locFilter(p.location)) || locFilter.blockHit(p.title)
-          || titleDemandsForeignLanguage(p.title)) {
+          || titleDemandsForeignLanguage(p.title) || titleEncodingBroken(p.title)) {
         filteredIdx.add(p.lineIdx);
       }
     }

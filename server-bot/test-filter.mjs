@@ -25,7 +25,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
-import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, buildCountryFilter, admissionVerdict, roleKey, slugTitle, parseJobPostingLd, parseLinkedInCards, titleDemandsForeignLanguage, bodyLanguageBlock, pipelineRoleKey, hasApplySignal, overrideDeadIfApply, formatSalary, normUrl } from './scan.mjs';
+import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, buildCountryFilter, admissionVerdict, roleKey, slugTitle, parseJobPostingLd, parseLinkedInCards, titleDemandsForeignLanguage, titleEncodingBroken, bodyLanguageBlock, pipelineRoleKey, hasApplySignal, overrideDeadIfApply, formatSalary, normUrl } from './scan.mjs';
 import { offerAffinity } from './notify.mjs';
 import { extractRequiredYears, stripHtml, experienceScreen, extractAdzunaJd, degreeScreen } from './requirements.mjs';
 
@@ -1001,6 +1001,14 @@ for (const [name, ok] of COMPANY) {
   check(!titleDemandsForeignLanguage('Sales Engineer - Germany'), 'a country name is not a language demand', 'Germany');
   check(titleDemandsForeignLanguage('German speaking Support Engineer'), 'a real demand still drops', 'German only');
   check(titleDemandsForeignLanguage('Engineer (English and German speaking)'), '"and" demands both; English does not save it', 'and');
+
+  // ➤ Garbled titles (field case 2026-08-22): the portal destroyed the
+  // ➤ non-Latin half of a Shanghai job's title and geotagged it France.
+  check(titleEncodingBroken('Automation Engineer ??????'), 'a run of ??? is a portal-garbled title', 'mojibake');
+  check(titleEncodingBroken('Engineer �� GmbH'), 'U+FFFD replacement chars are broken encoding too', 'fffd');
+  check(!titleEncodingBroken('Automation Engineer'), 'a clean title passes', 'clean');
+  check(!titleEncodingBroken('Night shift Engineer - interested?'), 'one question mark is punctuation, not damage', '1q');
+  check(!titleEncodingBroken('Engineer?? apply now'), 'two are still just emphasis', '2q');
 }
 
 // ➤ ── A HAND-TYPED TOGGLE COUNTS ───────────────────────────────────────
