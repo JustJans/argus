@@ -446,8 +446,10 @@ export async function deleteTelegramMessage(messageId) {
 // ➤ payload (<=64 bytes) Telegram sends back when the button is tapped.
 
 // ➤ Turns our simple {label,data} rows into Telegram's inline_keyboard shape.
-function toInlineKeyboard(rows) {
-  return { inline_keyboard: (rows || []).map(row => row.map(b => ({ text: b.label, callback_data: b.data }))) };
+// ➤ {label,url} makes a LINK button instead (the review card's "Open offer"):
+// ➤ Telegram opens it directly, no callback ever comes back.
+export function toInlineKeyboard(rows) {
+  return { inline_keyboard: (rows || []).map(row => row.map(b => (b.url ? { text: b.label, url: b.url } : { text: b.label, callback_data: b.data }))) };
 }
 
 // ➤ Sends a message WITH buttons. Returns the message_id so the buttons can be
@@ -513,12 +515,18 @@ export function offerAffinity(title) {
 // ➤ Per-offer action buttons remain vetoed — this row only turns pages.
 export const LIST_PAGES_PATH = join(ROOT, 'data', 'list-pages.json');
 
+// ➤ Since 2026-08-22 the list also carries ONE action row: the entry to the
+// ➤ review mode (review.mjs), where the per-offer buttons live on a card that
+// ➤ shows a single offer — the only place a button can say which offer it
+// ➤ belongs to. The list itself still gets nothing but navigation.
 export function listPageKeyboard(page, total) {
   const row = [];
   if (page > 1) row.push({ label: '◀ Prev', data: `pg:${page - 1}` });
-  row.push({ label: `${page}/${total}`, data: 'pg:cur' });
+  if (total > 1) row.push({ label: `${page}/${total}`, data: 'pg:cur' });
   if (page < total) row.push({ label: 'Next ▶', data: `pg:${page + 1}` });
-  return [row];
+  const rows = row.length ? [row] : [];
+  rows.push([{ label: 'Review one by one', data: 'rv:start' }]);
+  return rows;
 }
 
 // ➤ Sends a FILE (for example the PDF of a cover letter) to your Telegram
@@ -712,9 +720,9 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
     // ➤ message_id ties the pages to their message: a tap on an older, orphan
     // ➤ list finds the id mismatch and gets told the list is outdated.
     const total = pages.length;
-    const id = total === 1
-      ? await sendTelegramMessage(pages[0], { html: true, silent })
-      : await sendTelegramButtons(pages[0], listPageKeyboard(1, total), { html: true, silent });
+    // ➤ Buttons on every list since 2026-08-22, single page included: a short
+    // ➤ list has no page row, but the review entry is always there.
+    const id = await sendTelegramButtons(pages[0], listPageKeyboard(1, total), { html: true, silent });
     if (id != null) {
       messageIds.push(id);
       try { writeFileAtomic(LIST_PAGES_PATH, JSON.stringify({ message_id: id, pages, ts: new Date().toISOString() })); }

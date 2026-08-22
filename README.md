@@ -179,7 +179,9 @@ Typed into the Telegram chat. `N` is the `#number` shown on the offer.
 |---|---|
 | `search` | run a scan right now instead of waiting for the schedule |
 | `list` | re-send the current list of pending offers — long lists arrive as one message with Prev/Next buttons that turn pages in place |
+| `review` | go through the pending offers one card at a time, with buttons: open the posting, mark it applied/seen, discard it, or ask for the cover letter — every decision reversible with Undo |
 | `seen N [N...]` | remove one or more offers from the list |
+| `undo [N]` | put an offer back after seen/no/applied and delete the record that decision wrote — button slips leave no trace. Bare `undo` reverts the last card decision |
 | `no N [reason]` | remove an offer **and** record why, in `server-bot/feedback.jsonl` — or, if you already applied to it, close that application |
 | `applied N` | remove it and log it to `data/applications.jsonl` |
 | `longshot N [reason]` | the same, but flagged: you applied knowing you fall short |
@@ -364,6 +366,8 @@ The engine lives in `server-bot/`:
 - `telegram-listener.mjs` — the Telegram remote control. Always-on: it
   long-polls Telegram and answers in about a second; the minute schedule only
   revives it if it dies.
+- `review.mjs` — the `review` mode: one offer per card with buttons, edited in
+  place, every decision undoable.
 - `onboarding.mjs` — the `/start` setup + `settings` editor (writes the profile).
 - `cover-letter.mjs` — generates cover letters as PDFs (Claude + Chromium).
 - `argus-council/` — the three shadow judges. See
@@ -381,7 +385,7 @@ The engine lives in `server-bot/`:
 Every part can be run by hand, and each one prints why it failed:
 
 ```bash
-npm test                                    # 1250 tests; run this first
+npm test                                    # 1593 tests; run this first
 node server-bot/scan.mjs --dry-run          # scan without writing or notifying
 node server-bot/scan.mjs --explain          # why each offer was dropped → data/scan-explain.txt
 node server-bot/telegram-listener.mjs --once  # process pending commands once

@@ -65,6 +65,23 @@ export function markSeenInLines(lines, nums) {
   return { lines: out, marked, missing, hadPending: byId.size > 0 };
 }
 
+// ➤ The exact inverse of the marking above, for the "undo" command and the
+// ➤ review card's Undo button (2026-08-22): "- [x] ... | visto" back to
+// ➤ "- [ ] ...". ONLY lines carrying the "| visto" tag — that tag means the
+// ➤ hiding was YOUR decision; a line the cleanup hid on its own (dead link)
+// ➤ has no tag and is not brought back by an undo.
+export function restorePendingInLines(lines, n) {
+  const out = [...lines];
+  for (let i = 0; i < out.length; i++) {
+    const m = out[i].match(new RegExp(`^- \\[x\\] (.*\\|\\s*#${n})\\s*\\|\\s*visto\\s*$`));
+    if (m) {
+      out[i] = `- [ ] ${m[1].trimEnd()}`;
+      return { lines: out, restored: true };
+    }
+  }
+  return { lines: out, restored: false };
+}
+
 // ➤ From here down it is only the command-line wrapper: read, call the above,
 // ➤ write, report. Skipped when this file is imported by a test.
 if (process.argv[1] && /(^|[\\/])seen\.mjs$/.test(process.argv[1])) {
