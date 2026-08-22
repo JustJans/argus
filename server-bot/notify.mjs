@@ -507,6 +507,20 @@ export function offerAffinity(title) {
 // ➤ (The inline BUTTONS under each offer were tested on 2026-07-18 and the user
 // ➤ removed them that same day: the owner prefers typing the commands. Do not reintroduce them.)
 
+// ➤ NAVIGATION buttons are different, and owner-requested (2026-08-19): a long
+// ➤ list arrives as ONE message showing a page, with Prev/Next flipping the
+// ➤ page IN PLACE (editMessageText) instead of stacking messages in the chat.
+// ➤ Per-offer action buttons remain vetoed — this row only turns pages.
+export const LIST_PAGES_PATH = join(ROOT, 'data', 'list-pages.json');
+
+export function listPageKeyboard(page, total) {
+  const row = [];
+  if (page > 1) row.push({ label: '◀ Prev', data: `pg:${page - 1}` });
+  row.push({ label: `${page}/${total}`, data: 'pg:cur' });
+  if (page < total) row.push({ label: 'Next ▶', data: `pg:${page + 1}` });
+  return [row];
+}
+
 // ➤ Sends a FILE (for example the PDF of a cover letter) to your Telegram
 // ➤ chat, with an optional caption. The "cover" command uses it. Unlike normal
 // ➤ messages, files go in a special "envelope" (multipart) that Telegram
@@ -580,7 +594,7 @@ export function councilVerdicts({ portalsPath = PORTALS_PATH, journalPath = JUDG
   return map;
 }
 
-export async function notifyNewOffers(offers, { headerLabel = 'new', silent = false, newIds = null } = {}) {
+export async function notifyNewOffers(offers, { headerLabel = 'new', silent = false, newIds = null, paged = false } = {}) {
   if (!offers?.length || !telegramConfigured()) return false;
 
   // ➤ Step 1: sort the offers into buckets by country. If the location gave no
@@ -615,19 +629,17 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
   let chunk = esc(headerTxt) + '\n\n';
   let currentGroup = null;
 
-  let sentAny = false;
   // ➤ Here the ids of each sent message are stored (a long list may be split
   // ➤ into several). The "live list" uses them to delete them later.
   const messageIds = [];
-  // ➤ "flush" = send what's accumulated so far and start a new message.
-  // ➤ Between messages it waits 1.2 seconds so as not to overwhelm Telegram.
+  // ➤ The list is BUILT first as pages and SENT after (2026-08-19). Building
+  // ➤ and sending used to be one interleaved loop; splitting them lets the
+  // ➤ same builder feed both renderings — every page as its own message (the
+  // ➤ old behavior), or one paged message with Prev/Next buttons.
+  const pages = [];
+  // ➤ "flush" = close the accumulated text as a finished page.
   const flush = async () => {
-    if (chunk.trim()) {
-      if (sentAny) await new Promise(r => setTimeout(r, 1200)); // pace multi-message lists
-      const id = await sendTelegramMessage(chunk.trimEnd(), { html: true, silent });
-      if (id != null) messageIds.push(id);
-      sentAny = true;
-    }
+    if (chunk.trim()) pages.push(chunk.trimEnd());
     chunk = '';
   };
 
@@ -690,6 +702,34 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
     }
   }
   await flush();
+
+  // ➤ Send phase.
+  if (paged && pages.length) {
+    // ➤ ONE message in the chat, whatever the list's length: page 1 goes out
+    // ➤ (with Prev/Next buttons when there is more than one page) and every
+    // ➤ page is stored on disk so a button tap — handled by a LATER listener
+    // ➤ process — can redraw the same message with another page. The stored
+    // ➤ message_id ties the pages to their message: a tap on an older, orphan
+    // ➤ list finds the id mismatch and gets told the list is outdated.
+    const total = pages.length;
+    const id = total === 1
+      ? await sendTelegramMessage(pages[0], { html: true, silent })
+      : await sendTelegramButtons(pages[0], listPageKeyboard(1, total), { html: true, silent });
+    if (id != null) {
+      messageIds.push(id);
+      try { writeFileAtomic(LIST_PAGES_PATH, JSON.stringify({ message_id: id, pages, ts: new Date().toISOString() })); }
+      catch { /* the list is on the phone; losing the flips is the lesser harm */ }
+    }
+    return messageIds;
+  }
+  let sentAny = false;
+  for (const p of pages) {
+    // ➤ Between messages it waits 1.2 seconds so as not to overwhelm Telegram.
+    if (sentAny) await new Promise(r => setTimeout(r, 1200));
+    const id = await sendTelegramMessage(p, { html: true, silent });
+    if (id != null) messageIds.push(id);
+    sentAny = true;
+  }
   // ➤ Returns the ids of the sent messages (the "live list" remembers them to
   // ➤ delete them next time). A non-empty array also counts as "yes, it was
   // ➤ sent" for whoever only checks whether something was sent.

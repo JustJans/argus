@@ -21,7 +21,8 @@
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc, languageOfPlace, translateTitle, MAX_CHUNK, MAX_TITLE_CHARS, TELEGRAM_LIMIT, councilVerdicts } from './notify.mjs';
+import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc, languageOfPlace, translateTitle, MAX_CHUNK, MAX_TITLE_CHARS, TELEGRAM_LIMIT, councilVerdicts, listPageKeyboard } from './notify.mjs';
+import { flipListPage } from './telegram-listener.mjs';
 
 const matchers = loadCountryMatchers();
 let failures = 0;
@@ -309,6 +310,51 @@ check(languageOfPlace('Francesca Ltd, Aberdeen'), '', 'a name that merely contai
   const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'notify.mjs'), 'utf-8');
   check(/verdicts\.get\(o\.url\)/.test(src) && src.includes(' [${word}]'), true, 'the verdict rides the offer line as a [TAG]');
   rmSync(dir, { recursive: true, force: true });
+}
+
+// ── The paged live list (2026-08-19): keyboard shape and flip honesty ──────
+{
+  // ➤ The nav row shows only the arrows that lead somewhere.
+  check(JSON.stringify(listPageKeyboard(1, 3)),
+    JSON.stringify([[{ label: '1/3', data: 'pg:cur' }, { label: 'Next ▶', data: 'pg:2' }]]),
+    'page 1 offers only Next');
+  check(JSON.stringify(listPageKeyboard(2, 3)),
+    JSON.stringify([[{ label: '◀ Prev', data: 'pg:1' }, { label: '2/3', data: 'pg:cur' }, { label: 'Next ▶', data: 'pg:3' }]]),
+    'a middle page offers both arrows');
+  check(JSON.stringify(listPageKeyboard(3, 3)),
+    JSON.stringify([[{ label: '◀ Prev', data: 'pg:2' }, { label: '3/3', data: 'pg:cur' }]]),
+    'the last page offers only Prev');
+
+  // ➤ flipListPage: what it edits, what it refuses, what it ignores.
+  const calls = [];
+  const deps = (pagesState) => ({
+    loadPages: () => pagesState,
+    editButtons: (...a) => { calls.push(['edit', ...a]); return true; },
+    answer: (...a) => { calls.push(['answer', ...a]); return true; },
+    keyboard: listPageKeyboard,
+  });
+  const st = { message_id: 77, pages: ['P1', 'P2', 'P3'], ts: 'x' };
+
+  check(await flipListPage('o:2', 77, 'cb', deps(st)), false,
+    'an onboarding tap is not a page turn: falls through untouched');
+  check(calls.length, 0, 'and nothing was sent for it');
+
+  check(await flipListPage('pg:2', 77, 'cb', deps(st)), true, 'a valid flip is handled');
+  check(calls[0][0] === 'edit' && calls[0][2] === 'P2', true, 'it redraws the tapped message with page 2');
+
+  calls.length = 0;
+  await flipListPage('pg:9', 77, 'cb', deps(st));
+  check(calls[0][2], 'P3', 'a page number past the end clamps to the last page');
+
+  calls.length = 0;
+  await flipListPage('pg:2', 41, 'cb', deps(st));
+  check(calls[0][0] === 'answer' && /outdated/.test(calls[0][2] || ''), true,
+    'a tap on an OLDER list message gets the outdated toast, never a redraw');
+
+  calls.length = 0;
+  await flipListPage('pg:cur', 77, 'cb', deps(st));
+  check(calls.length === 1 && calls[0][0] === 'answer', true,
+    'the page counter only stops the spinner');
 }
 
 console.log(failures === 0 ? `All ${total} notify tests passed.` : `${failures}/${total} FAILED.`);

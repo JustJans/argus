@@ -112,7 +112,10 @@ export async function refreshList({ alert = false, markSeen = false, deps } = {}
     //    notice so there is always a reference list at the bottom of the chat.
     let ids;
     if (offers.length) {
-      ids = await d.notifyNewOffers(offers, { headerLabel: 'pending', silent: !alert, newIds });
+      // ➤ paged (2026-08-19): the whole list is ONE message showing a page,
+      // ➤ with Prev/Next buttons editing it in place — a 60-offer list no
+      // ➤ longer arrives as three stacked messages.
+      ids = await d.notifyNewOffers(offers, { headerLabel: 'pending', silent: !alert, newIds, paged: true });
       if (!Array.isArray(ids)) ids = [];
     } else {
       const id = await d.sendTelegramMessage('No pending offers.', { silent: !alert });

@@ -173,7 +173,7 @@ Typed into the Telegram chat. `N` is the `#number` shown on the offer.
 | Command | What it does |
 |---|---|
 | `search` | run a scan right now instead of waiting for the schedule |
-| `list` | re-send the current list of pending offers |
+| `list` | re-send the current list of pending offers — long lists arrive as one message with Prev/Next buttons that turn pages in place |
 | `seen N [N...]` | remove one or more offers from the list |
 | `no N [reason]` | remove an offer **and** record why, in `server-bot/feedback.jsonl` — or, if you already applied to it, close that application |
 | `applied N` | remove it and log it to `data/applications.jsonl` |

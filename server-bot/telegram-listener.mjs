@@ -41,7 +41,7 @@ import { writeFileAtomic, trimLog } from './fs-atomic.mjs';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { sendTelegram, sendTelegramMessage, deleteTelegramMessage, esc, TG_API } from './notify.mjs';
+import { sendTelegram, sendTelegramMessage, deleteTelegramMessage, esc, TG_API, editTelegramButtons, answerCallback, listPageKeyboard, LIST_PAGES_PATH } from './notify.mjs';
 import { pendingOffers } from './list-offers.mjs';
 // ➤ The "live list": deletes the previous list and re-sends the updated one to the
 // ➤ bottom of the chat every time it changes (after list/seen/no/applied).
@@ -147,6 +147,35 @@ const FEEDBACK_PATH = join(SCRIPT_DIR, 'feedback.jsonl');
 // ➤ list is the only thing worth believing.
 // ➤ Exported and pure so it can be tested: the command surface of this file had
 // ➤ no test at all, which is why a reply could go on lying for a week.
+// ➤ Turns a page of the live list when its Prev/Next button is tapped
+// ➤ (owner-requested, 2026-08-19). The pages were written to disk by the
+// ➤ process that sent the list; this runs in a LATER listener process, so the
+// ➤ file is the only bridge. The stored message_id must match the tapped
+// ➤ message: a tap on an older list answers with a toast instead of quietly
+// ➤ redrawing the wrong thing. Returns false only when the tap is not a page
+// ➤ button at all, so the caller can route it to the onboarding instead.
+// ➤ Exported and dependency-injected so the honesty rules are testable.
+export async function flipListPage(data, messageId, cbId, deps = {}) {
+  const d = {
+    loadPages: () => loadJson(LIST_PAGES_PATH, null),
+    editButtons: editTelegramButtons, answer: answerCallback, keyboard: listPageKeyboard,
+    ...deps,
+  };
+  const m = String(data || '').match(/^pg:(\d+|cur)$/);
+  if (!m) return false;
+  if (m[1] === 'cur') { await d.answer(cbId); return true; }   // the page counter: just stop the spinner
+  const st = d.loadPages();
+  if (!st || st.message_id !== messageId || !Array.isArray(st.pages) || !st.pages.length) {
+    await d.answer(cbId, 'This list is outdated — send "list" for a fresh one.');
+    return true;
+  }
+  const total = st.pages.length;
+  const n = Math.min(Math.max(parseInt(m[1], 10), 1), total);
+  await d.editButtons(messageId, st.pages[n - 1], d.keyboard(n, total), { html: true });
+  await d.answer(cbId);
+  return true;
+}
+
 // ➤ Splits a long report on line boundaries into Telegram-sized messages —
 // ➤ the same 3500-char discipline notify.mjs applies to the offers list.
 export function chunkLines(text, max = 3500) {
@@ -671,7 +700,12 @@ async function main() {
     const cb = u.callback_query;
     if (cb) {
       if (String(cb.message?.chat?.id) !== String(cfg.chat_id)) continue; // your chat only
-      try { await handleOnboardingCallback(cb.data, cb.id); }
+      try {
+        // ➤ Page-turn taps belong to the live list, everything else to the
+        // ➤ onboarding. flipListPage answers false only for non-page data.
+        if (await flipListPage(cb.data, cb.message?.message_id, cb.id)) continue;
+        await handleOnboardingCallback(cb.data, cb.id);
+      }
       catch (e) { try { await sendTelegram(`Error: ${String(e.message).slice(0, 200)}`); } catch {} }
       continue;
     }
