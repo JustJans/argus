@@ -62,6 +62,10 @@ import { refreshList } from './live-list.mjs';
 import {
   startOnboarding, startSettings, handleOnboardingText, handleOnboardingCallback, handleOnboardingDocument, onboardingActive,
 } from './onboarding.mjs';
+// ➤ The review mode (2026-08-22): the pending offers one card at a time, with
+// ➤ buttons. Decisions run THIS file's command handlers in quiet mode, so a
+// ➤ button and a typed command are one code path.
+import { startReview, handleReviewCallback, undoDecision, REVIEW_STATE_PATH } from './review.mjs';
 
 // ➤ Paths and basic settings: where this script lives, the project's root
 // ➤ folder and the configuration files.
@@ -180,8 +184,10 @@ const HELP =
   '<i>N = the number shown next to each offer, e.g. #675</i>\n' +
   '\n' +
   '<code>list</code> — show the pending offers\n' +
+  '<code>review</code> — go through them one by one, with buttons\n' +
   '<code>search</code> — search for new offers now\n' +
   '<code>seen N</code> — remove offer(s) from the list\n' +
+  '<code>undo N</code> — put an offer back after seen/no/applied\n' +
   '<code>no N reason</code> — remove an offer and note why (improves the filter)\n' +
   '<code>applied N</code> — mark as applied (removes it from the list)\n' +
   '<code>interview N</code> — record an interview the inbox cannot see (a call, your own calendar)\n' +
@@ -312,20 +318,25 @@ async function recordApplicationState(n, state, reason) {
 // ➤ offer 3 from pending AND records why it didn't fit in feedback.jsonl.
 // ➤ That file is your rejection history — read it before touching the filters,
 // ➤ so any change to them comes from your real criteria (and with tests).
-async function rejectWithReason(n, reason) {
+// ➤ quiet (2026-08-22): the review card runs this same function for its "No"
+// ➤ button — records and honesty checks identical, but the card is the
+// ➤ confirmation, so the chat message is skipped. The return value carries
+// ➤ what the card and a later undo need: found, gone, and the record's ts.
+async function rejectWithReason(n, reason, { quiet = false } = {}) {
   // n is the STABLE offer id (#412 as shown on Telegram), never a position.
   const offers = pendingOffers();
   // ➤ Find the offer whose fixed number matches the one you typed.
   const off = offers.find(o => o.id === n);
   if (!off) {
+    if (quiet) return { found: false };
     // ➤ NOT PENDING — so it may be one you already SENT. Some employers never
     // ➤ write back: they post the verdict on their own portal, or their address
     // ➤ bounces and nobody notices. That application would sit under "no reply"
     // ➤ for ever although you already know how it ended. Same word for the same
     // ➤ meaning: "no" closes it, and the answer survives the nightly rebuild.
-    if (await recordApplicationState(n, 'rejected', reason)) return;
+    if (await recordApplicationState(n, 'rejected', reason)) return { found: true };
     await sendTelegram(`There's no pending offer with the number #${n} (did you already remove it?). The numbers appear on each offer in the list.`);
-    return;
+    return { found: false };
   }
   // ➤ Build the rejection entry: date, offer data and your reason.
   const rec = {
@@ -342,9 +353,10 @@ async function rejectWithReason(n, reason) {
   // ➤ kept confirming success over a failed write — the confirmed-but-not-done
   // ➤ reply the 2026-07-31 audit removed, reintroduced by the side door.
   const gone = new RegExp(`^\\s*✓ #${n}\\b`, 'm').test(String(seenOut || ''));
-  await sendTelegram(`Discarded #${n}: ${off.title} — ${off.company}.${rec.reason ? ` Reason: ${rec.reason}` : ''}${gone ? '' : '\nWarning: it could not be removed from the pending list (write failed) — it may show up again. Try "seen ' + n + '".'}`);
+  if (!quiet) await sendTelegram(`Discarded #${n}: ${off.title} — ${off.company}.${rec.reason ? ` Reason: ${rec.reason}` : ''}${gone ? '' : '\nWarning: it could not be removed from the pending list (write failed) — it may show up again. Try "seen ' + n + '".'}`);
   // ➤ The confirmation stays; the list refreshes without this offer.
   await refreshList({ markSeen: true });
+  return { found: true, gone, recTs: rec.ts };
 }
 
 // ➤ Launches the full scanner (scan.mjs, the same one that runs on its own every 2h) and
@@ -422,11 +434,12 @@ const APPLIED_PATH = join(ROOT, 'data', 'applications.jsonl');
 // ➤ Why it matters: argus-council/reconcile.mjs treats applications.jsonl as the
 // ➤ ground truth for SHOW. Without the flag, an application sent in hope tells
 // ➤ it the opposite of the truth and grades the Council on a false positive.
-async function markApplied(n, { longshot = false, reason = '' } = {}) {
+async function markApplied(n, { longshot = false, reason = '', quiet = false } = {}) {
   const off = pendingOffers().find(o => o.id === n);
   if (!off) {
+    if (quiet) return { found: false };
     await sendTelegram(`There's no pending offer with the number #${n}. The numbers appear next to each offer in the list.`);
-    return;
+    return { found: false };
   }
   const rec = { ts: new Date().toISOString(), id: n, company: off.company, title: off.title, location: off.location, url: off.url };
   // ➤ The two extra fields only appear on longshots, so every line written
@@ -442,12 +455,40 @@ async function markApplied(n, { longshot = false, reason = '' } = {}) {
   const gone = new RegExp(`^\\s*✓ #${n}\\b`, 'm').test(String(seenOut || ''));
   const tag = longshot ? 'longshot' : 'applied';
   console.log(`[${new Date().toISOString()}] ${tag} #${n} → ${off.title} — ${off.company}${reason ? ` | ${reason}` : ''}`);
-  await sendTelegram((longshot
+  if (!quiet) await sendTelegram((longshot
     ? `Longshot recorded: #${n} ${off.title} — ${off.company}.${reason ? `\nShort on: ${reason}` : ''}`
     : `Application recorded: #${n} ${off.title} — ${off.company}.`)
     + (gone ? '' : `\nWarning: it could not be removed from the pending list (write failed) — it may show up again. Try "seen ${n}".`));
   // ➤ The confirmation stays; the list refreshes without this offer.
   await refreshList({ markSeen: true });
+  return { found: true, gone, recTs: rec.ts };
+}
+
+// ➤ What the review card's buttons run: this file's own command handlers in
+// ➤ quiet mode. The card is the confirmation; the wrappers hand back only what
+// ➤ the card and a later undo need (the record's ts, and a warning when the
+// ➤ honesty check says the list write failed).
+function reviewDeps() {
+  return {
+    seen: async o => {
+      const out = await runNode('seen.mjs', [String(o.id)]);
+      const gone = new RegExp(`^\\s*✓ #${o.id}\\b`, 'm').test(String(out || ''));
+      await refreshList({ markSeen: true });
+      return gone ? {} : { warn: 'It could not be removed from the list — it may still be pending.' };
+    },
+    reject: async o => {
+      const r = await rejectWithReason(o.id, '', { quiet: true });
+      if (!r.found) return { warn: 'It was no longer in the pending list — nothing was recorded.' };
+      return { recTs: r.recTs, ...(r.gone ? {} : { warn: 'Recorded, but it could not be removed from the list.' }) };
+    },
+    applied: async o => {
+      const r = await markApplied(o.id, { quiet: true });
+      if (!r.found) return { warn: 'It was no longer in the pending list — nothing was recorded.' };
+      return { recTs: r.recTs, ...(r.gone ? {} : { warn: 'Recorded, but it could not be removed from the list.' }) };
+    },
+    cover: coverCommand,
+    refresh: () => refreshList({ markSeen: true }),
+  };
 }
 
 // ➤ The listener's "brain": takes the text of one of your messages, works out which
@@ -501,9 +542,12 @@ async function handle(text) {
     await coverCommand(n);
     return;
   }
-  // ➤ Is it "list"? → send the pending offers grouped by country, as always
-  // ➤ (the buttons from 2026-07-18 were tried and the user removed them that same day:
-  // ➤ the owner prefers typing the commands — don't reintroduce them).
+  // ➤ Is it "list"? → send the pending offers grouped by country.
+  // ➤ (Button history: per-offer buttons ON THE LIST were tried 2026-07-18 and
+  // ➤ removed the same day — under a 25-offer message no button can say which
+  // ➤ offer it belongs to. On 2026-08-22 the owner approved buttons on the
+  // ➤ review CARD instead, one offer per message, where they are unambiguous.
+  // ➤ The list itself keeps only navigation and the review entry.)
   if (/^list$/i.test(t)) {
     // ➤ "list" now refreshes the live list: deletes the previous one and re-sends the
     // ➤ pending offers to the bottom of the chat (if there are none, it says "No pending offers").
@@ -513,6 +557,45 @@ async function handle(text) {
     // ➤ ignored you, with no way to tell that from "there is nothing new".
     const r = await refreshList({ markSeen: true });
     if (r === false) await sendTelegram('The list could not be sent just now. Try again in a moment.');
+    return;
+  }
+  // ➤ "review" → the pending offers one card at a time, with buttons. The
+  // ➤ same flow the list's "Review one by one" button opens.
+  if (/^review$/i.test(t)) {
+    await startReview();
+    return;
+  }
+  // ➤ "undo 845" (or a bare "undo" for the last card decision) → the offer
+  // ➤ comes back to pending and the record its decision wrote (feedback or
+  // ➤ application) is removed, so a slip of the finger leaves no trace. Works
+  // ➤ for typed decisions too: any offer hidden with the "| visto" tag.
+  if (/^undo(\s+#?\d+)?$/i.test(t)) {
+    const st = loadJson(REVIEW_STATE_PATH, null);
+    const mNum = t.match(/(\d+)/);
+    let n = mNum ? parseInt(mNum[1], 10) : null;
+    if (n == null) {
+      const entries = Object.entries(st?.decisions || {});
+      if (!entries.length) {
+        await sendTelegram('Nothing to undo: no recent card decision. Use "undo N" with the offer number.');
+        return;
+      }
+      entries.sort((a, b) => String(a[1].at || '').localeCompare(String(b[1].at || '')));
+      n = parseInt(entries[entries.length - 1][0], 10);
+    }
+    const decision = st?.decisions?.[String(n)] || null;
+    const r = undoDecision(n, decision);
+    if (st?.decisions && st.decisions[String(n)]) {
+      delete st.decisions[String(n)];
+      writeFileAtomic(REVIEW_STATE_PATH, JSON.stringify(st));
+    }
+    if (r.restored) {
+      await sendTelegram(`#${n} is back in the pending list${r.recordRemoved ? ', and the record of that decision was removed' : ''}.`);
+      await refreshList({ markSeen: true });
+    } else if (r.recordRemoved) {
+      await sendTelegram(`#${n}: the record of that decision was removed. The offer itself was not restored (already pending, or hidden by the cleanup rather than by you).`);
+    } else {
+      await sendTelegram(`Nothing to undo for #${n}: no decision of yours found on it.`);
+    }
     return;
   }
   // ➤ Is it "applied N"? → record that you SENT the application:
@@ -788,8 +871,10 @@ async function main({ pollSeconds = 0 } = {}) {
     if (cb) {
       if (String(cb.message?.chat?.id) !== String(cfg.chat_id)) continue; // your chat only
       try {
-        // ➤ Page-turn taps belong to the live list, everything else to the
-        // ➤ onboarding. flipListPage answers false only for non-page data.
+        // ➤ Review-card taps first, page turns second, everything else to the
+        // ➤ onboarding. Each handler answers false only for data that is not
+        // ➤ its own, so the chain never eats a foreign tap.
+        if (await handleReviewCallback(cb.data, cb.message?.message_id, cb.id, reviewDeps())) continue;
         if (await flipListPage(cb.data, cb.message?.message_id, cb.id)) continue;
         await handleOnboardingCallback(cb.data, cb.id);
       }

@@ -314,16 +314,21 @@ check(languageOfPlace('Francesca Ltd, Aberdeen'), '', 'a name that merely contai
 
 // ── The paged live list (2026-08-19): keyboard shape and flip honesty ──────
 {
-  // ➤ The nav row shows only the arrows that lead somewhere.
+  // ➤ The nav row shows only the arrows that lead somewhere; every list also
+  // ➤ carries the review entry (2026-08-22), single-page lists included.
+  const REVIEW_ROW = [{ label: 'Review', data: 'rv:start' }];
   check(JSON.stringify(listPageKeyboard(1, 3)),
-    JSON.stringify([[{ label: '1/3', data: 'pg:cur' }, { label: 'Next ▶', data: 'pg:2' }]]),
-    'page 1 offers only Next');
+    JSON.stringify([[{ label: '1/3', data: 'pg:cur' }, { label: 'Next ▶', data: 'pg:2' }], REVIEW_ROW]),
+    'page 1 offers only Next, plus the review entry');
   check(JSON.stringify(listPageKeyboard(2, 3)),
-    JSON.stringify([[{ label: '◀ Prev', data: 'pg:1' }, { label: '2/3', data: 'pg:cur' }, { label: 'Next ▶', data: 'pg:3' }]]),
+    JSON.stringify([[{ label: '◀ Prev', data: 'pg:1' }, { label: '2/3', data: 'pg:cur' }, { label: 'Next ▶', data: 'pg:3' }], REVIEW_ROW]),
     'a middle page offers both arrows');
   check(JSON.stringify(listPageKeyboard(3, 3)),
-    JSON.stringify([[{ label: '◀ Prev', data: 'pg:2' }, { label: '3/3', data: 'pg:cur' }]]),
+    JSON.stringify([[{ label: '◀ Prev', data: 'pg:2' }, { label: '3/3', data: 'pg:cur' }], REVIEW_ROW]),
     'the last page offers only Prev');
+  check(JSON.stringify(listPageKeyboard(1, 1)),
+    JSON.stringify([REVIEW_ROW]),
+    'a single-page list carries no page row, only the review entry');
 
   // ➤ flipListPage: what it edits, what it refuses, what it ignores.
   const calls = [];
