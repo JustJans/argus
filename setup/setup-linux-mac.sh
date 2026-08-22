@@ -92,8 +92,10 @@ ok "dependencies installed"
 # ➤ is removed first, whichever folder it points at — reinstalls used to leave
 # ➤ several listeners alive, and each one answered, so the user saw the same
 # ➤ questions arrive in duplicate and triplicate.
-# ➤ macOS ships no flock; without one the lines run bare, which is fine: the
-# ➤ listener finishes in under a second.
+# ➤ The listener is ALWAYS-ON (long polling) and the minute line is its
+# ➤ watchdog. With flock, the running listener holds the lock and later ticks
+# ➤ cost nothing; macOS ships no flock, so there the ticks run bare and yield
+# ➤ to the live listener via its listener-alive.json heartbeat.
 say "Scheduling"
 if command -v crontab >/dev/null 2>&1; then
   CRON_TMP="$(mktemp 2>/dev/null || echo "/tmp/argus-cron.$$")"
@@ -122,13 +124,14 @@ if command -v crontab >/dev/null 2>&1; then
     echo "0 9 * * 0 cd '$ROOT' && '$NODE_BIN' server-bot/housekeep.mjs >> '$ROOT/server-bot/scan.log' 2>&1"
   } | crontab - && ok "schedule installed (this copy is now the only Argus scheduled)"
   rm -f "$CRON_TMP"
-  # ➤ TRUST NOTHING: one listener tick right now, so the bot answers within
-  # ➤ seconds instead of within a minute.
+  # ➤ TRUST NOTHING: the listener starts right now, so the bot answers within
+  # ➤ seconds instead of within a minute. This IS the always-on listener; the
+  # ➤ cron line above only revives it if it ever dies.
   node server-bot/telegram-listener.mjs >/dev/null 2>&1 &
 else
   warn "No crontab on this machine — nothing can be scheduled. On Windows, use"
   warn "the native installer instead; elsewhere, schedule server-bot/telegram-listener.mjs"
-  warn "(every minute) and server-bot/scan.mjs (every 2h) with what you have."
+  warn "(every minute, as a watchdog) and server-bot/scan.mjs (every 2h) with what you have."
 fi
 
 # ── 4. The bot token, the ONE thing typed by hand ────────────────────────

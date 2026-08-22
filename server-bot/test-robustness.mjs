@@ -318,7 +318,7 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   // ➤ the real token and executed whatever commands were waiting — which is
   // ➤ what running this very test on the server would have done.
   const li = readFileSync(join(SELF_DIR, 'telegram-listener.mjs'), 'utf-8');
-  ok(/if \(process\.argv\[1\][^\n]*telegram-listener[^\n]*\{\s*\n\s*main\(\)/.test(li),
+  ok(/if \(process\.argv\[1\][^\n]*telegram-listener[^\n]*\{\s*\n\s*if \(process\.argv\.includes\('--once'\)\) main\(\)/.test(li),
      'the listener only starts when it IS the program being run');
 }
 
@@ -657,7 +657,7 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   // ➤ the real token and executed whatever commands were waiting — which is
   // ➤ what running this very test on the server would have done.
   const li = readFileSync(join(SELF_DIR, 'telegram-listener.mjs'), 'utf-8');
-  ok(/if \(process\.argv\[1\][^\n]*telegram-listener[^\n]*\{\s*\n\s*main\(\)/.test(li),
+  ok(/if \(process\.argv\[1\][^\n]*telegram-listener[^\n]*\{\s*\n\s*if \(process\.argv\.includes\('--once'\)\) main\(\)/.test(li),
      'the listener only starts when it IS the program being run');
 }
 

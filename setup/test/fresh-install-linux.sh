@@ -48,7 +48,7 @@ for _ in $(seq 1 90); do
     echo "   >>> [the user taps START on the t.me link, code $CODE] <<<"
     curl -s "$ARGUS_TG_API/_test/start?code=$CODE" >/dev/null
     sleep 2
-    (cd "$ARGUS_DEST" && node server-bot/telegram-listener.mjs >/dev/null 2>&1)
+    (cd "$ARGUS_DEST" && node server-bot/telegram-listener.mjs --once >/dev/null 2>&1)
   fi
   kill -0 $INSTALL_PID 2>/dev/null || break
 done

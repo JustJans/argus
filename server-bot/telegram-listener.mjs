@@ -6,8 +6,9 @@
 // ➤ launch a search now (search), view the pending offers (list),
 // ➤ generate an offer's cover-letter PDF (cover N), or
 // ➤ remove offers from the list (seen, or "no" with a reason to improve the filter).
-// ➤ WHEN IT RUNS: the server launches it automatically every minute;
-// ➤ it processes whatever new has arrived, replies via Telegram and shuts down.
+// ➤ WHEN IT RUNS: always. It keeps one quiet connection open to Telegram
+// ➤ (long polling) and reacts the moment you send something — about a second.
+// ➤ The schedule that used to run it every minute now only revives it if it dies.
 // ➤ WHAT IT USES: telegram.json (bot keys), telegram-offset.json (remembers where
 // ➤ it was reading), notify.mjs (send messages/PDFs), list-offers.mjs
 // ➤ (pending offers), seen.mjs (mark as seen), scan.mjs (search),
@@ -17,8 +18,16 @@
 /**
  * telegram-listener.mjs — Telegram as a remote control for argus.
  *
- * Runs every minute via cron (serialised with flock). Polls getUpdates,
- * processes messages FROM THE USER'S CHAT ONLY, replies, and exits.
+ * Long-polls getUpdates in a loop: Telegram holds each request open up to
+ * POLL_SECONDS and answers the instant something arrives, so a command or a
+ * button tap is handled in about a second instead of waiting for the next
+ * scheduled run (cron rounded that wait up to a whole minute — the single
+ * biggest reason the bot ever felt slow). Processes messages FROM THE USER'S
+ * CHAT ONLY, replies, and goes back to waiting. The every-minute schedule is
+ * now a watchdog: a run that finds a live listener yields at once (flock on
+ * Linux, IgnoreNew on Windows, listener-alive.json everywhere), and a run
+ * that finds none BECOMES the listener. `--once` keeps the old single pass
+ * for tests and the diagnose scripts.
  *
  * Commands:
  *   search                launch a full scan now (scan.mjs)
@@ -32,12 +41,13 @@
  *   no N [reason]         hide an offer AND record why to feedback.jsonl
  *   anything else         help text
  *
- * State: telegram-offset.json (last processed update_id). Lock: flock in
- * the cron line prevents overlapping runs while a scan is ongoing.
+ * State: telegram-offset.json (last processed update_id) and
+ * listener-alive.json (pid + heartbeat of the running listener, so two can
+ * never poll at once — two pollers steal each other's updates).
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { writeFileAtomic, trimLog } from './fs-atomic.mjs';
+import { readFileSync, writeFileSync, existsSync, statSync } from 'fs';
+import { writeFileAtomic, trimLog, withFileLock } from './fs-atomic.mjs';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -59,11 +69,63 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(SCRIPT_DIR);
 const CFG_PATH = join(SCRIPT_DIR, 'telegram.json');
 const OFFSET_PATH = join(SCRIPT_DIR, 'telegram-offset.json');
+// ➤ Who is listening right now: {pid, ts}. Refreshed every HEARTBEAT_MS while
+// ➤ alive; anyone who finds it fresher than ALIVE_STALE_MS yields instead of
+// ➤ starting a second poller. (.gitignore's server-bot/*.json rule covers it.)
+const ALIVE_PATH = join(SCRIPT_DIR, 'listener-alive.json');
+// ➤ How long Telegram may hold each getUpdates open. 50 is the value the Bot
+// ➤ API docs use in their own long-polling example: under common 60s proxy
+// ➤ timeouts, and the request still returns the instant an update arrives.
+const POLL_SECONDS = 50;
+const HEARTBEAT_MS = 30_000;
+// ➤ Three missed heartbeats. A crashed listener is replaced within ~90s plus
+// ➤ the watchdog's minute; a live one doing a long "search" is never usurped,
+// ➤ because the heartbeat timer keeps beating between awaits.
+const ALIVE_STALE_MS = 90_000;
+// ➤ Planned self-restart, taken only on an idle cycle so nothing is dropped.
+// ➤ Bounds any slow leak to six hours; the watchdog brings a fresh listener
+// ➤ within a minute.
+const RECYCLE_MS = 6 * 60 * 60 * 1000;
 
 // ➤ Reads a data file (JSON format); if it doesn't exist or is corrupt,
 // ➤ returns the fallback value instead of breaking the program.
 function loadJson(path, fallback) {
   try { return JSON.parse(readFileSync(path, 'utf-8')); } catch { return fallback; }
+}
+
+// ➤ Is that process still running? Signal 0 delivers nothing, it only checks.
+// ➤ EPERM means "exists but is not yours" — alive. `kill` is injectable so the
+// ➤ tests can stage live/dead/foreign pids without real processes.
+export function pidAlive(pid, kill = process.kill.bind(process)) {
+  try { kill(pid, 0); return true; }
+  catch (e) { return e?.code === 'EPERM'; }
+}
+
+// ➤ Claims (or re-claims) the "I am the listener" slot. One function serves
+// ➤ both moments: at startup it decides who runs, and every heartbeat it
+// ➤ refreshes the stamp. Returns false when ANOTHER listener holds a fresh
+// ➤ claim — the caller must not poll, because Telegram gives getUpdates to one
+// ➤ consumer only and two pollers steal each other's updates. A stale stamp or
+// ➤ a dead pid is taken over: that listener is gone. The read-check-write sits
+// ➤ under the directory lock so two starters cannot both claim the same gap.
+export function claimListenerSlot(selfPid, deps = {}) {
+  const d = {
+    load: () => loadJson(ALIVE_PATH, null),
+    save: s => writeFileAtomic(ALIVE_PATH, JSON.stringify(s)),
+    alive: pidAlive, now: Date.now, staleMs: ALIVE_STALE_MS,
+    lock: fn => withFileLock(ALIVE_PATH, fn),
+    ...deps,
+  };
+  let owned = false;
+  d.lock(() => {
+    const cur = d.load();
+    const otherHoldsIt = cur && Number.isInteger(cur.pid) && cur.pid !== selfPid
+      && Number.isFinite(cur.ts) && Math.abs(d.now() - cur.ts) < d.staleMs && d.alive(cur.pid);
+    if (otherHoldsIt) return;
+    d.save({ pid: selfPid, ts: d.now() });
+    owned = true;
+  });
+  return owned;
 }
 
 // ➤ Works out "where we got to" again WITHOUT running anything. Used when the
@@ -171,8 +233,11 @@ export async function flipListPage(data, messageId, cbId, deps = {}) {
   }
   const total = st.pages.length;
   const n = Math.min(Math.max(parseInt(m[1], 10), 1), total);
-  await d.editButtons(messageId, st.pages[n - 1], d.keyboard(n, total), { html: true });
+  // ➤ Answer FIRST: the button's spinner dies the instant the tap is seen and
+  // ➤ the page swaps in right behind it. The other order left the button
+  // ➤ "loading" for the whole edit round-trip.
   await d.answer(cbId);
+  await d.editButtons(messageId, st.pages[n - 1], d.keyboard(n, total), { html: true });
   return true;
 }
 
@@ -574,7 +639,15 @@ async function handle(text) {
 // ➤ Main routine: asks Telegram whether there are new messages since the
 // ➤ last time, processes them one by one ONLY those coming from your chat, and records
 // ➤ where the reading is up to so it doesn't repeat commands if something is cut off.
-async function main() {
+// ➤ pollSeconds > 0 turns the ask into a LONG POLL: Telegram holds the request
+// ➤ open that many seconds and answers the instant something arrives. 0 keeps
+// ➤ the old ask-and-hang-up pass for --once, tests and the diagnose scripts.
+// ➤ Returns how many updates the pass saw, so the loop can tell idle from busy.
+// ➤ These two setup nags repeat on every pass; a person at a terminal needs
+// ➤ them once, not every seven seconds.
+let saidLinkPending = false;
+let saidNotConfigured = false;
+async function main({ pollSeconds = 0 } = {}) {
   // ➤ The cron log this run appends to must not grow for ever (Linux/mac; the
   // ➤ file does not exist on Windows, where output is discarded).
   trimLog(join(SCRIPT_DIR, 'listener.log'));
@@ -600,8 +673,11 @@ async function main() {
       const j = await res.json().catch(() => null);
       const backlog = (j?.result || []).filter(u => u.message?.chat);
       if (!backlog.length) {
-        if (process.stdout.isTTY) console.log('Almost there: telegram.json has a token but no chat_id. Send your bot any message and this links itself within a minute.');
-        return;
+        if (process.stdout.isTTY && !saidLinkPending) {
+          saidLinkPending = true;
+          console.log('Almost there: telegram.json has a token but no chat_id. Send your bot any message and this links itself within seconds.');
+        }
+        return 0;
       }
       // ➤ When the installer wrote a link_code, only the /start carrying that
       // ➤ code may bind the chat — so a stranger who stumbles on the bot before
@@ -612,7 +688,7 @@ async function main() {
       const binder = cfg.link_code
         ? backlog.find(u => String(u.message.text || '').trim() === `/start ${cfg.link_code}`)
         : backlog[0];
-      if (!binder) return; // code set, tap not seen yet — leave the queue untouched
+      if (!binder) return 0; // code set, tap not seen yet — leave the queue untouched
       cfg.chat_id = String(binder.message.chat.id);
       delete cfg.link_code;
       // ➤ Atomic like every other state file (audit 2026-08-08): a crash mid-
@@ -628,16 +704,17 @@ async function main() {
       console.log(`chat_id ${cfg.chat_id} learned from the first message and saved.`);
       // ➤ No return: the normal flow below reads the offset just written and
       // ➤ handles the message that did the linking.
-    } catch { return; /* no network: the next tick tries again */ }
+    } catch { return 0; /* no network: the next pass tries again */ }
   }
   // ➤ Not configured yet: nothing to do. It says so only when a person ran it
-  // ➤ by hand — from cron, stdout is not a terminal and silence is correct, or
-  // ➤ the log would gain one identical line every minute for ever.
+  // ➤ by hand — from the schedule, stdout is not a terminal and silence is
+  // ➤ correct, or the log would gain one identical line per pass for ever.
   if (!cfg?.bot_token || !cfg?.chat_id) {
-    if (process.stdout.isTTY) {
+    if (process.stdout.isTTY && !saidNotConfigured) {
+      saidNotConfigured = true;
       console.log('Not set up yet: server-bot/telegram.json is missing its bot_token. Run the one-line installer from the README, or setup\\setup-windows.bat / bash setup/setup-linux-mac.sh');
     }
-    return;
+    return 0;
   }
 
   // ➤ Asks Telegram for the pending messages starting from the last one already read,
@@ -667,14 +744,24 @@ async function main() {
     if (ok && fresh && !existsSync(join(ROOT, 'data', 'onboarding-answers.json'))) {
       await sendTelegram('Argus is listening now. Send /start to set up your profile.');
     }
-    return;
+    return 0;
   }
+  // ➤ The long poll: with pollSeconds > 0 this fetch simply sits open until
+  // ➤ something arrives (or the window closes empty) — that wait is Telegram's
+  // ➤ push channel, not lost time. The abort guard stays 15s PAST the window,
+  // ➤ so it only fires when the connection itself has died.
   const res = await fetch(
-    `${TG_API}/bot${cfg.bot_token}/getUpdates?offset=${state.offset}&timeout=0`,
-    { signal: AbortSignal.timeout(15_000) },
+    `${TG_API}/bot${cfg.bot_token}/getUpdates?offset=${state.offset}&timeout=${pollSeconds}`,
+    { signal: AbortSignal.timeout(pollSeconds * 1000 + 15_000) },
   );
   const j = await res.json().catch(() => null);
-  if (!j?.ok) return;
+  // ➤ 409 means another process is consuming getUpdates RIGHT NOW (a second
+  // ➤ listener, or a diagnose pass). Thrown, not swallowed: the loop counts it
+  // ➤ and walks away after a streak, leaving the queue to the other consumer.
+  if (!j?.ok) {
+    if (j?.error_code === 409) throw new Error('409: another process is polling getUpdates');
+    return 0;
+  }
 
   // ➤ Iterate over each new message, in order of arrival.
   for (const u of j.result || []) {
@@ -728,15 +815,81 @@ async function main() {
       try { await sendTelegram(`Error: ${String(e.message).slice(0, 200)}`); } catch {}
     }
   }
+  return (j.result || []).length;
 }
 
-// ➤ Startup: runs the main routine; if something blows up, the program exits
-// ➤ quietly (the scheduled task will launch it again the next minute).
+// ➤ The always-on loop. One pass per long poll; between passes it checks the
+// ➤ three reasons to bow out, each of which the watchdog schedule repairs
+// ➤ within a minute by starting a fresh listener:
+// ➤   - its own file changed on disk (an update landed: restart into new code);
+// ➤   - ten passes failed in a row (network gone, or a 409 poll war: stop
+// ➤     fighting and come back clean);
+// ➤   - six hours old and the cycle was idle (bounds any slow leak, and an
+// ➤     idle moment means nothing in hand to drop).
+// ➤ A heartbeat timer stamps listener-alive.json every 30s EVEN MID-PASS — a
+// ➤ "search" holds a pass for minutes, and a beat written only between passes
+// ➤ would look dead to the watchdog, which would then start a second poller.
+async function runForever() {
+  if (!claimListenerSlot(process.pid)) {
+    // ➤ Only a person at a terminal hears this; from the schedule, yielding in
+    // ➤ silence is the normal case on machines without flock (macOS, Windows).
+    if (process.stdout.isTTY) console.log('Another listener is already running; this one yields to it.');
+    return;
+  }
+  const selfPath = fileURLToPath(import.meta.url);
+  const bornMtime = (() => { try { return statSync(selfPath).mtimeMs; } catch { return 0; } })();
+  const born = Date.now();
+  console.log(`[${new Date().toISOString()}] listener up (pid ${process.pid}): long-polling Telegram, ${POLL_SECONDS}s a cycle.`);
+  const heartbeat = setInterval(() => {
+    if (!claimListenerSlot(process.pid)) {
+      console.log(`[${new Date().toISOString()}] another listener took the slot; this one exits.`);
+      process.exit(0);
+    }
+  }, HEARTBEAT_MS);
+  // ➤ unref: the timer must never be what keeps a finished process alive.
+  heartbeat.unref();
+  let failures = 0;
+  for (;;) {
+    const passStart = Date.now();
+    let handled = 0;
+    try {
+      handled = await main({ pollSeconds: POLL_SECONDS });
+      failures = 0;
+    } catch (e) {
+      failures += 1;
+      console.log(`[${new Date().toISOString()}] listener pass failed (${failures} in a row): ${String(e?.message).slice(0, 200)}`);
+      if (failures >= 10) {
+        console.log(`[${new Date().toISOString()}] giving up after ${failures} failed passes; the schedule restarts a fresh listener within a minute.`);
+        return;
+      }
+    }
+    let mtime = bornMtime;
+    try { mtime = statSync(selfPath).mtimeMs; } catch { /* transient stat error: not an update */ }
+    if (mtime !== bornMtime) {
+      console.log(`[${new Date().toISOString()}] listener code changed on disk; exiting so the schedule starts the new version.`);
+      return;
+    }
+    if (Date.now() - born >= RECYCLE_MS && handled === 0) {
+      console.log(`[${new Date().toISOString()}] routine recycle after ${Math.round((Date.now() - born) / 3600_000)}h; the schedule restarts it.`);
+      return;
+    }
+    // ➤ Pace the fast-return paths (not configured, no network, 409): without
+    // ➤ a long poll to sit in, the loop would spin. Five seconds keeps the
+    // ➤ setup flow snappy without hammering anything.
+    if (Date.now() - passStart < 2000) await new Promise(r => setTimeout(r, 5000));
+  }
+}
+
+// ➤ Startup: `--once` keeps the old single pass (tests, diagnose scripts, and
+// ➤ anything that must not stay resident); otherwise the always-on loop runs.
+// ➤ If something blows up, the program exits quietly (the watchdog schedule
+// ➤ launches a fresh one within a minute).
 // ➤ ONLY WHEN THIS FILE IS THE PROGRAM BEING RUN. It used to start on import,
 // ➤ so anything that so much as read a function out of this file started the
 // ➤ bot: a test importing it would have polled Telegram with the real token and
 // ➤ executed whatever commands were waiting. Every other module in the project
 // ➤ already guards its entry point this way (audit 2026-07-31).
 if (process.argv[1] && /(^|[\\/])telegram-listener\.mjs$/.test(process.argv[1])) {
-  main().catch(() => process.exit(0));
+  if (process.argv.includes('--once')) main().catch(() => process.exit(0));
+  else runForever().catch(() => process.exit(0));
 }

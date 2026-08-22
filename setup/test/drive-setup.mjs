@@ -74,9 +74,9 @@ const api = async (p, params = {}) => {
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
   const r = await fetch(u); return r.json();
 };
-const tick = () => {   // one listener run, like one cron minute
+const tick = () => {   // one --once pass, like one watchdog run (must terminate)
   try {
-    execFileSync(process.execPath, [join('server-bot', 'telegram-listener.mjs')],
+    execFileSync(process.execPath, [join('server-bot', 'telegram-listener.mjs'), '--once'],
       { cwd: WORK, env: { ...process.env, ARGUS_TG_API: BASE }, timeout: 120000, stdio: 'pipe' });
   } catch (e) { log('  (listener exited non-zero:', String(e.message).split('\n')[0], ')'); }
 };

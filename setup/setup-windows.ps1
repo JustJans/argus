@@ -112,8 +112,10 @@ Ok "dependencies installed"
 # ➤ Re-registering on every run is the repair path - a broken task heals by
 # ➤ running the installer again.
 # ➤ HIDDEN via setup\run-hidden.vbs: Task Scheduler pops a console window for
-# ➤ every run of a console program, and the listener runs EVERY MINUTE - a
-# ➤ window flashing at the user sixty times an hour (field report 2026-08-06).
+# ➤ every run of a console program, and the listener trigger fires EVERY
+# ➤ MINUTE - a window flashing at the user (field report 2026-08-06). The
+# ➤ listener itself is now always-on (long polling); IgnoreNew makes the
+# ➤ minute trigger a watchdog that only restarts it after a death or reboot.
 # ➤ Verified live: wscript.exe -> window style 0 -> node, marker written, no
 # ➤ window. (S4U, the window-less principal, needs rights a plain user lacks -
 # ➤ tested and denied.)

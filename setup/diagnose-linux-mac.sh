@@ -56,7 +56,7 @@ else
   if grep -q '"bot_token"[[:space:]]*:[[:space:]]*"[0-9]\{6,\}:' "$CFG"; then ok "bot token present"
   else bad "the bot token does not look like a token — re-run the setup token step"; fi
   if grep -q '"chat_id"[[:space:]]*:[[:space:]]*"[0-9-]\{1,\}"' "$CFG"; then ok "chat linked"
-  else bad "chat_id is EMPTY: the link step never finished. With the cron running, send the bot any message and it links itself within a minute."; fi
+  else bad "chat_id is EMPTY: the link step never finished. With the listener running, send the bot any message and it links itself within seconds (a minute at worst)."; fi
 fi
 
 # ── 5. Has the listener ever ticked? ─────────────────────────────────────
@@ -71,6 +71,23 @@ if [ -f server-bot/telegram-offset.json ]; then
   ok "the listener has ticked before (server-bot/telegram-offset.json, last: $TICKED)"
 else
   bad "server-bot/telegram-offset.json does not exist: the listener has NEVER completed a tick."
+fi
+
+# ── 5b. Is the always-on listener alive RIGHT NOW? ───────────────────────
+# ➤ The listener long-polls Telegram and stamps listener-alive.json every 30s;
+# ➤ a stamp under ~2 minutes old means the bot is answering live. Epoch mtime
+# ➤ needs both spellings: GNU stat -c %Y, BSD/macOS stat -f %m (audit 2026-08-08).
+ALIVE="server-bot/listener-alive.json"
+if [ -f "$ALIVE" ]; then
+  MT="$(stat -c %Y "$ALIVE" 2>/dev/null || stat -f %m "$ALIVE" 2>/dev/null)"
+  NOW="$(date +%s)"
+  if [ -n "$MT" ] && [ $((NOW - MT)) -lt 120 ]; then
+    ok "the always-on listener is alive (heartbeat $((NOW - MT))s ago) — commands should answer in about a second"
+  else
+    bad "the listener's heartbeat is old ($ALIVE). The minute schedule should revive it; if this line persists, the cron section above holds the reason."
+  fi
+else
+  echo "  --  no listener heartbeat yet (first start pending, or an older Argus version)"
 fi
 
 # ── 6. What cron saw (the log) ───────────────────────────────────────────
@@ -98,12 +115,14 @@ fi
 # ── 7. One live run, on screen ───────────────────────────────────────────
 # ➤ cron swallows all output; this run swallows nothing. If the listener
 # ➤ crashes on this machine, the reason prints right here.
+# ➤ --once: a single pass that terminates. Without it this window would BECOME
+# ➤ the always-on listener and the diagnosis would never finish.
 say "Running the listener ONCE in this window (its errors, if any, print below):"
-node server-bot/telegram-listener.mjs
+node server-bot/telegram-listener.mjs --once
 RC=$?
 echo "  listener exit code: $RC"
 if [ "$RC" -eq 0 ]; then
-  ok "the listener ran cleanly. If everything above is OK too, send /start to the bot NOW — it should answer within a minute."
+  ok "the listener ran cleanly. If everything above is OK too, send /start to the bot NOW — it should answer within seconds (a minute at worst, while the schedule revives the listener)."
 else
   bad "THAT exit code and the lines above are the reason the bot is mute. Send a photo of this window."
 fi

@@ -124,6 +124,11 @@ here they are:
 0 9   * * 0 cd /path/to/argus && /usr/bin/node server-bot/housekeep.mjs >> server-bot/scan.log 2>&1
 ```
 
+The minute line is a watchdog, not the work itself: the listener it starts
+stays resident and long-polls Telegram, so commands answer in about a second.
+While it lives, `flock` makes every later tick a no-op; on macOS, which ships
+no flock, the listener's own heartbeat file does the same job.
+
 On **Windows**, the same four go into Task Scheduler — `setup\setup-windows.bat`
 creates them for you. Doing it by hand instead, the shape is:
 
@@ -356,7 +361,9 @@ The engine lives in `server-bot/`:
 - `notify.mjs` / `live-list.mjs` — Telegram messaging. The "live list" is a
   single message that is deleted and re-sent, updated, on every change, leaving
   the commands and confirmations as history.
-- `telegram-listener.mjs` — the Telegram remote control (cron every minute).
+- `telegram-listener.mjs` — the Telegram remote control. Always-on: it
+  long-polls Telegram and answers in about a second; the minute schedule only
+  revives it if it dies.
 - `onboarding.mjs` — the `/start` setup + `settings` editor (writes the profile).
 - `cover-letter.mjs` — generates cover letters as PDFs (Claude + Chromium).
 - `argus-council/` — the three shadow judges. See
@@ -377,12 +384,14 @@ Every part can be run by hand, and each one prints why it failed:
 npm test                                    # 1250 tests; run this first
 node server-bot/scan.mjs --dry-run          # scan without writing or notifying
 node server-bot/scan.mjs --explain          # why each offer was dropped → data/scan-explain.txt
-node server-bot/telegram-listener.mjs       # process pending commands once
+node server-bot/telegram-listener.mjs --once  # process pending commands once
 node server-bot/housekeep.mjs --dry-run     # what the weekly cleanup would delete
 ```
 
-- **The bot says nothing.** The listener runs from cron, once a minute — check
-  it is actually in `crontab -l`, and read `server-bot/listener.log`.
+- **The bot says nothing.** Check the watchdog line is in `crontab -l`, read
+  `server-bot/listener.log`, and look at `server-bot/listener-alive.json` — its
+  timestamp refreshes every 30s while the listener lives. The diagnose scripts
+  check all three for you.
 - **No offers ever arrive.** Run `--explain` and read the file: it has one line
   per discarded offer with the exact reason. If your own field is being
   dropped, the fix is in `config/profile.yml`, not in the code.

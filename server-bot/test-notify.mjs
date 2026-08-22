@@ -22,7 +22,7 @@ import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc, languageOfPlace, translateTitle, MAX_CHUNK, MAX_TITLE_CHARS, TELEGRAM_LIMIT, councilVerdicts, listPageKeyboard } from './notify.mjs';
-import { flipListPage } from './telegram-listener.mjs';
+import { flipListPage, claimListenerSlot, pidAlive } from './telegram-listener.mjs';
 
 const matchers = loadCountryMatchers();
 let failures = 0;
@@ -340,11 +340,12 @@ check(languageOfPlace('Francesca Ltd, Aberdeen'), '', 'a name that merely contai
   check(calls.length, 0, 'and nothing was sent for it');
 
   check(await flipListPage('pg:2', 77, 'cb', deps(st)), true, 'a valid flip is handled');
-  check(calls[0][0] === 'edit' && calls[0][2] === 'P2', true, 'it redraws the tapped message with page 2');
+  check(calls[0][0], 'answer', 'the spinner is stopped FIRST — the tap must feel instant');
+  check(calls[1][0] === 'edit' && calls[1][2] === 'P2', true, 'then it redraws the tapped message with page 2');
 
   calls.length = 0;
   await flipListPage('pg:9', 77, 'cb', deps(st));
-  check(calls[0][2], 'P3', 'a page number past the end clamps to the last page');
+  check(calls[1][2], 'P3', 'a page number past the end clamps to the last page');
 
   calls.length = 0;
   await flipListPage('pg:2', 41, 'cb', deps(st));
@@ -355,6 +356,40 @@ check(languageOfPlace('Francesca Ltd, Aberdeen'), '', 'a name that merely contai
   await flipListPage('pg:cur', 77, 'cb', deps(st));
   check(calls.length === 1 && calls[0][0] === 'answer', true,
     'the page counter only stops the spinner');
+}
+
+// ── The listener slot (2026-08-22): exactly ONE poller, ever ──────────────
+// ➤ Telegram hands getUpdates to a single consumer; a second poller steals
+// ➤ updates from the first. claimListenerSlot is the whole defence, so its
+// ➤ verdicts are pinned here with a fake clock, store and process table.
+{
+  const mem = { cur: null };
+  const D = (over = {}) => ({
+    load: () => mem.cur, save: s => { mem.cur = s; },
+    lock: fn => fn(), now: () => 1_000_000, staleMs: 90_000,
+    alive: () => true, ...over,
+  });
+
+  check(claimListenerSlot(100, D()), true, 'an empty slot is claimed');
+  check(mem.cur.pid, 100, 'and the stamp names the claimant');
+  check(claimListenerSlot(200, D()), false, 'a fresh claim by a LIVE other pid is respected: no second poller');
+  check(mem.cur.pid, 100, 'and their stamp is left untouched');
+  check(claimListenerSlot(100, D({ now: () => 1_050_000 })), true, 'the owner refreshes its own stamp');
+  check(mem.cur.ts, 1_050_000, 'with the new heartbeat time');
+  check(claimListenerSlot(200, D({ now: () => 1_200_000 })), true, 'a stale stamp (three missed beats) is taken over');
+  check(mem.cur.pid, 200, 'and the newcomer signs it');
+  mem.cur = { pid: 300, ts: 1_200_000 };
+  check(claimListenerSlot(400, D({ now: () => 1_210_000, alive: () => false })), true,
+    'a fresh stamp from a DEAD pid is taken over: no waiting out a ghost');
+  mem.cur = { pid: 300, ts: 2_000_000 };
+  check(claimListenerSlot(400, D({ now: () => 1_210_000 })), true,
+    'a stamp dated in the FUTURE is a jumped clock, not a live listener');
+
+  // ➤ pidAlive reads the three answers signal 0 can give.
+  const throwing = code => () => { const e = new Error(code); e.code = code; throw e; };
+  check(pidAlive(1, () => {}), true, 'signal 0 delivered: alive');
+  check(pidAlive(1, throwing('ESRCH')), false, 'ESRCH: no such process');
+  check(pidAlive(1, throwing('EPERM')), true, 'EPERM: alive, just not ours');
 }
 
 console.log(failures === 0 ? `All ${total} notify tests passed.` : `${failures}/${total} FAILED.`);

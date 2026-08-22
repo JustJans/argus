@@ -66,6 +66,16 @@ $off = Join-Path $root 'server-bot\telegram-offset.json'
 if (Test-Path $off) { Ok "the listener has ticked before (server-bot\telegram-offset.json, last $((Get-Item $off).LastWriteTime))" }
 else { Bad "server-bot\telegram-offset.json does not exist: the listener has NEVER completed a tick." }
 
+# -- 4a. Is the always-on listener alive RIGHT NOW? ----------------------------
+# ➤ The listener long-polls Telegram and stamps listener-alive.json every 30s;
+# ➤ a stamp under ~2 minutes old means the bot is answering live.
+$alive = Join-Path $root 'server-bot\listener-alive.json'
+if (Test-Path $alive) {
+    $age = [int]((Get-Date) - (Get-Item $alive).LastWriteTime).TotalSeconds
+    if ($age -lt 120) { Ok "the always-on listener is alive (heartbeat ${age}s ago) - commands should answer in about a second" }
+    else { Bad "the listener's heartbeat is old (${age}s). The minute schedule should revive it; if this line persists, section 2 above holds the reason." }
+} else { Write-Host "  --  no listener heartbeat yet (first start pending, or an older Argus version)" }
+
 # -- 4b. The cover-letter browser ---------------------------------------------
 # ➤ Playwright downloads its browser separately from `npm install`, and an npm
 # ➤ update can leave the library newer than the browser on disk - which breaks
@@ -78,10 +88,12 @@ else { Write-Host "  --  no Playwright browser yet: the first 'cover N' download
 # -- 5. One live run, on screen -----------------------------------------------
 # ➤ Task Scheduler swallows all output; this run swallows nothing. If the
 # ➤ listener crashes on this machine, the reason prints right here.
+# ➤ --once: a single pass that terminates. Without it this window would BECOME
+# ➤ the always-on listener and the diagnosis would never finish.
 Say "Running the listener ONCE in this window (its errors, if any, print below):"
-& $node.Source (Join-Path $root 'server-bot\telegram-listener.mjs')
+& $node.Source (Join-Path $root 'server-bot\telegram-listener.mjs') --once
 Write-Host "  listener exit code: $LASTEXITCODE"
-if ($LASTEXITCODE -eq 0) { Ok "the listener ran cleanly. If everything above is OK too, send /start to the bot NOW - it should answer within a minute." }
+if ($LASTEXITCODE -eq 0) { Ok "the listener ran cleanly. If everything above is OK too, send /start to the bot NOW - it should answer within seconds (a minute at worst, while the schedule revives the listener)." }
 else { Bad "THAT exit code and the lines above are the reason the bot is mute. Send a photo of this window." }
 
 Read-Host "  Finished - press Enter to close"
