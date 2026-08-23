@@ -1,0 +1,29 @@
+# The referee: every push replays the whole test suite on CLEAN machines —
+# one Linux, one Windows, because Argus ships to both — so a missing file,
+# a dependency absent from package.json, or a platform-only assumption
+# shows up as a red cross here instead of on someone's laptop.
+# Node 20 on purpose: it is the floor the README promises. Every suite and
+# the setup e2e run fully offline (the mock Telegram is part of the harness).
+name: tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: node setup/test/drive-setup.mjs
