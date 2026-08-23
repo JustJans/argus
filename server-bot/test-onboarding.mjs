@@ -6,7 +6,7 @@
 // ➤ mergeContact lets a second round fill only the gaps, and buildProfileYaml
 // ➤ writes the slots — not the typing order — into the profile.
 
-import { parseContact, mergeContact, buildProfileYaml, cvDegreesHeld, cvSuggestions, cvProfileSuggestions, cvFullName, cvContact, optionsFor } from './onboarding.mjs';
+import { parseContact, mergeContact, buildProfileYaml, cvDegreesHeld, cvSuggestions, cvProfileSuggestions, cvFullName, cvContact, optionsFor, extractCvSkills } from './onboarding.mjs';
 
 let total = 0, failures = 0;
 const check = (got, want, label) => {
@@ -77,9 +77,21 @@ check(mergeContact({ email: 'a@b.co', phone: '600 111 222', city: 'Roma' }, pars
   check(de.length === 1 && de[0].includes('maschinenbau'), true, 'and the German one');
 
   const s = cvSuggestions('# CV\n## Skills\n- PLC programming, SCADA\n- Mooring analysis\n## Education\nBSc Mechanical Engineering');
-  check(s.fields, ['PLC programming', 'SCADA', 'Mooring analysis'], 'the fields suggestion is the CV skills block, as discover already reads it');
+  check(s.fields, ['PLC programming', 'SCADA', 'Mooring analysis'], 'the fields suggestion is the CV skills block');
   check(s.degreesHeld.length, 1, 'and the held degree rides along');
   check(cvSuggestions('no headings at all').fields, [], 'a CV with no skills section suggests nothing rather than guessing');
+}
+
+// ── extractCvSkills: the Skills block, and only the Skills block ───────────
+// ➤ The Skills section stays open across its sub-headings, and the language
+// ➤ line must not leak "IDP 2023" in as if it were a tool.
+{
+  const cv = ['## Skills', '### Technical', '- **GIS:** ArcGIS, QGIS', '### Languages',
+    '- English: C1 (Some Certificate 7.0, Awarding Body 2023)', '## Education', '- Some University'].join('\n');
+  const s = extractCvSkills(cv);
+  check(s.includes('ArcGIS') && s.includes('QGIS'), true, 'skills are read under a sub-heading');
+  check(s.some(x => /IDP|2023|7\.0/.test(x)), false, 'the parenthesis tail is not a skill');
+  check(s.some(x => /University/.test(x)), false, 'the next H2 closes the section');
 }
 
 // ── The CV opens with the name; the setup should not have to ask blind ─────

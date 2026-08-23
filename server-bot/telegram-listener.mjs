@@ -36,7 +36,6 @@
  *   applied N             log a SENT application (data/applications.jsonl)
  *   longshot N [reason]   same, but flagged: you know you fall short of it
  *   mail                  where every application you sent stands (from your inbox)
- *   blind                 titles the filter keeps discarding (your blind spots)
  *   seen N [N...]         hide offer(s) from the pending list
  *   no N [reason]         hide an offer AND record why to feedback.jsonl
  *   anything else         help text
@@ -193,7 +192,6 @@ const HELP =
   '<code>interview N</code> — record an interview the inbox cannot see (a call, your own calendar)\n' +
   '<code>longshot N reason</code> — applied, but you know you fall short\n' +
   '<code>mail</code> — where every application you sent stands\n' +
-  '<code>blind</code> — titles the filter keeps discarding (your blind spots)\n' +
   '<code>cover N</code> — make the cover-letter PDF for offer N\n' +
   '<code>settings</code> — edit your profile (CV, roles, countries...)\n' +
   '<code>help</code> — show this list';
@@ -605,9 +603,6 @@ async function handle(text) {
   // ➤ "longshot 729 I don't have the 3 years" — checked BEFORE "applied" so the
   // ➤ two never race, and the trailing text is kept as the requirement you fall
   // ➤ short of (same shape as "no N reason").
-  // ➜ "blind": the titles the filter keeps throwing away. Not a list of
-  // ➜ mistakes — most of it is correctly discarded — but the only way a gap in
-  // ➜ the field list becomes visible instead of staying silent.
   // ➜ "mail": where every application you have sent stands. The twin of
   // ➜ "list" — one shows the offers waiting for you, the other what came back
   // ➜ from the ones you sent. It RE-READS THE INBOX FIRST (2026-08-05): the
@@ -654,17 +649,6 @@ async function handle(text) {
         if (!ids.includes(pid)) await deleteTelegramMessage(pid);
       }
     }
-    return;
-  }
-  if (/^blind$/i.test(t)) {
-    const { loadStore, formatReport } = await import('./argus-discover/blind-spots.mjs');
-    const report = formatReport(loadStore(), { limit: 10 });
-    // ➤ WITH html:true (audit 2026-07-31). The report was wrapped in <pre> and
-    // ➤ carefully escaped, then sent with no parse mode — so Telegram delivered
-    // ➤ it verbatim and you read "<pre>" and "&amp;" on the screen. Escaping now
-    // ➤ goes through the same helper the rest of the bot uses, not a second
-    // ➤ hand-written copy of it that omitted ">".
-    await sendTelegram(`<pre>${esc(report)}</pre>`, { html: true });
     return;
   }
   if (/^longshot[\s,:]*#?\d+/i.test(t)) {

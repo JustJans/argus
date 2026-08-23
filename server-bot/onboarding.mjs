@@ -38,15 +38,10 @@ function backupBeforeOverwrite(path) {
 import {
   sendTelegram, sendTelegramMessage, deleteTelegramMessage, sendTelegramButtons, editTelegramMarkup, clearTelegramButtons, answerCallback, downloadTelegramFile,
 } from './notify.mjs';
-// ➤ The CV skill extractor argus-discover already owns: section heading +
-// ➤ keyword rules, no model, no network — the same route the open-source
-// ➤ resume parsers take (OpenResume et al. are pdf-to-text plus keyword
-// ➤ matching, exactly this).
-import { extractCvSkills } from './argus-discover/audit-profile.mjs';
-// ➤ And discover's other no-LLM piece: terms → ESCO occupations (free EU API,
-// ➤ disk-cached). It is what turns a CV's skills into the person's actual
-// ➤ professional area(s) — an accountant's, a salesman's, or both at once.
-import { occupationsForTerms } from './argus-discover/esco-match.mjs';
+// ➤ Terms → ESCO occupations (free EU API, disk-cached). It is what turns a
+// ➤ CV's skills into the person's actual professional area(s) — an
+// ➤ accountant's, a salesman's, or both at once.
+import { occupationsForTerms } from './esco.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(SCRIPT_DIR);
@@ -294,6 +289,39 @@ export function cvContact(cvText) {
     break;
   }
   return { email, phone, city };
+}
+
+// ➤ Pulls candidate skills out of the CV: section heading + keyword rules, no
+// ➤ model, no network — the same route the open-source resume parsers take
+// ➤ (OpenResume et al. are pdf-to-text plus keyword matching, exactly this).
+// ➤ The Skills block is found by an H2 ("## Skills") and stays open across its
+// ➤ sub-headings ("### Technical"), closing only at the next H2 — the shape
+// ➤ almost every CV uses.
+export function extractCvSkills(cvText) {
+  const out = [];
+  let inSkills = false;
+  for (const line of String(cvText || '').split(/\r?\n/)) {
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) {
+      if (h[1].length <= 2) inSkills = /skill|habilidad|competenc|aptitud/i.test(h[2]);
+      continue;
+    }
+    if (!inSkills) continue;
+    // ➜ Parenthesised asides go BEFORE the split, or a language line such as
+    // ➜ "English: C1 (some exam 7.0, awarding body 2023)" is torn in two by the
+    // ➜ comma and its tail survives as a fake skill.
+    const body = line.replace(/^[-*]\s*/, '').replace(/\([^)]*\)/g, '').replace(/\*\*[^*]*:\*\*/, '').replace(/\*\*/g, '');
+    for (const piece of body.split(/[,/;]/)) {
+      const s = piece.replace(/\([^)]*\)/g, '').replace(/[()]/g, '').trim();
+      if (!s || s.length < 3 || s.length > 34 || s.split(/\s+/).length > 4) continue;
+      // ➜ Leftovers of a stripped parenthesis ("IDP 2023", "7.0") are not skills.
+      if (!/[a-z]{3}/i.test(s) || /^\d/.test(s)) continue;
+      // ➤ Languages and their levels are not searchable skills.
+      if (/^(native|nativo|nativa|c1|c2|b1|b2|a2|a1|spanish|catalan|english|dutch|german|french)\b/i.test(s)) continue;
+      out.push(s);
+    }
+  }
+  return [...new Set(out)];
 }
 
 // ➤ Everything the CV volunteers, in one bag the state can carry.

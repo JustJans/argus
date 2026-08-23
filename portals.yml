@@ -292,7 +292,7 @@ adzuna:
     # ➤ text, so this catches mentions of OrcaFlex in the body.
     - what_or: "offshore marine subsea mooring maritime naval orcaflex"
     # ➤ "survey geomatics bathymetric" added 2026-07-18 (the owner's literal BSc).
-    # ➜ "landmeter" added 2026-07-28 (argus-discover / ESCO). Land surveying is
+    # ➜ "landmeter" added 2026-07-28 (an ESCO lookup). Land surveying is
     # ➜ the one adjacency the taxonomy proposed that the market actually
     # ➜ advertises, and no other query asks for it. It is a TRIAL: if it never
     # ➜ produces an application, take this word and its two positives out.
@@ -563,7 +563,7 @@ title_filter:
     # -- English gaps --
     - "Maritime"                 # "Marine" was there, "Maritime" was not
     - "Offshore Structures"
-    # ➜ 2026-07-28 (argus-discover / ESCO): land surveying. Fetching the offers
+    # ➜ 2026-07-28 (an ESCO lookup): land surveying. Fetching the offers
     # ➜ is not enough — "Landmeter" carries no other word of the field, so
     # ➜ without these the new query's offers would all be dropped at the title
     # ➜ gate. Everything else still applies: Monteur, Technicus, Stagiair,

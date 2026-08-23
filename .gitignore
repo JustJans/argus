@@ -39,12 +39,9 @@ output/*
 /*.tsv
 !README*.txt
 
-# argus-discover caches ESCO answers on disk; the classification is fixed,
+# The setup caches ESCO answers on disk; the classification is fixed,
 # so this is a local speed-up, never something to ship.
 .esco-cache/
-
-# The blind-spot record: local diagnostic data, one per installation.
-data/blind-spots.json
 
 # local setup-replay scratch copy
 .setup-test-work/

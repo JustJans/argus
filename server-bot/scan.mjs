@@ -41,9 +41,6 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } fr
 // ➤ truncate the pending list. Used for the pipeline.md rewrite below.
 import { writeFileAtomic, withFileLock, trimLog } from './fs-atomic.mjs';
 import { PENDING_HEADING, PROCESSED_HEADING, pendingIndex } from './pipeline-format.mjs';
-// ➜ The blind-spot record: what the title filter throws away. Fed here,
-// ➜ read by argus-discover. See that file for why recurrence is the signal.
-import { mergeDrops, loadStore, saveStore } from './argus-discover/blind-spots.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
@@ -563,9 +560,7 @@ async function collectOracle(api, name, onPartial = () => {}) {
 // ➤ Looks for Adzuna's access keys (a kind of username and
 // ➤ password for its service): first in the system variables,
 // ➤ then in the adzuna-key.json file. Without keys, Adzuna is skipped.
-// ➜ Exported so argus-discover can query Adzuna with the SAME credentials
-// ➜ instead of growing a second copy of this that could drift.
-export function loadAdzunaCreds() {
+function loadAdzunaCreds() {
   if (process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY) {
     return { id: process.env.ADZUNA_APP_ID, key: process.env.ADZUNA_APP_KEY };
   }
@@ -1566,7 +1561,7 @@ export function admissionVerdict(job, gates) {
   if (!companyFilter(job.company)) return { ok: false, stage: 'COMPANY', reason: `company blocked by you: ${companyFilter.explain(job.company)}` };
 
   if (!titleFilter(job.title)) {
-    return { ok: false, stage: 'TITLE', reason: titleFilter.explain(job.title), titleDrop: true };
+    return { ok: false, stage: 'TITLE', reason: titleFilter.explain(job.title) };
   }
 
   // ➤ GEOGRAPHY IS NOT A MATTER OF OPINION. Whatever a title suggests, a job
@@ -1883,20 +1878,6 @@ async function main() {
   if (dryRun) console.log('(dry run — nothing will be written)\n');
 
   // ➤ Loads the memory of already-seen offers (by link and by company+title).
-  // ➜ Every title the filter rejects this run, kept in memory and written once
-  // ➜ at the end — no per-offer disk I/O on the hot path.
-  const titleDrops = [];
-  // ➜ The same filter minus the field list, used only to tell the two kinds of
-  // ➜ drop apart. Built once per scan.
-  // ➤ Same negatives as the LIVE filter (audit 2026-08-08): built from the
-  // ➤ example's list, a title killed by a profile-only veto re-tested as
-  // ➤ "no-field" and the blind-spot report told the user "nothing objected"
-  // ➤ about titles their own rule had blocked.
-  const titleFilterNoFields = buildTitleFilter({
-    ...(config.title_filter || {}),
-    negative: searchProfile.negative_titles || (config.title_filter || {}).negative,
-    positive: [],
-  });
   const seenUrls = loadSeenUrls();
   const seenRoles = loadSeenCompanyRoles();
   const date = new Date().toISOString().slice(0, 10);
@@ -1946,20 +1927,6 @@ async function main() {
       // ➤ by this door and the summary still reads like a quiet week.
       else if (v.stage === 'NO LINK') fNoLink++;
 
-      // ➤ Recorded ALWAYS, not only under --explain: the point is that these
-      // ➤ drops stop being invisible between manual investigations.
-      // ➤ The bucket is decided by RE-TESTING without the field list, never by
-      // ➤ reading `why`. explain() reports the FIRST reason and positives are
-      // ➤ checked before negatives, so a job with no field word is reported as
-      // ➤ "not on the list" even when a veto would have killed it anyway.
-      if (v.titleDrop) {
-        const blind = titleFilterNoFields(job.title);
-        titleDrops.push({
-          title: job.title,
-          why: blind ? v.reason : titleFilterNoFields.explain(job.title),
-          bucket: blind ? 'no-field' : 'rule',
-        });
-      }
       logDrop(v.stage, v.reason, job, source);
       return;
     }
@@ -2318,17 +2285,6 @@ async function main() {
       }
     } else {
       telegram = 'skipped-search';
-    }
-  }
-
-  // ➤ Folds this run's title drops into the standing blind-spot record. One
-  // ➤ write, at the end, and never on a dry run. If it ever fails it must not
-  // ➤ take the scan down with it: this is a diagnostic, not the job.
-  if (!dryRun && titleDrops.length) {
-    try {
-      saveStore(mergeDrops(loadStore(), titleDrops, { today: date }));
-    } catch (e) {
-      console.log(`(blind-spot record not updated: ${e.message})`);
     }
   }
 

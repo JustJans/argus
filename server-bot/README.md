@@ -57,19 +57,23 @@ offer, with the reason.
 | `seen.mjs` | Marks offers as seen | Via Telegram |
 | `fs-atomic.mjs` | Writes files atomically, so a crash mid-write cannot truncate your list | Used everywhere that writes |
 | `argus-council/` | Three LLM judges reviewing offers in **shadow mode** — they vote, they decide nothing. [Its own README](argus-council/README.md) | Optional |
-| `argus-discover/` | Asks whether the SEARCH is right, rather than whether an offer is. [Its own README](argus-discover/README.md) | By hand |
+| `esco.mjs` | The EU occupation taxonomy (free, no key): turns the CV's terms into real occupations, so the setup can suggest roles and degree areas | By the setup |
 
 ### Tests
 
 | File | Covers |
 |---|---|
-| `test-filter.mjs` | 509 tests — the filters. Run this after touching any rule |
-| `test-notify.mjs` | 39 tests — the Telegram message format |
-| `test-live-list.mjs` | 20 tests — the single-list bookkeeping |
-| `test-robustness.mjs` | 204 tests — the parts that can LOSE DATA or answer wrongly |
+| `test-filter.mjs` | 603 tests — the filters. Run this after touching any rule |
+| `test-notify.mjs` | 106 tests — the Telegram message format and the listener |
+| `test-review.mjs` | 57 tests — the card-by-card review mode and its undo |
+| `test-onboarding.mjs` | 51 tests — the `/start` questionnaire and what the CV pre-fills |
+| `test-live-list.mjs` | 24 tests — the single-list bookkeeping |
+| `test-robustness.mjs` | 365 tests — the parts that can LOSE DATA or answer wrongly |
+| `test-gmail.mjs` | 69 tests — the read-only inbox door |
 | `argus-council/test-council.mjs` | 57 tests — the judges and the vote reader |
+| `argus-mail/test-mail.mjs` | 250 tests — replies → one state per application |
 
-`npm test` runs all 1250 of them.
+`npm test` runs all 1582 of them.
 
 ## 3. Configuration and data
 
@@ -84,7 +88,6 @@ offer, with the reason.
 | `../data/scan-history.tsv` | Everything ever accepted, so nothing is offered twice |
 | `../data/scan-explain.txt` | One line per DISCARDED offer with its reason (written by `scan.mjs --explain`) |
 | `../data/applications.jsonl` | The applications you sent (`applied N`, `longshot N`) |
-| `../data/blind-spots.json` | What the title filter keeps throwing away (the `blind` command) |
 | `../data/cover-letters.json` | Which offer owns which letter file name |
 | `feedback.jsonl` | Your rejections with their reason (`no 412 asks for 5 years`). **This is the calibration record** — the filters should only ever be changed from it |
 | `last-scan.json` | Summary of the last scan: found, filtered, whether Telegram worked |
@@ -112,7 +115,6 @@ offer, with the reason.
 - **Add an employer's own board** → `portals.yml` → `tracked_companies`
 - **See why offers are dropped** → `node server-bot/scan.mjs --explain --dry-run`
   → `data/scan-explain.txt`
-- **See what you never even get shown** → the `blind` command
 
 `--dry-run` is a rehearsal: it does all the work and writes nothing.
 

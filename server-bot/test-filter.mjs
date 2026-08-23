@@ -152,7 +152,7 @@ const BLOCK = [
   'Pega Accelerator Program - Automation',                    // US spelling
   // ➤ Spanish pipe-fitting trade. Same lesson as the French trades: veto the
   // ➤ TRADE, never the "naval" sector, which is one of the positives.
-  // ➜ 2026-07-28 (argus-discover trial): land surveying is admitted, but the
+  // ➜ 2026-07-28 (ESCO trial): land surveying is admitted, but the
   // ➜ ordinary vetoes still decide. "Verkoop" is the Dutch NOUN for sales, the
   // ➜ gap left when Sales/Vertrieb/Ventas/Commercieel were blocked.
   'Landmeter Verkoop',

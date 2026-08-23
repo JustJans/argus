@@ -1207,91 +1207,14 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
 }
 
 // ── Result ────────────────────────────────────────────────────────────────
-// ── 14) argus-discover: the profile audit must not invent evidence ────────
-// ➤ It reads the CV, the search terms and the user's own decisions to say
-// ➤ whether a term is worth keeping. Every number it prints is an argument for
-// ➤ changing the filter, so a wrong one sends the user chasing a problem that
-// ➤ is not there.
+// ── 14) The ESCO bridge: what the setup offers as search terms ────────────
+// ➤ Its output is occupation names offered to a brand-new user as roles and
+// ➤ degree areas. ESCO's translations are administrative, so the filter that
+// ➤ decides which labels a human would ever type has to be right — and the
+// ➤ lookup itself must degrade to fewer results, never throw, because it runs
+// ➤ inside the setup with a stranger watching.
 {
-  const { fold, cvBacks, termRecord, classifyReason, extractCvSkills } =
-    await import('./argus-discover/audit-profile.mjs');
-
-  eq(fold('Automatización'), 'automatizacion', 'audit: accents folded');
-  ok(cvBacks('OrcaFlex', 'used OrcaFlex daily'), 'audit: a term in the CV is backed');
-  ok(!cvBacks('SCADA', 'used OrcaFlex daily'), 'audit: a term absent from the CV is NOT backed');
-  ok(cvBacks('hydrograph', 'hydrographic survey work'), 'audit: 6-letter stem still backs');
-  ok(!cvBacks('GIS', 'the gist of the project'), 'audit: a short term does not match inside a word');
-
-  // ➤ The load-bearing rule: a rejection of an offer the filter ALREADY blocks
-  // ➤ must not count against the term, or fixed problems look unfixed.
-  {
-    const rejected = [{ title: 'Tubero naval' }, { title: 'Naval Design Engineer' }];
-    const live = termRecord('naval', { rejected, applied: [], stillPasses: t => !/tubero/i.test(t) });
-    eq(live.rejected, 1, 'audit: an already-blocked rejection is not charged to the term');
-    eq(live.rejectedAlreadyFixed, 1, 'audit: and it is reported as already fixed');
-  }
-  // ➤ A longshot is not a win: it was sent knowing the requirements fell short.
-  {
-    const r = termRecord('offshore', { rejected: [], applied: [{ title: 'Offshore Eng', longshot: true }, { title: 'Offshore Two' }] });
-    eq(r.applied, 1, 'audit: a longshot does not count as an application');
-    eq(r.longshots, 1, 'audit: it is counted separately');
-  }
-
-  // ➤ Both languages the shipped lists cover, because you write these reasons
-  // ➤ in your own words and the audit is only as good as what it recognises.
-  eq(classifyReason('it asks for 5 years of experience'), 'requirements', 'audit: years = requirements');
-  eq(classifyReason('porque pide 5 años de experiencia'), 'requirements', 'audit: years, in Spanish');
-  eq(classifyReason('not my field at all'), 'field', 'audit: wrong role = field');
-  eq(classifyReason('no es un trabajo para mi'), 'field', 'audit: wrong role, in Spanish');
-  eq(classifyReason('the offer is already closed'), 'noise', 'audit: dead offer is noise');
-  eq(classifyReason('ya esta cerrada la oferta'), 'noise', 'audit: dead offer, in Spanish');
-  eq(classifyReason(''), 'unstated', 'audit: empty reason');
-  // ➤ A reason the lists do not know is filed as 'other', never guessed at.
-  eq(classifyReason('the office is too far away'), 'other', 'audit: an unknown reason is not guessed');
-
-  // ➤ The Skills block stays open across its sub-headings, and the language
-  // ➤ line must not leak "IDP 2023" in as if it were a tool.
-  {
-    const cv = ['## Skills', '### Technical', '- **GIS:** ArcGIS, QGIS', '### Languages',
-      '- English: C1 (Some Certificate 7.0, Awarding Body 2023)', '## Education', '- Some University'].join('\n');
-    const s = extractCvSkills(cv);
-    ok(s.includes('ArcGIS') && s.includes('QGIS'), 'audit: reads skills under a sub-heading');
-    ok(!s.some(x => /IDP|2023|7\.0/.test(x)), 'audit: the parenthesis tail is not a skill');
-    ok(!s.some(x => /University/.test(x)), 'audit: the next H2 closes the section');
-  }
-}
-
-// ── 15) argus-discover: the harvest must not propose noise ───────────────
-// ➤ Its output is a list of words to add to the search. A bad one widens the
-// ➤ filter for nothing, so gender tags, seniority words and terms already in
-// ➤ use must never reach the proposal.
-{
-  const { candidateTerms } = await import('./argus-discover/harvest-titles.mjs');
-  const titles = [
-    'Hydrographic Surveyor', 'Junior Hydrographic Surveyor (m/w/d)',
-    'Hydrographic Survey Engineer', 'ROV Pilot Technician', 'ROV Inspection Engineer',
-  ];
-  const c = candidateTerms(titles, { known: ['Survey'] });
-  const has = t => c.some(x => x.term.toLowerCase() === t);
-  ok(has('hydrographic'), 'harvest: a recurring word becomes a candidate');
-  ok(has('hydrographic surveyor'), 'harvest: adjacent pairs are candidates too');
-  ok(!has('survey'), 'harvest: a term already in the search is not re-proposed');
-  ok(!has('engineer'), 'harvest: the generic job word is a stopword');
-  ok(!has('junior'), 'harvest: seniority is a stopword');
-  ok(!c.some(x => /^[mwdfhx]$/i.test(x.term)), 'harvest: gender tags never become terms');
-  ok(!c.some(x => /^\d+$/.test(x.term)), 'harvest: bare numbers never become terms');
-  // ➤ Ranking is by how many TITLES carry the term, not raw occurrences: a word
-  // ➤ repeated twice inside one title must not outrank a word seen in three.
-  eq(c[0].term.toLowerCase(), 'hydrographic', 'harvest: ranked by titles covered');
-  eq(candidateTerms([], {}).length, 0, 'harvest: no titles, no candidates');
-}
-
-// ── 16) argus-discover: the ESCO match ───────────────────────────────────
-// ➤ Its output is occupation names in five languages, offered as search terms.
-// ➤ ESCO's translations are administrative, so the filter that decides which
-// ➤ labels a human would ever type is the part that has to be right.
-{
-  const { usableLabels, scoreOccupations } = await import('./argus-discover/esco-match.mjs');
+  const { usableLabels, occupationsForTerms } = await import('./esco.mjs');
 
   const L = usableLabels([
     'reparador de estructuras de cultivo en instalaciones acuícolas/reparadora de estructuras de cultivo en instalaciones acuícolas',
@@ -1304,161 +1227,30 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(usableLabels([]).length, 0, 'esco: nothing in, nothing out');
   eq(usableLabels(['Surveyor', 'surveyor']).length, 1, 'esco: same label in another case is not repeated');
 
-  // ➤ An essential skill weighs double: an occupation that CANNOT be done
-  // ➤ without you beats one that merely tolerates you.
-  const r = scoreOccupations([
-    { term: 'mooring', occupations: [{ uri: 'u1', title: 'A', essential: true }, { uri: 'u2', title: 'B', essential: false }] },
-    { term: 'aquaculture', occupations: [{ uri: 'u1', title: 'A', essential: true }] },
-  ]);
-  eq(r[0].title, 'A', 'esco: the occupation covering two of your terms ranks first');
-  eq(r[0].score, 4, 'esco: two essential matches score 2+2');
-  eq(r[1].score, 1, 'esco: one optional match scores 1');
-  eq(r[0].terms.length, 2, 'esco: it reports WHICH of your terms it covers');
-  // ➤ The same term twice must not inflate a score.
-  const dup = scoreOccupations([
-    { term: 'mooring', occupations: [{ uri: 'u1', title: 'A', essential: true }] },
-    { term: 'mooring', occupations: [{ uri: 'u1', title: 'A', essential: true }] },
-  ]);
-  eq(dup[0].score, 2, 'esco: the same term counted once, however many skills matched it');
-}
-
-// ── 17) argus-discover: the blind-spot record ────────────────────────────
-// ➤ It exists because the title filter's allowlist drops things silently, and
-// ➤ on a real cycle 345 titles were dropped for no reason but "not on the
-// ➤ list". Recurrence is the only signal it uses, so the counting has to be
-// ➤ right: over-count and noise looks like a gap, under-count and a real gap
-// ➤ stays invisible.
-{
-  const { mergeDrops, topRecurring, classifyDrop, ruleOf, formatReport, NO_FIELD, RULE, MAX_TITLES } =
-    await import('./argus-discover/blind-spots.mjs');
-
-  eq(classifyDrop('the title has no keyword from your field'), NO_FIELD, 'blind: no-keyword is the blind-spot bucket');
-  eq(classifyDrop('the title has the blocked word "Senior"'), RULE, 'blind: a veto that fired is the other bucket');
-  eq(ruleOf('the title has the blocked word "Technician"'), 'Technician', 'blind: the report names the rule, not the sentence');
-
-  // ➤ THE REPORT MUST PRINT THE WHOLE TITLE. It used to cut at a fixed width,
-  // ➤ so "Digital Product Manager - Energy Forecast Products" arrived clipped
-  // ➤ mid-word — and a blind spot you cannot read is one you cannot act on.
-  {
-    const long = 'Offshore Wind Asset Integrity and Reliability Engineer for Floating Foundations';
-    const ruled = 'Digital Product Manager - Energy Forecast Products';
-    const report = formatReport({ updated: 'd1', titles: {
-      a: { title: long, why: 'no keyword from your field', bucket: NO_FIELD, n: 4 },
-      b: { title: ruled, why: 'the title has the blocked word "Manager"', bucket: RULE, n: 3 },
-    } });
-    // ➤ Wrapped titles span lines, so the comparison is made on the unwrapped text.
-    const flat = report.replace(/\n\s+/g, ' ');
-    ok(flat.includes(long), 'blind: a long title is wrapped, never cut');
-    ok(flat.includes(ruled), 'blind: and so is one in the rule bucket');
-    ok(report.split('\n').every(l => l.length <= 80), 'blind: while every line still fits a phone screen');
-
-    // ➤ EACH SECTION SAYS HOW MANY IT IS NOT SHOWING. It used to print its top
-    // ➤ few and stop, which reads as "that is all of them" — and the difference
-    // ➤ between 12 recurring blind spots and 300 is the whole picture.
-    const many = {};
-    for (let i = 0; i < 40; i++) many['b' + i] = { title: `Blind Title ${i}`, bucket: NO_FIELD, n: 40 - i, why: 'no keyword from your field' };
-    const big = formatReport({ updated: 'd1', titles: many });
-    ok(/showing the top 12 of 39/.test(big), 'blind: the section says how many it is leaving out');
-    ok(!/showing the top/.test(report), 'blind: and says nothing when it is showing them all');
-
-    // ➤ THE WHOLE REPORT GOES OUT AS ONE MESSAGE, and Telegram refuses anything
-    // ➤ over 4096 characters outright — no message at all. Now that titles are
-    // ➤ printed whole, the length depends on what the boards publish, so the
-    // ➤ budget is measured ESCAPED: the command sends it inside <pre>, where one
-    // ➤ "&" becomes five characters.
-    const escaped = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    for (const [name, word] of [['long words', 'Palabra '], ['ampersands', 'R&D '], ['angle brackets', '<x> ']]) {
-      const hostile = {};
-      for (let i = 0; i < 12; i++) hostile['b' + i] = { title: word.repeat(80).trim(), bucket: NO_FIELD, n: 40 - i };
-      for (let i = 0; i < 6; i++) hostile['r' + i] = { title: word.repeat(80).trim(), bucket: RULE, n: 20 - i, why: 'the title has the blocked word "Manager"' };
-      const report2 = formatReport({ updated: 'd1', titles: hostile });
-      ok(`<pre>${escaped(report2)}</pre>`.length < 4096, `blind: a report full of ${name} still fits one Telegram message`);
-      // ➤ AND IT SAYS WHY IT IS SHORT. A section whose entries did not fit used
-      // ➤ to print "nothing has recurred yet" next to "showing the top 0 of 6" —
-      // ➤ two answers, one of them false.
-      ok(!/showing the top 0 of/.test(report2), 'blind: a section that fits nothing does not claim to show nothing');
-      if (/this message is full/.test(report2)) {
-        ok(!/nothing has recurred yet/.test(report2), 'blind: and does not call a full message an empty record');
-      }
+  // ➤ The lookup, against a fake ESCO: two terms naming the same occupation
+  // ➤ must not list it twice, an unknown term must cost nothing, and a failing
+  // ➤ detail fetch must not lose the occupation it was detailing.
+  const fake = async (p) => {
+    if (p.startsWith('/search')) {
+      const term = decodeURIComponent(p.match(/text=([^&]*)/)[1]);
+      if (term === 'accounting' || term === 'bookkeeping') return { _embedded: { results: [{ uri: 'u:acct', title: 'accountant' }] } };
+      if (term === 'sales') return { _embedded: { results: [{ uri: 'u:sales', title: 'sales agent' }] } };
+      throw new Error('HTTP 404');
     }
-
-    // ➤ And a reason that does not match the "blocked word" shape is wrapped like
-    // ➤ everything else, rather than running off the side of the screen.
-    const oddReason = formatReport({ updated: 'd1', titles: {
-      a: { title: 'Short', bucket: RULE, n: 3, why: 'rejected because ' + 'reason '.repeat(20) },
-    } });
-    ok(oddReason.split('\n').every(l => l.length <= 80), 'blind: an unusual reason wraps too');
-  }
-
-  const noField = 'the title has no keyword from your field';
-  let st = mergeDrops({ titles: {} }, [{ title: 'Asset Integrity Engineer', why: noField }], { today: 'd1' });
-  st = mergeDrops(st, [{ title: 'ASSET INTEGRITY ENGINEER', why: noField }], { today: 'd2' });
-  const t = Object.values(st.titles);
-  eq(t.length, 1, 'blind: the same title in another case is one entry, not two');
-  eq(t[0].n, 2, 'blind: and it counts as seen twice');
-  eq(t[0].title, 'Asset Integrity Engineer', 'blind: the first spelling is the one kept');
-  eq(t[0].first, 'd1', 'blind: it remembers when it was first thrown away');
-  eq(t[0].last, 'd2', 'blind: and the last time');
-
-  // ➤ Seen once is noise by definition — that is the whole filter.
-  const once = mergeDrops({ titles: {} }, [{ title: 'Barmitarbeiter', why: noField }], { today: 'd1' });
-  eq(topRecurring(once).length, 0, 'blind: a title seen once is not reported');
-  eq(topRecurring(st).length, 1, 'blind: a title seen twice is');
-
-  // ➤ The cap. A scan every two hours would otherwise grow this file for ever;
-  // ➤ the live record already holds ~2,800 titles. What a cull must keep is the
-  // ➤ RECURRING ones, since a title seen once was never going to be reported.
-  {
-    const many = Array.from({ length: 40 }, (_, i) => ({ title: `Filler ${i}`, why: noField }));
-    const big = mergeDrops({ titles: {} }, many, { today: 'd1', cap: 10 });
-    eq(Object.keys(big.titles).length, 10, 'blind: the record is capped');
-
-    // ➤ The DEFAULT cap has to be finite too, not just one passed in by a test.
-    // ➤ Sized against MAX_TITLES rather than a number written here, so raising
-    // ➤ the ceiling does not quietly turn this into a test of nothing.
-    const flood = Array.from({ length: MAX_TITLES + 100 }, (_, i) => ({ title: `Flood ${i}`, why: noField }));
-    const defaulted = mergeDrops({ titles: {} }, flood, { today: 'd1' });
-    eq(Object.keys(defaulted.titles).length, MAX_TITLES, 'blind: the default cap is finite and is MAX_TITLES');
-
-    // ➤ A title seen many times must survive a cull, EVEN when every one-off
-    // ➤ around it is more recent. Culling by date alone would lose exactly the
-    // ➤ titles the record exists to surface.
-    let keep = mergeDrops({ titles: {} }, [{ title: 'Asset Integrity Engineer', why: noField }], { today: 'd1', cap: 10 });
-    keep = mergeDrops(keep, [{ title: 'Asset Integrity Engineer', why: noField }], { today: 'd1', cap: 10 });
-    keep = mergeDrops(keep, [{ title: 'Asset Integrity Engineer', why: noField }], { today: 'd1', cap: 10 });
-    keep = mergeDrops(keep, many, { today: 'd9', cap: 10 });
-    ok(Object.keys(keep.titles).some(k => /asset integrity/i.test(k)), 'blind: the recurring title survives a cull full of newer one-offs');
-    eq(Object.keys(keep.titles).length, 10, 'blind: and the cap still holds after the cull');
-  }
-
-  // ➤ The caller's bucket WINS over the reason text. scan.mjs decides it by
-  // ➤ re-testing without the field list; reading the text instead put 1,234
-  // ➤ titles in the blind-spot bucket where the truth is 345, because
-  // ➤ explain() reports the first reason and positives are checked first.
-  {
-    const s2 = mergeDrops({ titles: {} }, [
-      { title: 'Barmitarbeiter', why: noField, bucket: RULE },
-      { title: 'Barmitarbeiter', why: noField, bucket: RULE },
-    ], { today: 'd1' });
-    eq(topRecurring(s2, { bucket: NO_FIELD }).length, 0, 'blind: the caller can overrule the reason text');
-    eq(topRecurring(s2, { bucket: RULE }).length, 1, 'blind: and the drop lands where it belongs');
-  }
-
-  // ➤ The buckets must not bleed into each other.
-  const mixed = mergeDrops(st, [
-    { title: 'Technicien naval', why: 'the title has the blocked word "*technicien"', bucket: RULE },
-    { title: 'Technicien naval', why: 'the title has the blocked word "*technicien"', bucket: RULE },
-  ], { today: 'd3' });
-  eq(topRecurring(mixed, { bucket: NO_FIELD }).length, 1, 'blind: the blind-spot bucket holds only its own');
-  eq(topRecurring(mixed, { bucket: RULE })[0].title, 'Technicien naval', 'blind: and the rule bucket its own');
-
-  // ➤ Bounded, or a scan every two hours grows the file forever. What survives
-  // ➤ a cull is what recurs, which is exactly what is being looked for.
-  const many = Array.from({ length: 50 }, (_, i) => ({ title: `Role ${i}`, why: noField }));
-  eq(Object.keys(mergeDrops({ titles: {} }, many, { today: 'd1', cap: 10 }).titles).length, 10, 'blind: the record is capped');
+    if (p.includes('u%3Aacct')) return { code: '2411.1', preferredLabel: { en: 'accountant' }, alternativeLabel: { en: ['bookkeeper'] } };
+    throw new Error('HTTP 500');
+  };
+  const occ = await occupationsForTerms(['accounting', 'bookkeeping', 'sales', 'a term esco does not know'], { deps: { esco: fake } });
+  eq(occ.length, 2, 'esco: two terms naming one occupation yield it ONCE, and the unknown term nothing');
+  const acct = occ.find(o => o.uri === 'u:acct');
+  eq(acct.terms.join('+'), 'accounting+bookkeeping', 'esco: it reports WHICH terms named the occupation');
+  eq(acct.code, '2411.1', 'esco: the ISCO code rides along — it names the degree area');
+  ok(acct.labels.en.includes('bookkeeper'), 'esco: alternative labels are offered too');
+  eq(occ.find(o => o.uri === 'u:sales').code, '', 'esco: a failing detail fetch keeps the occupation, just code-less');
+  eq((await occupationsForTerms([], { deps: { esco: fake } })).length, 0, 'esco: no terms, no occupations, no throw');
 }
 
-// ── 18) The location written to pipeline.md keeps its country ─────────
+// ── 15) The location written to pipeline.md keeps its country ─────────
 // ➤ It used to be cut at 70 characters before being stored, and housekeep
 // ➤ re-reads that stored text weeks later to decide whether the country is
 // ➤ still one you accept. 35 of 993 real locations were long enough to be cut.
@@ -1477,7 +1269,7 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ok(MAX_LOCATION_CHARS >= 200, 'location: and that bound is nowhere near a real location');
 }
 
-// ── 19) "seen": marking the RIGHT line, and marking it as YOUR decision ────
+// ── 16) "seen": marking the RIGHT line, and marking it as YOUR decision ────
 // ➤ This writes to the only copy of the pending list. Until now none of it was
 // ➤ covered: the wrong line could be marked, or the "| visto" tag dropped, and
 // ➤ the suite stayed green. The tag is the whole difference between "I decided
@@ -1546,7 +1338,7 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(markSeenInLines(malformed, [675]).missing, [675], 'seen: and cannot be marked');
 }
 
-// ── 20) The URL gate ──────────────────────────────────────────────────────
+// ── 17) The URL gate ──────────────────────────────────────────────────────
 // ➤ Every other field is cleaned before being written, but the URL is written
 // ➤ raw because it is the key and must stay clickable. This function is the
 // ➤ only thing stopping a crafted link from injecting a whole fake line into

@@ -5,21 +5,18 @@
 A personal, automated job searcher. It scans job portals (Workday, Oracle,
 Adzuna, LinkedIn) at zero token cost, filters offers against **your** profile,
 and sends them over Telegram, where it is controlled with typed commands:
-`search`, `list`, `seen N`, `no N [reason]`, `applied N`, `cover N`, `mail`,
-`blind`, `settings`.
+`search`, `list`, `review`, `seen N`, `no N [reason]`, `applied N`, `cover N`,
+`mail`, `settings`.
 
 It is sector-agnostic: everything specific to you (target roles, fields, degrees,
 languages, countries, deal-breakers, CV, judge prompts) lives in
 `config/profile.yml` + `cv.md`, not in the code. The defaults ship as a
 marine/offshore example — replace them with your own.
 
-Two subsystems go past filtering and ask whether the filtering itself is right:
-**[the Council](#the-council--three-judges-and-why-they-still-do-not-vote)**,
+One subsystem goes past filtering and asks whether the filtering itself is
+right: **[the Council](#the-council--three-judges-and-why-they-still-do-not-vote)**,
 three LLM judges that review offers in shadow and were measured rather than
-trusted, and
-**[Discover](#discover--auditing-the-search-not-the-offer)**, which
-audits the search against your CV, the EU occupation taxonomy, the live market
-and its own discards.
+trusted.
 
 ## What arrives on Telegram
 
@@ -194,7 +191,6 @@ Typed into the Telegram chat. `N` is the `#number` shown on the offer.
 | `longshot N [reason]` | the same, but flagged: you applied knowing you fall short |
 | `cover N` | write a cover letter for it and send it back as a PDF |
 | `mail` | where every application you sent stands, read from your inbox |
-| `blind` | the titles the filter keeps discarding, ranked by how often they come back |
 | `settings` | re-open any profile question to change your answer |
 | `/start` | first-time setup: builds your profile from a short questionnaire |
 | `help` | the same list, inside Telegram |
@@ -221,10 +217,10 @@ add a specific employer board or tune the example itself.
 
 ## Beyond the filters
 
-Filtering offers well is not the same problem as knowing whether you are
-filtering the *right* things. Two subsystems exist for the second question.
-Both are optional, both were measured, and neither is allowed to decide
-anything on its own.
+Two subsystems go past the filters: the Council reads an offer's body and asks
+whether you should see it at all, and Mail reads what happened after you
+applied. Both are optional, both were measured, and neither is allowed to
+decide anything on its own.
 
 ### The Council — three judges, and why they still do not vote
 
@@ -323,42 +319,6 @@ Setting it up needs a Google Cloud OAuth client of your own — the README in
 `server-bot/argus-mail/` walks through it. Without one, the rest of Argus works
 exactly as before and `mail` simply says so.
 
-### Discover — auditing the search, not the offer
-
-`server-bot/argus-discover/` · [its README](server-bot/argus-discover/README.md)
-
-Every filter above judges an offer. These four tools judge the search itself.
-
-- **`audit-profile.mjs`** cross-reads your CV, your profile and your rejection
-  history: which search terms have no backing in the CV (you are applying into a
-  field with no evidence behind you), which CV skills the search never uses, and
-  which rejections mean *wrong role* versus *right role, short on the
-  requirements*. Local, no network, no tokens.
-- **`esco-match.mjs`** asks the EU's [ESCO](https://esco.ec.europa.eu/)
-  taxonomy — ~3,000 occupations, ~14,000 skills, 28 languages, no API key —
-  which occupations list your skills as *essential*. A published fact rather
-  than a model's opinion, and it answers with the official title in every
-  language you search in.
-- **`harvest-titles.mjs`** queries the boards by skill instead of by assumed job
-  title, and reports what the market actually calls those roles. A term that
-  returns zero adverts is a finding in its own right.
-- **`blind-spots.mjs`** records what the title filter throws away. Read with the
-  `blind` command.
-
-The last one exists because of a number. In one measured cycle the filter
-dropped 1,308 titles: 977 by a rule written deliberately, and **331 purely for
-carrying no keyword from the field list** — invisible, unappealable, never
-counted. "Asset Integrity Engineer" was among those 331.
-
-It does not try to guess which of them mattered; ranking them by similarity to a
-CV was tried, and it returns "support" and "management". It counts **recurrence**
-instead. A one-off appears once and is gone; a role you are systematically blind
-to comes back every week. Recurrence needs no theory about what your field is —
-which is the point, because the hard cases are exactly the ones no tidy
-definition covers.
-
-Nothing here edits a filter. Every tool proposes; you decide.
-
 ## Structure
 
 The engine lives in `server-bot/`:
@@ -376,12 +336,13 @@ The engine lives in `server-bot/`:
 - `review.mjs` — the `review` mode: one offer per card with buttons, edited in
   place, every decision undoable.
 - `onboarding.mjs` — the `/start` setup + `settings` editor (writes the profile).
+- `esco.mjs` — the setup's bridge to the EU's [ESCO](https://esco.ec.europa.eu/)
+  occupation taxonomy (free, no key): the terms read from your CV become real
+  occupations, so roles and degree areas arrive suggested instead of asked cold.
 - `cover-letter.mjs` — generates cover letters as PDFs (Claude + Chromium).
 - `argus-council/` — the three shadow judges. See
   [Beyond the filters](#the-council--three-judges-and-why-they-still-do-not-vote);
   their prompts can be overridden per user via `search.judge_prompts`.
-- `argus-discover/` — the four tools that audit the search itself. See
-  [Beyond the filters](#discover--auditing-the-search-not-the-offer).
 - `gmail.mjs` / `gmail-auth.mjs` — the read-only door to your inbox: one
   `GET`-only reader and the one-time authorisation.
 - `argus-mail/` — turns the replies into one state per application. See
@@ -392,7 +353,7 @@ The engine lives in `server-bot/`:
 Every part can be run by hand, and each one prints why it failed:
 
 ```bash
-npm test                                    # 1613 tests; run this first
+npm test                                    # 1582 tests; run this first
 node server-bot/scan.mjs --dry-run          # scan without writing or notifying
 node server-bot/scan.mjs --explain          # why each offer was dropped → data/scan-explain.txt
 node server-bot/telegram-listener.mjs --once  # process pending commands once
