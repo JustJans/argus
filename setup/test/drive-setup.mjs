@@ -72,12 +72,18 @@ await sleep(600);
 const api = async (p, params = {}) => {
   const u = new URL(BASE + p);
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
-  const r = await fetch(u); return r.json();
+  // ➤ connection: close — a tick can now hold the driver for many seconds
+  // ➤ (the CV's ESCO stage), the mock's http server reaps idle sockets after
+  // ➤ five, and a reused dead socket came back as ECONNRESET.
+  const r = await fetch(u, { headers: { connection: 'close' } }); return r.json();
 };
 const tick = () => {   // one --once pass, like one watchdog run (must terminate)
   try {
     execFileSync(process.execPath, [join('server-bot', 'telegram-listener.mjs'), '--once'],
-      { cwd: WORK, env: { ...process.env, ARGUS_TG_API: BASE }, timeout: 120000, stdio: 'pipe' });
+      // ➤ ESCO points at the mock's 404 wall: instantly and deterministically
+      // ➤ dead on every platform (a closed port can sit in firewall limbo on
+      // ➤ Windows for the full timeout), so the setup exercises its fallback.
+      { cwd: WORK, env: { ...process.env, ARGUS_TG_API: BASE, ARGUS_ESCO_API: `${BASE}/esco-dead` }, timeout: 120000, stdio: 'pipe' });
   } catch (e) { log('  (listener exited non-zero:', String(e.message).split('\n')[0], ')'); }
 };
 let cursor = 0;

@@ -27,7 +27,10 @@ import { extractCvSkills, fold } from './audit-profile.mjs';
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(dirname(SCRIPT_DIR));
 const CACHE_DIR = join(SCRIPT_DIR, '.esco-cache');
-const API = 'https://ec.europa.eu/esco/api';
+// ➤ Overridable for tests, mirroring notify's ARGUS_TG_API: the e2e points
+// ➤ this at a dead port so the setup's ESCO stage fails fast and falls back
+// ➤ deterministically instead of depending on the network being up.
+const API = process.env.ARGUS_ESCO_API || 'https://ec.europa.eu/esco/api';
 // ➤ The languages Argus searches in. An occupation's name in each is the whole
 // ➤ prize: it is the bridge between what you can do and how a Dutch or German
 // ➤ employer writes it in the advert.
@@ -81,6 +84,46 @@ export function scoreOccupations(hits) {
   return [...byUri.values()]
     .map(e => ({ ...e, terms: [...e.terms] }))
     .sort((a, b) => b.score - a.score || b.terms.length - a.terms.length);
+}
+
+// ➤ The reusable half of this tool (2026-08-23): from a bag of terms to the
+// ➤ occupations ESCO says need them — each with its ISCO code (the first two
+// ➤ digits name the professional area) and its advert-usable labels. The
+// ➤ onboarding drinks from this to suggest roles and degree areas straight
+// ➤ from the CV. `deps.esco` is injectable so tests run without the network;
+// ➤ a term ESCO does not know, or no network at all, just yields fewer
+// ➤ occupations — never a throw.
+export async function occupationsForTerms(terms, { top = 8, perTerm = 2, langs = ['en'], deps = {} } = {}) {
+  const d = { esco, ...deps };
+  // ➤ Occupations searched by NAME, per term — deliberately NOT the
+  // ➤ skill→occupation graph this file's report uses (measured live
+  // ➤ 2026-08-23): that graph exists for surprising jumps, and on a mixed CV
+  // ➤ it crowned branch managers, bingo managers and headmasters. A name
+  // ➤ search speaks the CV's own vocabulary: "accounting" finds accountants,
+  // ➤ "sales negotiation" finds sales people — each term its own profession,
+  // ➤ so an accountant-and-salesman CV surfaces BOTH, separately.
+  const picked = new Map();
+  for (const term of (terms || []).map(t => String(t).trim()).filter(Boolean).slice(0, 12)) {
+    try {
+      const s = await d.esco(`/search?text=${encodeURIComponent(term)}&language=en&type=occupation&limit=${perTerm}`, `search_occ_${term}`);
+      for (const r of (s?._embedded?.results || []).slice(0, perTerm)) {
+        const cur = picked.get(r.uri) || { uri: r.uri, title: r.title, terms: [] };
+        if (!cur.terms.includes(term)) cur.terms.push(term);
+        picked.set(r.uri, cur);
+      }
+    } catch { /* unknown term or no network: the caller falls back */ }
+  }
+  const out = [];
+  for (const occ of [...picked.values()].slice(0, top)) {
+    let detail = null;
+    try { detail = await d.esco(`/resource/occupation?uri=${encodeURIComponent(occ.uri)}&language=en`, `occ_${occ.uri}`); } catch { /* label-less is still an occupation */ }
+    const pref = detail?.preferredLabel || {};
+    const alt = detail?.alternativeLabel || {};
+    const labels = {};
+    for (const L of langs) labels[L] = usableLabels([pref[L], ...(alt[L] || [])].filter(Boolean));
+    out.push({ uri: occ.uri, title: occ.title, terms: occ.terms, code: String(detail?.code || ''), labels });
+  }
+  return out;
 }
 
 async function main() {

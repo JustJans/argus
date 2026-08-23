@@ -529,7 +529,8 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
 
   // ➤ Starting again over an existing profile must ASK first.
   ok(/startOnboarding\(force = false\)/.test(ob), 'starting the setup again has to be forced');
-  ok(/if \(!force && loadAnswers\(\)\)/.test(ob), 'an existing profile stops /start and asks for confirmation');
+  ok(/if \(!force && \(loadAnswers\(\) \|\| hasRealCv\(\)\)\)/.test(ob),
+     'an existing profile OR a real CV stops /start and asks for confirmation');
   // ➤ Since 2026-08-06 the same regex also swallows the installer's deep-link
   // ➤ payload ("/start ab12cd34" from t.me/bot?start=CODE) as a plain /start.
   ok(/start\(\\s\+yes\|\\s\+\[a-z0-9\]\{6,12\}\)\?/.test(li),

@@ -36,8 +36,17 @@ function backupBeforeOverwrite(path) {
   } catch { /* nothing to keep, or nowhere to keep it */ }
 }
 import {
-  sendTelegram, sendTelegramButtons, editTelegramMarkup, clearTelegramButtons, answerCallback, downloadTelegramFile,
+  sendTelegram, sendTelegramMessage, deleteTelegramMessage, sendTelegramButtons, editTelegramMarkup, clearTelegramButtons, answerCallback, downloadTelegramFile,
 } from './notify.mjs';
+// ➤ The CV skill extractor argus-discover already owns: section heading +
+// ➤ keyword rules, no model, no network — the same route the open-source
+// ➤ resume parsers take (OpenResume et al. are pdf-to-text plus keyword
+// ➤ matching, exactly this).
+import { extractCvSkills } from './argus-discover/audit-profile.mjs';
+// ➤ And discover's other no-LLM piece: terms → ESCO occupations (free EU API,
+// ➤ disk-cached). It is what turns a CV's skills into the person's actual
+// ➤ professional area(s) — an accountant's, a salesman's, or both at once.
+import { occupationsForTerms } from './argus-discover/esco-match.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(SCRIPT_DIR);
@@ -146,6 +155,275 @@ const QUESTIONS = [
 ];
 const Q_BY_KEY = Object.fromEntries(QUESTIONS.map((q, i) => [q.key, { ...q, index: i }]));
 
+// ➤ What the CV itself can tell the setup — no LLM anywhere, the same
+// ➤ rule-based route the open-source resume parsers use, with the buttons as
+// ➤ the human confirmation that absorbs any imprecision (2026-08-23, after a
+// ➤ field test ran an accountant's CV into marine-flavoured questions).
+// ➤ Degrees: the catalog's values are ALREADY multilingual regexes (the same
+// ➤ stems the offer filter matches), so the CV is tested against the very
+// ➤ definition of each family — one source of truth. A family the CV shows is
+// ➤ NOT pre-ticked as excluded; everything else is. Over-detection merely
+// ➤ leaves one more tap to the user, and under-detection one tap the other
+// ➤ way: a default, never a decision.
+export function cvDegreesHeld(cvText, catalog = DEGREE_CATALOG) {
+  const t = String(cvText || '');
+  return catalog
+    .filter(o => { try { return new RegExp(o.value, 'i').test(t); } catch { return false; } })
+    .map(o => o.value);
+}
+
+// ➤ The person's name, read the way every rule-based resume parser reads it:
+// ➤ CVs open with the name, so the first early line that LOOKS like one — two
+// ➤ to four capitalised words, no digits, no @, not a header word like
+// ➤ "Curriculum" — is it. A miss returns '' and the question just has no
+// ➤ suggestion; a wrong hit costs one retype, because it is only a default.
+// ➤ Name particles stay lowercase in real names — Fernández DE Silva, VAN der
+// ➤ Berg — so "every word capitalised" would reject half of Europe.
+const NAME_PARTICLES = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'e', 'van', 'von', 'der', 'den', 'da', 'das', 'dos', 'di', 'du', 'le', 'el', 'al', 'bin', 'ter']);
+// ➤ Job words: "Senior Accountant" has exactly a name's SHAPE. Anything that
+// ➤ names a trade is a headline, not a person.
+const NAME_JOB_WORDS = /(senior|junior|engineer|ingenier|developer|programmer|manager|accountant|contable|contabilidad|contador|auditor|analyst|analista|consultant|consultor|technician|t[ée]cnic|director|specialist|especialista|assistant|asistente|coordinator|coordinador|administrat|abogad|enfermer|nurse|profesor|teacher|designer|dise[ñn]ador|scientist|cient[íi]fic|architect|arquitect|comercial|sales|ventas|marketing|finanzas|student|estudiante|graduate|graduad|licenciad|doctor|lawyer|freelance|responsable|executive|officer)/i;
+const NAME_SECTION_WORDS = /(experience|experiencia|education|formaci[óo]n|skills|habilidades|languages|idiomas|summary|resumen|objective|objetivo|profile|perfil|about|sobre m[íi]|contact|direcci[óo]n|address|phone|tel[ée]fono|\b[áa]rea de\b)/i;
+
+// ➤ Designed CVs letter-space their subtitles — L I C . E N C O N T A B I…
+// ➤ — and pdf-parse glues the first of those capitals onto the word before
+// ➤ it ("RodríguezL"). Only lines showing such a run are touched: the glued
+// ➤ capital is split back off, and the run itself — display art, not words —
+// ➤ is dropped, leaving the real words standing ("Rodríguez").
+function unglueDisplayText(line) {
+  if (!/(?:\b[\p{Lu}]\b[\s.]*){4,}/u.test(line)) return line;
+  const spaced = line.replace(/(\p{Ll})(\p{Lu})/gu, '$1 $2');
+  const out = [];
+  let run = [];
+  const flush = () => { if (run.length < 4) out.push(...run); run = []; };
+  for (const tk of spaced.split(/\s+/)) {
+    if (/^[\p{Lu}.]$/u.test(tk)) { run.push(tk); continue; }
+    flush();
+    out.push(tk);
+  }
+  flush();
+  return out.join(' ').trim();
+}
+// ➤ Institutions and companies wear name-shaped clothes too (field case
+// ➤ 2026-08-23: "Universidad Argentina del Comercio" won the shape test).
+const NAME_ORG_WORDS = /(universi|instituto|institut|college|escuela|school|academ|colegio|fundaci|foundation|\bS\.?L\.?\b|\bS\.?A\.?\b|GmbH|B\.?V\.?\b|Ltd|Inc\b|Corp\b)/i;
+const foldLetters = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z]/g, '');
+
+// ➤ PDFs shout — CAMILA — and a signature should not. Only fully-uppercase
+// ➤ words are touched, capitalising each segment around apostrophes and
+// ➤ hyphens: CAMILA → Camila, O'NEILL → O'Neill, JOSÉ-MARÍA → José-María.
+function tidyNameCase(name) {
+  return String(name).split(' ').map(w => {
+    if (!/^[\p{Lu}][\p{Lu}'.’-]+$/u.test(w)) return w;
+    return w.toLowerCase().replace(/(^|['’-])(\p{L})/gu, (m, p, c) => p + c.toUpperCase());
+  }).join(' ');
+}
+
+// ➤ Feature SCORING, the way the open-source parsers do it (OpenResume keeps
+// ➤ one positive/negative feature set per attribute) — never "first line
+// ➤ wins", because a CV's first line is as often a headline or an address.
+// ➤ With plain text (no font sizes) the two strongest features left are:
+// ➤ job words DISQUALIFY a line, and the CV's own EMAIL vouches for one —
+// ➤ mail locals are built from names, so "camilaalegre@" backs the line
+// ➤ "Camila Alegre" and nothing else. No line scores → no suggestion.
+export function cvFullName(cvText) {
+  const text = String(cvText || '');
+  const email = foldLetters((text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/) || [''])[0].split('@')[0]);
+  const lines = text.split(/\r?\n/).map(l => unglueDisplayText(l.replace(/^#+\s*/, '').trim())).filter(Boolean).slice(0, 15);
+  // ➤ Candidates are single lines AND pairs of adjacent short lines, in line
+  // ➤ order. The pairs exist because designed CVs split the name across two
+  // ➤ lines — CAMILA on one, Alegre on the next (the field case) — and one
+  // ➤ word alone can never pass the two-word floor.
+  const candidates = [];
+  for (let i = 0; i < lines.length; i++) {
+    candidates.push(lines[i]);
+    const a = lines[i], b = lines[i + 1];
+    if (b && a.split(/\s+/).length <= 2 && b.split(/\s+/).length <= 3) candidates.push(`${a} ${b}`);
+  }
+  let best = '';
+  let bestScore = 0;
+  for (const line of candidates) {
+    if (/[\d@/,:|()]/.test(line) || line.length > 48) continue;
+    if (/curr[íi]cul|resume|\bcv\b|v[íi]tae/i.test(line)) continue;
+    const words = line.split(/\s+/);
+    if (words.length < 2 || words.length > 5) continue;
+    let caps = 0;
+    let shaped = true;
+    for (const w of words) {
+      if (/^[\p{Lu}][\p{L}'.-]*$/u.test(w)) { caps += 1; continue; }
+      if (NAME_PARTICLES.has(w.toLowerCase())) continue;
+      shaped = false;
+      break;
+    }
+    if (!shaped || caps < 2) continue;
+    let score = 1;
+    if (NAME_JOB_WORDS.test(line)) score -= 3;
+    if (NAME_SECTION_WORDS.test(line)) score -= 3;
+    if (NAME_ORG_WORDS.test(line)) score -= 3;
+    if (email) {
+      const backed = words.map(foldLetters).filter(w => w.length >= 3 && email.includes(w)).length;
+      score += backed >= 2 ? 4 : backed === 1 ? 2 : 0;
+    }
+    if (score > bestScore) { bestScore = score; best = line; }
+  }
+  return bestScore >= 1 ? tidyNameCase(best) : '';
+}
+
+// ➤ The contact block, straight off the CV (field case 2026-08-23: the bot
+// ➤ asked for an email the document had just printed). Email is a regex;
+// ➤ a phone needs nine digits or a +/( opening, so the year range
+// ➤ "2014 – 2018" — eight digits with a dash — can never pass for one; the
+// ➤ city is the early "Place, Country" line: comma-separated capitalised
+// ➤ words with no digits and no trade/org words. Any piece can be missing.
+export function cvContact(cvText) {
+  const text = String(cvText || '');
+  const email = (text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/) || [''])[0];
+  let phone = '';
+  for (const m of text.matchAll(/(?:\+|\()[\d\s()+.-]{8,}|\b\d[\d\s().-]{8,}\d\b/g)) {
+    const cand = m[0].trim();
+    const digits = (cand.match(/\d/g) || []).length;
+    if (digits >= 9 || (digits >= 8 && /^[+(]/.test(cand))) { phone = cand.replace(/\s+/g, ' '); break; }
+  }
+  let city = '';
+  for (const line of text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).slice(0, 12)) {
+    if (!line.includes(',') || /[\d@]/.test(line) || line.length > 40) continue;
+    if (NAME_JOB_WORDS.test(line) || NAME_ORG_WORDS.test(line) || NAME_SECTION_WORDS.test(line)) continue;
+    const parts = line.split(',').map(p => p.trim());
+    if (parts.length > 3 || parts.some(p => !/^[\p{Lu}][\p{L}\s.'-]*$/u.test(p))) continue;
+    city = line;
+    break;
+  }
+  return { email, phone, city };
+}
+
+// ➤ Everything the CV volunteers, in one bag the state can carry.
+export function cvSuggestions(cvText) {
+  const contact = cvContact(cvText);
+  return {
+    name: cvFullName(cvText),
+    contact,
+    contactText: [contact.email, contact.phone, contact.city].filter(Boolean).join(', '),
+    degreesHeld: cvDegreesHeld(cvText),
+    fields: extractCvSkills(cvText).slice(0, 8),
+  };
+}
+
+// ➤ Degree families by professional AREA, so an accountant is asked about
+// ➤ Economics and ADE, not Aerospace. Values are multilingual regexes in the
+// ➤ same style as DEGREE_CATALOG (which IS the engineering area, so an
+// ➤ engineer keeps exactly today's question). Curated and small on purpose:
+// ➤ these are the degrees offers in each area actually name.
+const AREA_DEGREES = {
+  business: [
+    { label: 'Business Administration', value: "business admin|ADE\\b|betriebswirtschaft|BWL\\b|bedrijfskunde|administraci[óo]n de empresas|gestion d'entreprise" },
+    { label: 'Economics', value: 'econom' },
+    { label: 'Accounting / Finance', value: 'accounting|contabilidad|finance|finanzas|rechnungswesen|comptabilit' },
+    { label: 'Marketing', value: 'marketing|publicidad' },
+  ],
+  ict: [
+    { label: 'Computer Science', value: 'computer scien|inform[áa]ti[ckq]' },
+    { label: 'Telecommunications', value: 'telecom' },
+  ],
+  health: [
+    { label: 'Medicine', value: 'medicin|medizin' },
+    { label: 'Nursing', value: 'nursing|enfermer|verpleegkunde|krankenpflege' },
+    { label: 'Pharmacy', value: 'pharmac|farmacia|pharmazie' },
+  ],
+  law: [{ label: 'Law', value: 'law degree|derecho|rechtswissenschaft|droit\\b|rechten\\b' }],
+  education: [{ label: 'Education', value: 'education degree|magisterio|pedagog|lehramt' }],
+  science: [
+    { label: 'Physics', value: 'physics|f[íi]sica|physik' },
+    { label: 'Biology', value: 'biolog' },
+    { label: 'Chemistry', value: 'chemistry|chemie\\b|qu[íi]mic|chimi' },
+  ],
+};
+
+// ➤ ISCO-08 sub-major group (the occupation code's first two digits) → areas.
+// ➤ 21 carries both: it holds physicists AND engineers.
+const ISCO_TO_AREA = {
+  21: ['engineering', 'science'], 31: ['engineering'],
+  12: ['business'], 13: ['business'], 14: ['business'], 24: ['business'], 33: ['business'], 41: ['business'], 52: ['business'],
+  25: ['ict'], 35: ['ict'],
+  22: ['health'], 32: ['health'],
+  26: ['law'],
+  23: ['education'],
+};
+
+// ➤ The full CV reading (2026-08-23): skills stay local; the skills are then
+// ➤ matched to ESCO occupations, whose labels become ROLE suggestions and
+// ➤ whose ISCO areas pick which DEGREE families the question should even ask
+// ➤ about. Every area the CV shows contributes — a person who was accountant
+// ➤ AND salesman gets both, because either could be the job they actually
+// ➤ want. No network, or ESCO knowing none of the terms, degrades to the
+// ➤ offline suggestions — never an error, never a guess.
+export async function cvProfileSuggestions(cvText, deps = {}) {
+  const out = { ...cvSuggestions(cvText), roles: [], degreeOptions: [] };
+  let occs = [];
+  try {
+    // ➤ top 8, matching the role row's own cap: top 6 was slicing off the
+    // ➤ LAST term's occupations — on a mixed CV, exactly the second trade.
+    const lookup = (deps.occupations || occupationsForTerms)(out.fields, { top: 8 });
+    // ➤ A hard 20s ceiling for the WHOLE stage: the setup must never feel hung.
+    occs = (await Promise.race([lookup, new Promise(r => setTimeout(r, deps.deadlineMs || 20_000, null))])) || [];
+  } catch { occs = []; }
+  // ➤ Breadth first (measured live 2026-08-23): one label from EVERY
+  // ➤ occupation before any second one — the first profession's synonyms were
+  // ➤ eating all eight slots and the CV's OTHER trade never appeared. The
+  // ➤ singular/plural fold keeps bookkeeper/bookkeepers twins out.
+  const roles = [];
+  const seenRole = new Set();
+  for (const pass of [0, 1]) {
+    for (const o of occs) {
+      const label = (o.labels?.en?.length ? o.labels.en : [o.title]).filter(Boolean)[pass];
+      if (!label) continue;
+      const key = String(label).toLowerCase().replace(/s$/, '');
+      if (seenRole.has(key)) continue;
+      seenRole.add(key);
+      roles.push(String(label));
+    }
+  }
+  out.roles = roles.slice(0, 8);
+  const areas = [...new Set(occs.flatMap(o => ISCO_TO_AREA[String(o.code).slice(0, 2)] || []))];
+  const opts = [];
+  for (const a of areas) {
+    for (const d of (a === 'engineering' ? DEGREE_CATALOG : AREA_DEGREES[a] || [])) {
+      if (!opts.some(x => x.label === d.label)) opts.push(d);
+    }
+  }
+  out.degreeOptions = opts.slice(0, 10);
+  // ➤ Held-degree evidence runs against the catalog the user will SEE.
+  out.degreesHeld = cvDegreesHeld(cvText, out.degreeOptions.length ? out.degreeOptions : DEGREE_CATALOG);
+  return out;
+}
+
+// ➤ The one intake wrapper both CV paths share: an honest "working on it"
+// ➤ note while ESCO is consulted (a few seconds, once — answers are cached),
+// ➤ deleted when done. Falls back to the offline suggestions on any trouble.
+async function readCvForSuggestions(cvText) {
+  const noteId = await sendTelegramMessage('Reading your CV — matching it against the EU occupation map takes a few seconds.', { silent: true });
+  let suggest;
+  try { suggest = await cvProfileSuggestions(cvText); }
+  catch { suggest = cvSuggestions(cvText); }
+  if (noteId != null) { try { await deleteTelegramMessage(noteId); } catch { /* the note stays; harmless */ } }
+  return suggest;
+}
+
+// ➤ The options a question actually shows: the CV-picked degree families when
+// ➤ they exist, the shipped catalog otherwise. One resolver, used everywhere a
+// ➤ question's options are read, so the keyboard and the tap can never see
+// ➤ two different lists.
+export function optionsFor(q, s) {
+  if (q.key === 'degrees_excluded') {
+    // ➤ Fresh suggestions first, then the options SAVED with the answers —
+    // ➤ that is what a settings edit runs on, long after the setup's state
+    // ➤ (and its suggest bag) is gone.
+    const opts = s?.suggest?.degreeOptions?.length ? s.suggest.degreeOptions
+      : (s?.answers?.degree_options?.length ? s.answers.degree_options : null);
+    if (opts) return { ...q, options: opts };
+  }
+  return q;
+}
+
 // ── State ────────────────────────────────────────────────────────────────
 // ➤ { mode: 'setup' | 'edit', step, editKey, answers:{}, msgId } — msgId is the
 // ➤ current button message, so it can be edited in place as options toggle.
@@ -196,14 +474,44 @@ async function askCurrent(s) {
   // ➤ Every TYPED question says on screen how to get out. While the setup is
   // ➤ waiting for text your normal commands stop working — whatever you type is
   // ➤ taken as the answer — so the way out has to be written where you're looking.
-  const prompt = (q.kind === 'single' || q.kind === 'multi') ? q.prompt : `${q.prompt}\n\n(or type "cancel" to stop)`;
+  let prompt = (q.kind === 'single' || q.kind === 'multi') ? q.prompt : `${q.prompt}\n\n(or type "cancel" to stop)`;
+  // ➤ CV-informed defaults (2026-08-23): the degrees list arrives pre-ticked —
+  // ➤ excluded — for every family the CV shows no sign of, and the fields
+  // ➤ question carries the CV's own skills as a one-tap suggestion. Defaults,
+  // ➤ never decisions: the user confirms every tick.
+  const qq = optionsFor(q, s);
+  if (q.key === 'degrees_excluded' && s.suggest && s.answers[q.key] == null) {
+    const held = new Set(s.suggest.degreesHeld || []);
+    s.answers[q.key] = qq.options.map(o => o.value).filter(v => !held.has(v));
+    // ➤ The options RIDE WITH the answers (audit 2026-08-23): a later settings
+    // ➤ edit rebuilds its state from the saved answers alone, and without this
+    // ➤ the keyboard fell back to the shipped catalog — wrong ticks, and the
+    // ➤ CV-picked families unreachable for ever after.
+    if (s.suggest.degreeOptions?.length) s.answers.degree_options = s.suggest.degreeOptions;
+    prompt += s.suggest.degreeOptions?.length
+      ? "\n\nThese families come from your CV's own professional area, pre-ticked where it shows no such degree. Adjust if needed, then Done."
+      : '\n\nPre-ticked from your CV: the degrees it shows no sign of. Adjust if needed, then Done.';
+  }
+  // ➤ Typed questions with a CV-derived answer ready: the name from the CV's
+  // ➤ opening line, the contact from its own contact block, roles from the
+  // ➤ ESCO occupations of its area(s), fields from its own skills. One tap
+  // ➤ takes it; typing your own still wins.
+  const sug = q.key === 'contact' ? s.suggest?.contactText : s.suggest?.[q.key];
+  const sugText = Array.isArray(sug) ? sug.join(', ') : String(sug || '');
+  if ((q.key === 'name' || q.key === 'contact' || q.key === 'fields' || q.key === 'roles') && sugText && !s.answers[q.key]) {
+    prompt += `\n\nSuggested from your CV: ${sugText}\nSend your own, or take ${Array.isArray(sug) ? 'these' : 'it'} with the button.`;
+    const msgId = await sendTelegramButtons(prompt, [[{ label: Array.isArray(sug) ? 'Use suggestions' : 'Use suggestion', data: 'use' }]]);
+    s.msgId = msgId;
+    saveState(s);
+    return;
+  }
   // ➤ SEND FIRST, persist AFTER (audit 2026-08-08). The state used to be saved
   // ➤ before the prompt went out, so one failed Telegram send left the file
   // ➤ pointing at a question nobody ever saw — and the next thing the user
   // ➤ typed was silently recorded as its answer. Failing before the save just
   // ➤ re-asks the same question, which is harmless.
   if (q.kind === 'single' || q.kind === 'multi') {
-    const msgId = await sendTelegramButtons(prompt, buttonRows(q, s.answers[q.key]));
+    const msgId = await sendTelegramButtons(prompt, buttonRows(qq, s.answers[q.key]));
     s.msgId = msgId;
     saveState(s);
   } else if (q.kind === 'skip-text') {
@@ -228,8 +536,19 @@ async function askCurrent(s) {
 // ➤ nothing to cancel with, and cv.md is the only copy: it is what your cover
 // ➤ letters are built from. `settings` already refuses to run without a profile;
 // ➤ this is the same guard pointing the other way.
+// ➤ Is there a CV worth protecting? The shipped file is a placeholder, so its
+// ➤ presence alone means nothing — a real one is longer and does not say so.
+// ➤ (Ported from the personal copy 2026-08-23: its own test suite caught this
+// ➤ guard missing during a merge, which is how the public copy learnt of it.)
+function hasRealCv() {
+  try {
+    const t = readFileSync(CV_PATH, 'utf-8');
+    return t.length > 400 && !/this is a placeholder/i.test(t);
+  } catch { return false; }
+}
+
 export async function startOnboarding(force = false) {
-  if (!force && loadAnswers()) {
+  if (!force && (loadAnswers() || hasRealCv())) {
     await sendTelegram([
       'You already have a profile set up.',
       '',
@@ -292,7 +611,7 @@ export function parseContact(text) {
     const p = raw.trim();
     if (!p) continue;
     if (!out.email && /\S+@\S+\.\S+/.test(p)) { out.email = p; continue; }
-    if (!out.phone && /^\+?[\d\s().-]+$/.test(p) && (p.match(/\d/g) || []).length >= 6) { out.phone = p.replace(/\s+/g, ' '); continue; }
+    if (!out.phone && /^[+(]?[\d\s()+.-]+$/.test(p) && (p.match(/\d/g) || []).length >= 6) { out.phone = p.replace(/\s+/g, ' '); continue; }
     leftovers.push(p);
   }
   // ➤ Every unclaimed piece is the city ("Sant Cugat, Barcelona" arrives as two).
@@ -304,6 +623,43 @@ export function parseContact(text) {
 export function mergeContact(base, extra) {
   const b = base || { email: '', phone: '', city: '' };
   return { email: b.email || extra.email, phone: b.phone || extra.phone, city: b.city || extra.city };
+}
+
+// ➤ One road for the contact answer, typed or tapped: the [Use suggestion]
+// ➤ button feeds the CV's own contact line through here, so a CV missing a
+// ➤ piece gets the same honest "Missing: ..." round a typed answer gets.
+async function applyContactAnswer(s, value) {
+  // ➤ "skip" moves on with whatever exists — sharing nothing is a valid
+  // ➤ answer, and some people will not give a phone number.
+  if (/^skip$/i.test(value)) {
+    delete s.contactPending;
+    s.answers.contact_parts = s.answers.contact_parts || { email: '', phone: '', city: '' };
+    s.answers.contact = s.answers.contact || '';
+    await advance(s);
+    return true;
+  }
+  const parts = mergeContact(s.contactPending ? s.answers.contact_parts : null, parseContact(value));
+  s.answers.contact_parts = parts;
+  s.answers.contact = [parts.email, parts.phone, parts.city].filter(Boolean).join(', ');
+  const missing = ['email', 'phone', 'city'].filter(k => !parts[k]);
+  // ➤ Say ONCE what was understood and what is absent — the old flow took
+  // ➤ "just an email" and marched on in silence, and the city it lost is
+  // ➤ what the cover letters and the home-city search group run on. One
+  // ➤ round, never a nag: the second answer (or Skip) always moves on.
+  if (missing.length && !s.contactPending) {
+    const got = ['email', 'phone', 'city'].filter(k => parts[k]);
+    const msgId = await sendTelegramButtons(
+      `Saved: ${got.join(', ') || 'nothing recognisable yet'}. Missing: ${missing.join(' and ')} — send ${missing.length > 1 ? 'them' : 'it'} now, or Skip.`,
+      [[{ label: 'Skip', data: 'skip' }]],
+    );
+    s.contactPending = true;
+    s.msgId = msgId;
+    saveState(s);
+    return true;
+  }
+  delete s.contactPending;
+  await advance(s);
+  return true;
 }
 
 // ➤ Handles a TEXT message while onboarding/editing is active (CV paste, name,
@@ -323,39 +679,7 @@ export async function handleOnboardingText(text) {
   if (!q || !(q.kind === 'text' || q.kind === 'cv' || q.kind === 'skip-text' || q.kind === 'contact')) return false;
 
   const value = String(text || '').trim();
-  if (q.kind === 'contact') {
-    // ➤ "skip" moves on with whatever exists — sharing nothing is a valid
-    // ➤ answer, and some people will not give a phone number.
-    if (/^skip$/i.test(value)) {
-      delete s.contactPending;
-      s.answers.contact_parts = s.answers.contact_parts || { email: '', phone: '', city: '' };
-      s.answers.contact = s.answers.contact || '';
-      await advance(s);
-      return true;
-    }
-    const parts = mergeContact(s.contactPending ? s.answers.contact_parts : null, parseContact(value));
-    s.answers.contact_parts = parts;
-    s.answers.contact = [parts.email, parts.phone, parts.city].filter(Boolean).join(', ');
-    const missing = ['email', 'phone', 'city'].filter(k => !parts[k]);
-    // ➤ Say ONCE what was understood and what is absent — the old flow took
-    // ➤ "just an email" and marched on in silence, and the city it lost is
-    // ➤ what the cover letters and the home-city search group run on. One
-    // ➤ round, never a nag: the second answer (or Skip) always moves on.
-    if (missing.length && !s.contactPending) {
-      const got = ['email', 'phone', 'city'].filter(k => parts[k]);
-      const msgId = await sendTelegramButtons(
-        `Saved: ${got.join(', ') || 'nothing recognisable yet'}. Missing: ${missing.join(' and ')} — send ${missing.length > 1 ? 'them' : 'it'} now, or Skip.`,
-        [[{ label: 'Skip', data: 'skip' }]],
-      );
-      s.contactPending = true;
-      s.msgId = msgId;
-      saveState(s);
-      return true;
-    }
-    delete s.contactPending;
-    await advance(s);
-    return true;
-  }
+  if (q.kind === 'contact') return applyContactAnswer(s, value);
   if (q.kind === 'cv') {
     // ➤ Keep the previous CV before overwriting it. Your copy is not a git repo
     // ➤ and nothing else holds this file, so without the backup a single
@@ -363,6 +687,7 @@ export async function handleOnboardingText(text) {
     backupBeforeOverwrite(CV_PATH);
     writePrivate(CV_PATH, value + '\n');
     s.answers.cv = 'saved';
+    s.suggest = await readCvForSuggestions(value);
   } else if (q.kind === 'skip-text') {
     if (!/^skip$/i.test(value) && value) {
       writePrivate(COVER_EXAMPLE_PATH, value + '\n');
@@ -430,6 +755,7 @@ export async function handleOnboardingDocument(doc) {
   backupBeforeOverwrite(CV_PATH);
   writePrivate(CV_PATH, text + '\n');
   s.answers.cv = 'saved';
+  s.suggest = await readCvForSuggestions(text);
   await advance(s);
   return true;
 }
@@ -474,6 +800,25 @@ export async function handleOnboardingCallback(data, cbId, messageId = null) {
     await advance(s);
     return true;
   }
+  // ➤ [Use suggestion] on the contact question rides the SAME road as typing
+  // ➤ it: parsed by shape, and a CV missing a piece gets the Missing round.
+  if (data === 'use' && q?.kind === 'contact' && s.suggest?.contactText && !s.contactPending) {
+    await answerCallback(cbId);
+    await applyContactAnswer(s, s.suggest.contactText);
+    return true;
+  }
+  // ➤ The [Use suggestion(s)] button on name, fields and roles: the
+  // ➤ CV-derived answer lands exactly as if it had been typed.
+  if (data === 'use' && (q?.key === 'name' || q?.key === 'fields' || q?.key === 'roles')) {
+    const sug = s.suggest?.[q.key];
+    const val = Array.isArray(sug) ? sug.join(', ') : String(sug || '');
+    if (val) {
+      s.answers[q.key] = val;
+      await answerCallback(cbId);
+      await advance(s);
+      return true;
+    }
+  }
   if (!q || !(q.kind === 'single' || q.kind === 'multi')) { await answerCallback(cbId); return false; }
 
   if (data === 'done') {                       // multi finished
@@ -483,7 +828,10 @@ export async function handleOnboardingCallback(data, cbId, messageId = null) {
   }
   const m = String(data).match(/^o:(\d+)$/);
   if (!m) { await answerCallback(cbId); return false; }
-  const opt = q.options[Number(m[1])];
+  // ➤ Resolved through the same lens the keyboard was drawn with, so a tap
+  // ➤ can never land on a different option than the one it showed.
+  const qq = optionsFor(q, s);
+  const opt = qq.options[Number(m[1])];
   if (!opt) { await answerCallback(cbId); return false; }
 
   if (q.kind === 'single') {
@@ -498,7 +846,7 @@ export async function handleOnboardingCallback(data, cbId, messageId = null) {
     await answerCallback(cbId);
     // ➤ Keyboard-only edit (2026-08-23): editMessageText resent the whole
     // ➤ prompt on every tick and was most of why ticking felt slow.
-    if (s.msgId) await editTelegramMarkup(s.msgId, buttonRows(q, s.answers[q.key]));
+    if (s.msgId) await editTelegramMarkup(s.msgId, buttonRows(qq, s.answers[q.key]));
   }
   return true;
 }
