@@ -20,6 +20,9 @@ if ($ans -ne 'y') { Write-Host "  Nothing was touched."; Read-Host "  Press Ente
 $removed = 0
 foreach ($name in 'Argus listener', 'Argus scan', 'Argus links', 'Argus cleanup') {
     if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
+        # ➤ Stop BEFORE unregister: a removed task can no longer be told to stop,
+        # ➤ and its running instance would live on.
+        try { Stop-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null } catch { }
         try {
             Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction Stop
             Ok "removed '$name'"
@@ -28,6 +31,22 @@ foreach ($name in 'Argus listener', 'Argus scan', 'Argus links', 'Argus cleanup'
     }
 }
 if ($removed -eq 0) { Ok "no Argus tasks were scheduled - nothing to remove" }
+
+# ➤ The always-on listener (2026-08-22) OUTLIVES its task: stopping the task
+# ➤ kills the wscript wrapper, but the argus.exe it launched keeps running,
+# ➤ keeps this folder open, and Windows then refuses to delete it (field test
+# ➤ 2026-08-23). So every process still running FROM this folder — the
+# ➤ listener, a mid-flight scan, a cover letter — is ended here, identified by
+# ➤ its executable path: the one identity that cannot hit a stranger's node.
+$ended = 0
+foreach ($proc in Get-Process -ErrorAction SilentlyContinue) {
+    $p = $null
+    try { $p = $proc.Path } catch { }
+    if ($p -and $p.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+        try { Stop-Process -Id $proc.Id -Force -ErrorAction Stop; $ended += 1 } catch { }
+    }
+}
+if ($ended) { Ok "ended $ended running Argus process(es); the folder is free to delete" }
 
 # ➤ The Settings entry goes with the tasks; without it, an uninstalled Argus
 # ➤ would keep offering an Uninstall button that has nothing left to do.

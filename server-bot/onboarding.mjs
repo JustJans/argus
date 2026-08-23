@@ -113,7 +113,7 @@ const SENIORITY_NEGATIVES = ['Senior', 'Lead', 'Principal', 'Manager', 'Director
 // ➤ options for single/multi are {label, value}; multi answers are arrays.
 const QUESTIONS = [
   { key: 'cv', kind: 'cv',
-    prompt: 'Argus setup. First, your CV: attach it as a PDF file, or paste its text. It becomes the basis for filtering and for your cover letters.' },
+    prompt: 'Argus setup\n\nFirst, your CV: attach it as a PDF (the paperclip button) or paste its text. It becomes the basis for filtering and for your cover letters.' },
   { key: 'name', kind: 'text',
     prompt: 'Your full name (used to sign cover letters):' },
   { key: 'contact', kind: 'text',
@@ -142,7 +142,7 @@ const QUESTIONS = [
   { key: 'vetoes', kind: 'multi', prompt: 'Deal-breakers to always exclude (tap to select, then Done):',
     options: VETO_CATALOG },
   { key: 'cover_example', kind: 'skip-text',
-    prompt: 'Optional: paste a cover letter you like as a STYLE example, or type "skip".' },
+    prompt: 'Optional: paste a cover letter you like as an example.' },
 ];
 const Q_BY_KEY = Object.fromEntries(QUESTIONS.map((q, i) => [q.key, { ...q, index: i }]));
 
@@ -204,6 +204,12 @@ async function askCurrent(s) {
   // ➤ re-asks the same question, which is harmless.
   if (q.kind === 'single' || q.kind === 'multi') {
     const msgId = await sendTelegramButtons(prompt, buttonRows(q, s.answers[q.key]));
+    s.msgId = msgId;
+    saveState(s);
+  } else if (q.kind === 'skip-text') {
+    // ➤ The optional question carries its way out as a button (owner,
+    // ➤ 2026-08-23). Typing "skip" still works; typed text still answers.
+    const msgId = await sendTelegramButtons(prompt, [[{ label: 'Skip', data: 'skip' }]]);
     s.msgId = msgId;
     saveState(s);
   } else {
@@ -390,6 +396,13 @@ export async function handleOnboardingCallback(data, cbId) {
   }
   if (!s || !s.active) { await answerCallback(cbId); return false; }
   const q = s.mode === 'edit' ? Q_BY_KEY[s.editKey] : QUESTIONS[s.step];
+  // ➤ The Skip button: one tap does what typing "skip" always did — move on
+  // ➤ without saving anything. Only the optional question wears it.
+  if (data === 'skip' && q?.kind === 'skip-text') {
+    await answerCallback(cbId);
+    await advance(s);
+    return true;
+  }
   if (!q || !(q.kind === 'single' || q.kind === 'multi')) { await answerCallback(cbId); return false; }
 
   if (data === 'done') {                       // multi finished

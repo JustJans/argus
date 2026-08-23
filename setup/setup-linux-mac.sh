@@ -201,7 +201,12 @@ else
   echo
   echo "      https://t.me/$BOTUSER?start=$CODE"
   echo
-  echo "  Open that link (phone or desktop) and press START. Waiting..."
+  echo "  Open that link (phone or desktop) and press START."
+  # ➤ The pasteable twin (field test 2026-08-23): with the bot's chat already
+  # ➤ open, the natural move is to PASTE — and a t.me link pasted as a message
+  # ➤ is just text the listener ignores. This line is what that tap sends.
+  echo "  Already in the bot's chat? Send it this message instead:  /start $CODE"
+  echo "  Waiting..."
   WAITED=0
   while [ "$LINKED" = no ] && [ "$WAITED" -lt 180 ]; do
     sleep 5

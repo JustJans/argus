@@ -264,9 +264,18 @@ if ($linked) {
     # ➤ questions. This console just watches telegram.json for the link.
     Say "Last step - one tap:"
     Write-Host ""
-    Write-Host "      https://t.me/$botUser?start=$($script:code)"
+    # ➤ ${} braces are load-bearing (field test 2026-08-23): "?" is a LEGAL
+    # ➤ character in PowerShell variable names, so "$botUser?start=" reads a
+    # ➤ variable called botUser?start — empty — and printed t.me/=CODE, a link
+    # ➤ with no bot in it. The bash twin survives because bash stops at "?".
+    Write-Host "      https://t.me/${botUser}?start=$($script:code)"
     Write-Host ""
-    Write-Host "  Open that link (phone or desktop) and press START. Waiting..."
+    Write-Host "  Open that link (phone or desktop) and press START."
+    # ➤ The pasteable twin (field test 2026-08-23): with the bot's chat already
+    # ➤ open, the natural move is to PASTE — and a t.me link pasted as a message
+    # ➤ is just text the listener ignores. This line is what that tap sends.
+    Write-Host "  Already in the bot's chat? Send it this message instead:  /start $($script:code)"
+    Write-Host "  Waiting..."
     $deadline = (Get-Date).AddMinutes(3)
     while (-not $linked -and (Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 5

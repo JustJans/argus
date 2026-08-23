@@ -23,9 +23,12 @@ if ! command -v crontab >/dev/null 2>&1 || ! crontab -l >/dev/null 2>&1; then
   ok "no crontab on this machine — nothing to remove"
 else
   CRON_TMP="$(mktemp 2>/dev/null || echo "/tmp/argus-cron.$$")"
+  # ➤ Both spellings, like the diagnose script: the setup quotes the path since
+  # ➤ 2026-08-08, and this filter only knew the bare one — so modern installs
+  # ➤ kept their cron lines through an "uninstall".
   crontab -l | while IFS= read -r line; do
     case "$line" in
-      (*"cd $ROOT && "*) continue ;;
+      (*"cd '$ROOT' && "*|*"cd $ROOT && "*) continue ;;
     esac
     printf '%s\n' "$line"
   done > "$CRON_TMP"
@@ -38,6 +41,17 @@ else
     ok "this copy had no cron lines — nothing to remove"
   fi
   rm -f "$CRON_TMP"
+fi
+
+# ➤ The always-on listener (2026-08-22) outlives its cron line: without this
+# ➤ it would keep polling Telegram for up to six more hours, from an install
+# ➤ that no longer exists. Its pid is in the heartbeat file it maintains.
+ALIVE="server-bot/listener-alive.json"
+if [ -f "$ALIVE" ]; then
+  PID="$(sed -n 's/.*"pid": *\([0-9][0-9]*\).*/\1/p' "$ALIVE" | head -1)"
+  if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+    kill "$PID" 2>/dev/null && ok "stopped the running listener (pid $PID)"
+  fi
 fi
 
 printf '\nDone. To finish, delete this folder: %s\n' "$ROOT"

@@ -126,8 +126,10 @@ try {
       const flat = kb.flat();
       const use = flat.find(b => b.callback_data === 'use');
       const done = flat.find(b => b.callback_data === 'done');
+      const skip = flat.find(b => b.callback_data === 'skip');
       if (use) { log('  USER taps [Use this]'); await api('/_test/tap', { message_id: prompt.message_id, data: 'use' }); }
       else if (done) { log('  USER taps [Done]'); await api('/_test/tap', { message_id: prompt.message_id, data: 'done' }); }
+      else if (skip) { log('  USER taps [Skip]'); await api('/_test/tap', { message_id: prompt.message_id, data: 'skip' }); }
       else { const first = flat.find(b => b.callback_data?.startsWith('o:')); log(`  USER taps [${first?.text}]`); await api('/_test/tap', { message_id: prompt.message_id, data: first.callback_data }); }
     } else {
       // ➤ a typed question: pick a canned answer by what it asks for
