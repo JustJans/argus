@@ -47,12 +47,15 @@ not returned an estimated one, so you are unlikely to ever see it.
 
 ## Setup
 
-**Install with one line.** Paste this — it downloads Argus into `~/argus`
-(or `C:\Users\you\argus`), installs what is missing, registers the schedule
-(hidden — no flashing console windows), asks for your bot token and then gives
-you a `t.me` link: **one tap on START and the bot begins your profile
-questions**. Re-running the same line later updates the code — and repairs a
-broken install — without touching your profile, CV or data.
+**Install with one line.** Paste this — it downloads the **latest release**
+of Argus into `~/argus` (or `C:\Users\you\argus`), installs what is missing,
+registers the schedule (hidden — no flashing console windows), asks for your
+bot token and then gives you a `t.me` link: **one tap on START and the bot
+begins your profile questions**. Re-running the same line later updates to
+the newest release — and repairs a broken install — without touching your
+profile, CV or data. Every release ships only after the full test suite has
+passed on clean Linux and Windows machines; the version history lives on the
+[Releases page](https://github.com/JustJans/argus/releases).
 
 On Windows (open PowerShell from the Start menu):
 
@@ -66,8 +69,10 @@ On macOS or Linux (open Terminal):
 curl -fsSL https://raw.githubusercontent.com/JustJans/argus/master/install.sh | bash
 ```
 
-**Prefer to do it by hand?** Press the green **Code** button above and choose
-**Download ZIP**, then unzip it anywhere sensible (on macOS avoid
+**Prefer to do it by hand?** Open the
+[Releases page](https://github.com/JustJans/argus/releases) and download the
+latest **Source code (zip)** — that is the tested snapshot; the green Code
+button gives you master, which may be mid-work. Unzip it anywhere sensible (on macOS avoid
 Desktop/Documents/Downloads — cron cannot read them) and run the setup script
 for your system, below. Git is only a way of downloading; Argus never needs it
 to run. (Developers can clone as usual.)

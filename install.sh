@@ -13,8 +13,20 @@ DEST="${ARGUS_DEST:-$HOME/argus}"
 printf '\nInstalling Argus into %s\n' "$DEST"
 TMP="$(mktemp -d 2>/dev/null || echo "/tmp/argus-install.$$")"
 mkdir -p "$TMP"
-curl -fsSL https://github.com/JustJans/argus/archive/refs/heads/master.tar.gz | tar -xz -C "$TMP"
-SRC="$TMP/argus-master"
+# ➤ Install the LATEST RELEASE, not whatever master holds this minute: a
+# ➤ half-landed push must never reach a user. The GitHub API names the tag;
+# ➤ if it cannot be reached, master is still better than no install at all.
+# ➤ ARGUS_REF overrides both (the test harness pins "refs/heads/master").
+REF="${ARGUS_REF:-}"
+if [ -z "$REF" ]; then
+  TAG="$(curl -fsSL --max-time 10 https://api.github.com/repos/JustJans/argus/releases/latest 2>/dev/null | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)"
+  if [ -n "$TAG" ]; then REF="refs/tags/$TAG"; echo "  version: $TAG (latest release)"
+  else REF="refs/heads/master"; echo "  release lookup failed - installing master"; fi
+fi
+curl -fsSL "https://github.com/JustJans/argus/archive/$REF.tar.gz" | tar -xz -C "$TMP"
+# ➤ The extracted folder is named after the ref (argus-master, argus-1.9.0):
+# ➤ take the one folder that is there instead of guessing the suffix.
+SRC="$(find "$TMP" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 # ➤ An UPDATE must never clobber what the user built: the profile, the CV and
 # ➤ the letter example are theirs once they exist (telegram.json and data/ are
 # ➤ not in the download at all, so they survive on their own).

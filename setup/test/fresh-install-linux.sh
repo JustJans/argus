@@ -34,6 +34,9 @@ echo
 # ➤ reach the SETUP's prompt: `| bash < file` hands the file to bash instead.
 printf '111222333:AAHtestTOKENtestTOKENtestTOKENtest01\n' > "$HOME/answers.txt"
 curl -fsSL "https://raw.githubusercontent.com/JustJans/argus/$BRANCH/install.sh" -o "$HOME/install.sh"
+# ➤ The installer now defaults to the latest RELEASE; this test exists to try
+# ➤ the branch under test, so the ref is pinned to it.
+export ARGUS_REF="refs/heads/$BRANCH"
 setsid bash "$HOME/install.sh" < "$HOME/answers.txt" > "$HOME/install.log" 2>&1 &
 INSTALL_PID=$!
 

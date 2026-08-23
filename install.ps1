@@ -16,9 +16,22 @@ $tmp = Join-Path $env:TEMP ('argus-install-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
     $zip = Join-Path $tmp 'argus.zip'
-    Invoke-WebRequest 'https://github.com/JustJans/argus/archive/refs/heads/master.zip' -OutFile $zip -UseBasicParsing
+    # ➤ Install the LATEST RELEASE, not whatever master holds this minute: a
+    # ➤ half-landed push must never reach a user. The GitHub API names the
+    # ➤ tag; if it cannot be reached, master beats no install at all.
+    # ➤ ARGUS_REF overrides both (tests pin "refs/heads/master").
+    $ref = if ($env:ARGUS_REF) { $env:ARGUS_REF } else {
+        try {
+            $tag = (Invoke-RestMethod 'https://api.github.com/repos/JustJans/argus/releases/latest' -TimeoutSec 10).tag_name
+            Write-Host "  version: $tag (latest release)"
+            "refs/tags/$tag"
+        } catch { Write-Host "  release lookup failed - installing master"; 'refs/heads/master' }
+    }
+    Invoke-WebRequest "https://github.com/JustJans/argus/archive/$ref.zip" -OutFile $zip -UseBasicParsing
     Expand-Archive -Path $zip -DestinationPath $tmp
-    $src = Join-Path $tmp 'argus-master'
+    # ➤ The extracted folder is named after the ref (argus-master, argus-1.9.0):
+    # ➤ take the one folder that is there instead of guessing the suffix.
+    $src = (Get-ChildItem -Path $tmp -Directory | Select-Object -First 1).FullName
     # ➤ An UPDATE must never clobber what the user built: the profile, the CV
     # ➤ and the letter example are theirs once they exist (telegram.json and
     # ➤ data/ are not in the download at all, so they survive on their own).
