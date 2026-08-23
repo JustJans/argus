@@ -486,6 +486,28 @@ export async function editTelegramButtons(messageId, text, rows, { html = false 
   } catch { return false; }   // "message is not modified" and stale ids are harmless here
 }
 
+// ➤ Redraws ONLY the keyboard under a message (2026-08-23). editMessageText
+// ➤ resends the whole text on every multi-select tick, and that round trip was
+// ➤ most of why ticking an option felt slow.
+export async function editTelegramMarkup(messageId, rows) {
+  const c = loadCfg();
+  if (!c?.bot_token || !c?.chat_id || messageId == null) return false;
+  try {
+    await api(c.bot_token, 'editMessageReplyMarkup', {
+      chat_id: c.chat_id,
+      message_id: messageId,
+      reply_markup: toInlineKeyboard(rows),
+    });
+    return true;
+  } catch { return false; }
+}
+
+// ➤ Takes the keyboard OFF a message a flow is finished with: dead buttons
+// ➤ left on closed questions kept being tapped (field test 2026-08-23).
+export async function clearTelegramButtons(messageId) {
+  return editTelegramMarkup(messageId, []);
+}
+
 // ➤ Acknowledges a button tap so Telegram stops the little loading spinner on
 // ➤ the user's side. Optional short toast text.
 export async function answerCallback(callbackId, text = '') {

@@ -876,7 +876,7 @@ async function main({ pollSeconds = 0 } = {}) {
         // ➤ its own, so the chain never eats a foreign tap.
         if (await handleReviewCallback(cb.data, cb.message?.message_id, cb.id, reviewDeps())) continue;
         if (await flipListPage(cb.data, cb.message?.message_id, cb.id)) continue;
-        await handleOnboardingCallback(cb.data, cb.id);
+        await handleOnboardingCallback(cb.data, cb.id, cb.message?.message_id);
       }
       catch (e) { try { await sendTelegram(`Error: ${String(e.message).slice(0, 200)}`); } catch {} }
       continue;

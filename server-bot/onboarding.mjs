@@ -36,7 +36,7 @@ function backupBeforeOverwrite(path) {
   } catch { /* nothing to keep, or nowhere to keep it */ }
 }
 import {
-  sendTelegram, sendTelegramButtons, editTelegramButtons, answerCallback, downloadTelegramFile,
+  sendTelegram, sendTelegramButtons, editTelegramMarkup, clearTelegramButtons, answerCallback, downloadTelegramFile,
 } from './notify.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -116,8 +116,8 @@ const QUESTIONS = [
     prompt: 'Argus setup\n\nFirst, your CV: attach it as a PDF (the paperclip button) or paste its text. It becomes the basis for filtering and for your cover letters.' },
   { key: 'name', kind: 'text',
     prompt: 'Your full name (used to sign cover letters):' },
-  { key: 'contact', kind: 'text',
-    prompt: 'Contact details: email, phone, city (comma-separated). The city goes in your cover letters; the email and phone are only kept in your profile for you to copy when applying.' },
+  { key: 'contact', kind: 'contact',
+    prompt: 'Contact details: email, phone, city — comma-separated, any order, and any of them alone is fine. The city goes in your cover letters; the email and phone are only kept in your profile for you to copy when applying.' },
   { key: 'roles', kind: 'text',
     prompt: 'Job titles you are looking for (comma-separated). e.g. automation engineer, PLC, controls, instrumentation' },
   { key: 'fields', kind: 'text',
@@ -280,6 +280,32 @@ function labelFor(key) {
   }[key] || key;
 }
 
+// ➤ Reads the contact answer by the SHAPE of each piece, not its position
+// ➤ (field test 2026-08-23): the email is the part with an @, the phone the
+// ➤ part that is digits, and whatever remains is the city — in any order, any
+// ➤ of them alone. The old positional read put "Barcelona, mail@x" city-first
+// ➤ into the email slot and fed the search a phone number as the home city.
+export function parseContact(text) {
+  const out = { email: '', phone: '', city: '' };
+  const leftovers = [];
+  for (const raw of String(text || '').split(/[,;\n]+/)) {
+    const p = raw.trim();
+    if (!p) continue;
+    if (!out.email && /\S+@\S+\.\S+/.test(p)) { out.email = p; continue; }
+    if (!out.phone && /^\+?[\d\s().-]+$/.test(p) && (p.match(/\d/g) || []).length >= 6) { out.phone = p.replace(/\s+/g, ' '); continue; }
+    leftovers.push(p);
+  }
+  // ➤ Every unclaimed piece is the city ("Sant Cugat, Barcelona" arrives as two).
+  out.city = leftovers.join(', ');
+  return out;
+}
+
+// ➤ A second round only FILLS GAPS: what the first answer established stays.
+export function mergeContact(base, extra) {
+  const b = base || { email: '', phone: '', city: '' };
+  return { email: b.email || extra.email, phone: b.phone || extra.phone, city: b.city || extra.city };
+}
+
 // ➤ Handles a TEXT message while onboarding/editing is active (CV paste, name,
 // ➤ roles, cover example...). Returns true if it consumed the message.
 export async function handleOnboardingText(text) {
@@ -294,9 +320,42 @@ export async function handleOnboardingText(text) {
     return true;
   }
   const q = s.mode === 'edit' ? Q_BY_KEY[s.editKey] : QUESTIONS[s.step];
-  if (!q || !(q.kind === 'text' || q.kind === 'cv' || q.kind === 'skip-text')) return false;
+  if (!q || !(q.kind === 'text' || q.kind === 'cv' || q.kind === 'skip-text' || q.kind === 'contact')) return false;
 
   const value = String(text || '').trim();
+  if (q.kind === 'contact') {
+    // ➤ "skip" moves on with whatever exists — sharing nothing is a valid
+    // ➤ answer, and some people will not give a phone number.
+    if (/^skip$/i.test(value)) {
+      delete s.contactPending;
+      s.answers.contact_parts = s.answers.contact_parts || { email: '', phone: '', city: '' };
+      s.answers.contact = s.answers.contact || '';
+      await advance(s);
+      return true;
+    }
+    const parts = mergeContact(s.contactPending ? s.answers.contact_parts : null, parseContact(value));
+    s.answers.contact_parts = parts;
+    s.answers.contact = [parts.email, parts.phone, parts.city].filter(Boolean).join(', ');
+    const missing = ['email', 'phone', 'city'].filter(k => !parts[k]);
+    // ➤ Say ONCE what was understood and what is absent — the old flow took
+    // ➤ "just an email" and marched on in silence, and the city it lost is
+    // ➤ what the cover letters and the home-city search group run on. One
+    // ➤ round, never a nag: the second answer (or Skip) always moves on.
+    if (missing.length && !s.contactPending) {
+      const got = ['email', 'phone', 'city'].filter(k => parts[k]);
+      const msgId = await sendTelegramButtons(
+        `Saved: ${got.join(', ') || 'nothing recognisable yet'}. Missing: ${missing.join(' and ')} — send ${missing.length > 1 ? 'them' : 'it'} now, or Skip.`,
+        [[{ label: 'Skip', data: 'skip' }]],
+      );
+      s.contactPending = true;
+      s.msgId = msgId;
+      saveState(s);
+      return true;
+    }
+    delete s.contactPending;
+    await advance(s);
+    return true;
+  }
   if (q.kind === 'cv') {
     // ➤ Keep the previous CV before overwriting it. Your copy is not a git repo
     // ➤ and nothing else holds this file, so without the backup a single
@@ -377,7 +436,7 @@ export async function handleOnboardingDocument(doc) {
 
 // ➤ Handles a BUTTON tap (callback_query.data) while active. `cbId` acknowledges
 // ➤ the tap. Returns true if consumed.
-export async function handleOnboardingCallback(data, cbId) {
+export async function handleOnboardingCallback(data, cbId, messageId = null) {
   const s = loadState();
   // ➤ "edit:<key>" can arrive from the settings menu even when not mid-flow.
   if (String(data || '').startsWith('edit:')) {
@@ -396,9 +455,21 @@ export async function handleOnboardingCallback(data, cbId) {
   }
   if (!s || !s.active) { await answerCallback(cbId); return false; }
   const q = s.mode === 'edit' ? Q_BY_KEY[s.editKey] : QUESTIONS[s.step];
+  // ➤ BOUND TO ITS MESSAGE (field test 2026-08-23), like the list pages and
+  // ➤ the review card already are: a tap on an already-closed question used to
+  // ➤ land on the CURRENT one — same o:N data, same button positions — so
+  // ➤ re-ticking the finished degrees list ticked France and Germany on the
+  // ➤ countries list. A tap whose message is not the live question only gets
+  // ➤ a toast.
+  if (s.msgId != null && messageId != null && messageId !== s.msgId) {
+    await answerCallback(cbId, 'That question is already closed — the active one is below.');
+    return true;
+  }
   // ➤ The Skip button: one tap does what typing "skip" always did — move on
-  // ➤ without saving anything. Only the optional question wears it.
-  if (data === 'skip' && q?.kind === 'skip-text') {
+  // ➤ without saving anything more. The optional question wears it, and so
+  // ➤ does the contact follow-up (whatever was recognised is already saved).
+  if (data === 'skip' && (q?.kind === 'skip-text' || (q?.kind === 'contact' && s.contactPending))) {
+    delete s.contactPending;
     await answerCallback(cbId);
     await advance(s);
     return true;
@@ -425,13 +496,23 @@ export async function handleOnboardingCallback(data, cbId) {
     s.answers[q.key] = [...cur];
     saveState(s);
     await answerCallback(cbId);
-    if (s.msgId) await editTelegramButtons(s.msgId, q.prompt, buttonRows(q, s.answers[q.key]));
+    // ➤ Keyboard-only edit (2026-08-23): editMessageText resent the whole
+    // ➤ prompt on every tick and was most of why ticking felt slow.
+    if (s.msgId) await editTelegramMarkup(s.msgId, buttonRows(q, s.answers[q.key]));
   }
   return true;
 }
 
 // ➤ Moves to the next step (setup) or ends the single edit, then persists.
 async function advance(s) {
+  // ➤ The finished question loses its keyboard FIRST: dead buttons left on
+  // ➤ old questions were being re-tapped, and their o:N landed on the next
+  // ➤ question's options (the binding above now refuses those taps; this
+  // ➤ removes the temptation). Best-effort — the binding is the guarantee.
+  if (s.msgId != null) {
+    try { await clearTelegramButtons(s.msgId); } catch { /* cosmetic */ }
+    s.msgId = null;
+  }
   if (s.mode === 'edit') {
     saveAnswers(s.answers);
     writeProfile(s.answers);
@@ -493,7 +574,15 @@ function reEscape(s) {
 }
 
 export function buildProfileYaml(a) {
-  const contact = splitList(a.contact);
+  // ➤ Contact, structured first (2026-08-23): the onboarding now stores what
+  // ➤ each piece IS, so nothing here depends on the order the user typed.
+  // ➤ The positional split stays as the fallback for answers saved before —
+  // ➤ every settings edit regenerates this file from the old record.
+  const legacyContact = splitList(a.contact);
+  const cp = a.contact_parts || null;
+  const cEmail = cp ? cp.email : (legacyContact[0] || '');
+  const cPhone = cp ? cp.phone : (legacyContact[1] || '');
+  const cCity = cp ? cp.city : legacyContact.slice(2).join(', ');
   // ➤ AN EMPTY LIST OF ROLES SWITCHES THE TITLE FILTER OFF (audit 2026-07-31).
   // ➤ An answer that is only spaces or only commas comes out as [], and the
   // ➤ title filter reads an empty positive list as "no keyword required" — so
@@ -526,7 +615,9 @@ export function buildProfileYaml(a) {
     ...(a.level === 'junior' ? SENIORITY_NEGATIVES : []),
     ...(a.vetoes || []),
   ];
-  const homeCity = contact[2] || '';
+  // ➤ First segment only: the search's home-city group wants "Sant Cugat",
+  // ➤ not "Sant Cugat, Barcelona" — the full string keeps riding `location`.
+  const homeCity = String(cCity || '').split(',')[0].trim();
   // ➤ The phrases sent to the job boards: the roles the user is after, plus
   // ➤ their fields, so the stream of offers is THEIRS and not the example one.
   // ➤ Roles first (they are the strongest signal), fields after, de-duplicated.
@@ -550,9 +641,9 @@ export function buildProfileYaml(a) {
 candidate:
   full_name: ${quote(a.name || '')}
   letter_name: ${quote(a.name || '')}
-  email: ${quote(contact[0] || '')}
-  phone: ${quote(contact[1] || '')}
-  location: ${quote(contact.slice(2).join(', ') || '')}
+  email: ${quote(cEmail)}
+  phone: ${quote(cPhone)}
+  location: ${quote(cCity)}
   letter_city: ${quote(homeCity)}
 
 # What the engine reads to filter and judge for you.

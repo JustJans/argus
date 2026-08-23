@@ -113,29 +113,61 @@ try {
   tick(); await drain();
 
   // ── answer whatever the bot asks, up to a sane cap ──
-  const TEXT = { name: 'Alex Rivera', contact: 'alex@example.com, +34 600 000 000, Barcelona',
+  // ➤ The contact is deliberately INCOMPLETE (an email typed alone, the
+  // ➤ 2026-08-23 field case): the bot must come back naming what is missing,
+  // ➤ and the follow-up answer must land in the right profile slots.
+  const TEXT = { name: 'Alex Rivera', contact: 'alex@example.com',
+    contactRest: 'Barcelona, +34 600 000 000',
     roles: 'automation engineer, controls', fields: 'automation, marine', cover_example: 'skip' };
   let guardName = null;
+  let lastClosedMulti = null;
+  let staleTested = false;
   for (let step = 0; step < 20; step++) {
     const prompt = await currentPrompt();
     const text = prompt?.text || '';
     const kb = prompt?.reply_markup?.inline_keyboard;
     if (/setup complete|nothing to search|profile is saved/i.test(text)) { log('\n=== SETUP COMPLETE ==='); break; }
 
+    // ➤ The 2026-08-23 field case: re-tapping a CLOSED question used to tick
+    // ➤ the SAME positions on the live one. One stale tap, then proof that the
+    // ➤ live question did not move.
+    if (kb && lastClosedMulti && lastClosedMulti !== prompt.message_id && !staleTested) {
+      staleTested = true;
+      log('  USER re-taps the closed question above (must not touch this one)');
+      await api('/_test/tap', { message_id: lastClosedMulti, data: 'o:0' });
+      tick(); await drain();
+      const again = await currentPrompt();
+      if (again?.message_id !== prompt.message_id
+          || JSON.stringify(again?.reply_markup) !== JSON.stringify(prompt.reply_markup)) {
+        log('  FAIL: the stale tap changed the live question');
+        process.exitCode = 1;
+      } else {
+        log('  OK: the stale tap changed nothing');
+      }
+    }
+
+    // ➤ The contact follow-up carries a Skip button, but the point of the test
+    // ➤ is the TYPED completion — so it answers instead of tapping.
+    if (/missing:/i.test(text)) {
+      log(`  USER types: ${JSON.stringify(TEXT.contactRest)} (answering the Missing note)`);
+      await api('/_test/say', { text: TEXT.contactRest });
+      tick(); await drain();
+      continue;
+    }
     if (kb) {
       const flat = kb.flat();
       const use = flat.find(b => b.callback_data === 'use');
       const done = flat.find(b => b.callback_data === 'done');
       const skip = flat.find(b => b.callback_data === 'skip');
       if (use) { log('  USER taps [Use this]'); await api('/_test/tap', { message_id: prompt.message_id, data: 'use' }); }
-      else if (done) { log('  USER taps [Done]'); await api('/_test/tap', { message_id: prompt.message_id, data: 'done' }); }
+      else if (done) { log('  USER taps [Done]'); lastClosedMulti = prompt.message_id; await api('/_test/tap', { message_id: prompt.message_id, data: 'done' }); }
       else if (skip) { log('  USER taps [Skip]'); await api('/_test/tap', { message_id: prompt.message_id, data: 'skip' }); }
       else { const first = flat.find(b => b.callback_data?.startsWith('o:')); log(`  USER taps [${first?.text}]`); await api('/_test/tap', { message_id: prompt.message_id, data: first.callback_data }); }
     } else {
       // ➤ a typed question: pick a canned answer by what it asks for
       let ans = 'skip';
       if (/full name/i.test(text)) ans = TEXT.name;
-      else if (/contact/i.test(text)) ans = TEXT.contact;
+      else if (/contact details/i.test(text)) ans = TEXT.contact;
       else if (/job titles|roles/i.test(text)) ans = TEXT.roles;
       else if (/fields you can/i.test(text)) ans = TEXT.fields;
       else if (/cover letter/i.test(text)) ans = TEXT.cover_example;
