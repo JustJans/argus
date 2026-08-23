@@ -1,5 +1,7 @@
 # Argus
 
+[![tests](https://github.com/JustJans/argus/actions/workflows/tests.yml/badge.svg)](https://github.com/JustJans/argus/actions/workflows/tests.yml)
+
 A personal, automated job searcher. It scans job portals (Workday, Oracle,
 Adzuna, LinkedIn) at zero token cost, filters offers against **your** profile,
 and sends them over Telegram, where it is controlled with typed commands:
