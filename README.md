@@ -31,8 +31,6 @@ Everything personal (roles, countries, languages, deal-breakers, CV) lives in `c
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/demo-review-dark.svg"><img src="docs/readme/demo-review-light.svg" width="32%" alt="review: one card at a time, every tap undoable"></picture>
 </p>
 
-<p align="center"><sub><b>01</b> <code>/start</code> builds your profile in the chat &nbsp;·&nbsp; then two ways to drive it: <b>02</b> typed commands, or <b>03</b> <code>review</code>, the same decisions as buttons.</sub></p>
-
 ## Install
 
 One line. It downloads the latest release into `~/argus`, installs what is missing, registers the schedule, asks for your bot token and hands you a `t.me` link: **one tap on START and the bot begins your profile questions**. Re-running it later updates (or repairs) without touching your data.
