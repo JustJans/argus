@@ -1301,7 +1301,6 @@ tracked_companies:
       tenant: iberdrola
       dc: wd3
       site: Iberdrola
-    scan_query: 'site:iberdrola.com/about-us/work-with-us "offshore" OR "marine" OR "eólico" engineer graduate OR junior'
     notes: "Bilbao. Major offshore wind developer. Spain's largest renewables company."
     enabled: true
 
@@ -1311,7 +1310,6 @@ tracked_companies:
       tenant: repsol
       dc: wd3
       site: Repsol
-    scan_query: 'site:repsol.com/en/careers "offshore" OR "marine" OR "renewable" engineer graduate'
     notes: "Madrid. Oil & gas to renewables transition. Offshore projects."
     enabled: true
 
@@ -1321,7 +1319,6 @@ tracked_companies:
       tenant: acciona
       dc: wd3
       site: ACCIONA_Employment_Channel
-    scan_query: 'site:jobs.acciona.com "offshore" OR "eólico marino" OR "marine" engineer graduate OR junior'
     notes: "Madrid. Offshore wind developer in Spain."
     enabled: true
 
@@ -1339,7 +1336,6 @@ tracked_companies:
     # ➤ belonged to somebody else and answered 5 postings that were not Vestas's.
     # ➤ This edition has no SuccessFactors reader, so the board stays unread
     # ➤ rather than wrongly read.
-    scan_method: websearch
     notes: "Denmark/NL. Wind turbine manufacturer and developer. Workday API (zero-token)."
     enabled: true
 
@@ -1347,14 +1343,11 @@ tracked_companies:
     careers_url: https://www.siemensgamesa.com/en-int/careers
     # ➤ Absorbed into Siemens Energy: its own Workday answers 0 postings for any
     # ➤ search, and Siemens Energy hires through Avature, which has no feed.
-    scan_method: websearch
     notes: "Bilbao HQ. Major offshore wind OEM. Spain-friendly. Workday API (zero-token)."
     enabled: true
 
   - name: RWE Renewables
     careers_url: https://jobs.rwe.com
-    scan_method: websearch
-    scan_query: 'site:jobs.rwe.com "offshore wind" OR "offshore" engineer graduate OR junior'
     notes: "Germany/UK. Large offshore wind developer."
     enabled: true
 
@@ -1378,8 +1371,6 @@ tracked_companies:
 
   - name: TotalEnergies
     careers_url: https://jobs.totalenergies.com
-    scan_method: websearch
-    scan_query: 'site:jobs.totalenergies.com "offshore" OR "marine" OR "mooring" engineer graduate OR junior'
     notes: "France. Offshore and renewables. Europe hiring."
     enabled: true
 
@@ -1400,7 +1391,6 @@ tracked_companies:
       tenant: demegroup
       dc: wd3
       site: careers_external
-    scan_query: 'site:deme-group.com/careers "offshore" OR "marine" OR "mooring" engineer graduate OR junior'
     notes: "Belgium (Zwijndrecht). Major offshore installation contractor. BE proximity relevant."
     enabled: true
 
@@ -1409,7 +1399,6 @@ tracked_companies:
     sitemap:
       url: https://careers.vanoord.com/sitemap.xml
       match: "/vacancies/"
-    scan_query: 'site:vanoord.com/careers "offshore" OR "marine" OR "engineering" graduate OR junior'
     notes: "Rotterdam NL. Dredging and offshore installation contractor."
     enabled: true
 
@@ -1418,21 +1407,16 @@ tracked_companies:
     sitemap:
       url: https://careers.boskalis.com/sitemap.vacancy.xml
       match: "/vacancy/"
-    scan_query: 'site:boskalis.com/careers "offshore" OR "marine" OR "engineering" graduate OR junior'
     notes: "Papendrecht NL. Marine contractor. Graduate programme available."
     enabled: true
 
   - name: Heerema Marine Contractors
     careers_url: https://www.heerema.com/careers
-    scan_method: websearch
-    scan_query: 'site:heerema.com "offshore" OR "marine" OR "engineering" graduate OR junior'
     notes: "Leiden NL. Heavy lift and offshore installation. Graduate roles."
     enabled: true
 
   - name: Subsea 7
     careers_url: https://careers.subsea7.com
-    scan_method: websearch
-    scan_query: 'site:careers.subsea7.com "offshore" OR "mooring" OR "marine" OR "subsea" engineer graduate'
     notes: "Luxembourg/UK. Offshore and subsea contractor."
     enabled: true
 
@@ -1441,21 +1425,16 @@ tracked_companies:
     oracle:
       host: hcxg.fa.em2.oraclecloud.com
       site: CX_1
-    scan_query: 'site:careers.technipenergies.com "offshore" OR "mooring" OR "marine" engineer graduate OR junior'
     notes: "France/Netherlands. Offshore energy and LNG contractor."
     enabled: true
 
   - name: SBM Offshore
     careers_url: https://www.sbmoffshore.com/careers
-    scan_method: websearch
-    scan_query: 'site:sbmoffshore.com "mooring" OR "offshore" OR "marine" engineer graduate'
     notes: "Amsterdam NL. FPSO and mooring systems specialist. Direct OrcaFlex relevance."
     enabled: true
 
   - name: BW Offshore
     careers_url: https://www.bw-offshore.com/careers
-    scan_method: websearch
-    scan_query: 'site:bw-offshore.com "mooring" OR "offshore" OR "marine" engineer graduate OR junior'
     notes: "Norway/Singapore. FPSO operator. Mooring relevance."
     enabled: true
 
@@ -1480,22 +1459,16 @@ tracked_companies:
 
   - name: Bureau Veritas
     careers_url: https://group.bureauveritas.com/careers
-    scan_method: websearch
-    scan_query: 'site:group.bureauveritas.com "offshore" OR "marine" OR "mooring" engineer graduate'
     notes: "France. Classification society. BV standards experience."
     enabled: true
 
   - name: Lloyd's Register
     careers_url: https://www.lr.org/en/careers
-    scan_method: websearch
-    scan_query: 'site:lr.org/en/careers "offshore" OR "marine" OR "structural" engineer graduate OR junior'
     notes: "UK. Classification and engineering advisory."
     enabled: true
 
   - name: RINA
     careers_url: https://www.rina.org/en/careers
-    scan_method: websearch
-    scan_query: 'site:rina.org "offshore" OR "marine" OR "structural" engineer graduate'
     notes: "Italy. Classification and engineering advisory. Spain presence."
     enabled: true
 
@@ -1503,8 +1476,6 @@ tracked_companies:
 
   - name: Saitec Offshore
     careers_url: https://www.saitec.es/en/careers
-    scan_method: websearch
-    scan_query: '"saitec" careers "offshore" OR "floating wind" OR "mooring" engineer'
     notes: "Bilbao. Spanish floating offshore wind company."
     enabled: true
 
@@ -1512,50 +1483,36 @@ tracked_companies:
 
   - name: Navantia
     careers_url: https://www.navantia.es/empleo
-    scan_method: websearch
-    scan_query: 'site:navantia.es "ingeniero" OR "engineer" "naval" OR "offshore" OR "marino" junior OR graduado'
     notes: "Spain. State shipbuilding company. Naval and offshore projects."
     enabled: true
 
   - name: Indra
     careers_url: https://www.indra.es/es/empleos-indra
-    scan_method: websearch
-    scan_query: 'site:indra.es "marine" OR "offshore" OR "oceanography" OR "GIS" engineer graduate'
     notes: "Madrid. Defence and technology. Ocean/marine tech division."
     enabled: true
 
   - name: Idom
     careers_url: https://www.idom.com/careers
-    scan_method: websearch
-    scan_query: 'site:idom.com "offshore" OR "marine" OR "eólico" OR "mooring" engineer graduate'
     notes: "Bilbao. Engineering consultancy with offshore energy projects."
     enabled: true
 
   - name: Ineco
     careers_url: https://www.ineco.com/webineco/empleo
-    scan_method: websearch
-    scan_query: 'site:ineco.com "marino" OR "offshore" OR "puertos" OR "coastal" engineer junior OR graduate'
     notes: "Madrid. Transport and engineering consultancy. Coastal/port projects."
     enabled: true
 
   - name: Esteyco
     careers_url: https://www.esteyco.com/en/careers/
-    scan_method: websearch
-    scan_query: 'site:esteyco.com "offshore" OR "floating wind" OR "mooring" OR "structural" engineer junior OR graduate'
     notes: "Madrid/Barcelona. Floating offshore wind specialist (ELISA/TELWIND platforms). Direct fit for a mooring/offshore background."
     enabled: true
 
   - name: Sener
     careers_url: https://www.engineeringandconstruction.sener/careers
-    scan_method: websearch
-    scan_query: 'site:sener.es OR site:engineeringandconstruction.sener "offshore" OR "marine" OR "eólico" engineer junior OR graduate'
     notes: "Bilbao/Madrid. Engineering consultancy with offshore renewables division."
     enabled: true
 
   - name: Cobra IS (ACS)
     careers_url: https://www.grupocobra.com/en/careers/
-    scan_method: websearch
-    scan_query: 'site:grupocobra.com "offshore wind" OR "marine" OR "installation" engineer junior OR graduate'
     notes: "Madrid. ACS group offshore wind installation contractor."
     enabled: true
 
