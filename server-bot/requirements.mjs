@@ -501,11 +501,13 @@ export function stripHtml(html) {
   // ➤ Comments are removed UNTIL NOTHING CHANGES (CodeQL round, 2026-08-24):
   // ➤ one pass over "<!--<!-- x -->-->" leaves a live "-->" fragment behind,
   // ➤ and the ad body is the one input the boards write, not us.
-  for (let prev = null; prev !== s;) { prev = s; s = s.replace(/<!--[\s\S]*?-->/g, ''); }
+  // ➤ "--!>" closes too: browsers accept it as a comment end, so a filter
+  // ➤ that does not is a filter an ad can walk around (CodeQL #9).
+  for (let prev = null; prev !== s;) { prev = s; s = s.replace(/<!--[\s\S]*?--!?>/g, ''); }
   // ➤ What the loop cannot pair it sweeps: a nesting like <!--<!-- x -->-->
   // ➤ leaves one orphan "-->" behind, and an unclosed "<!--" would otherwise
   // ➤ ride into the tag pass and take a sentence with it.
-  s = s.replace(/<!--|-->/g, ' ');
+  s = s.replace(/<!--|--!?>/g, ' ');
   return s
     // ➤ Formatting tags go WITHOUT leaving a space: they sit inside words and a
     // ➤ space breaks them (#526: "<strong>de 3 a</strong>ños" read as "3 a ños"

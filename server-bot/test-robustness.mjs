@@ -1399,6 +1399,7 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   // ➤ stripHtml: nested comments leave nothing behind, and an ad QUOTING an
   // ➤ entity is not decoded one step further than it wrote.
   eq(stripHtml('a <!--<!-- x -->--> b'), 'a b', 'codeql: a nested comment is removed whole, no live fragment');
+  eq(stripHtml('a <!-- x --!><b>y</b> b'), 'a y b', 'codeql: the browser-accepted --!> closer counts as a close too');
   eq(stripHtml('5&amp;quot; pipe'), '5&quot; pipe', 'codeql: &amp;quot; decodes ONCE, to the literal entity');
   eq(stripHtml('R&amp;D role'), 'R&D role', 'codeql: a plain &amp; still becomes &');
   eq(stripHtml('caf&eacute; job'), 'caf job', 'codeql: unknown named entities still collapse to a space');
