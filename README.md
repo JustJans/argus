@@ -1,107 +1,75 @@
-# Argus
+<div align="center">
 
-[![tests](https://github.com/JustJans/argus/actions/workflows/tests.yml/badge.svg)](https://github.com/JustJans/argus/actions/workflows/tests.yml)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/wordmark-dark.svg">
+  <img src="docs/readme/wordmark-light.svg" width="640" alt="ARGUS, a personal, automated job searcher, driven from Telegram">
+</picture>
 
-A personal, automated job searcher. It scans job portals (Workday, Oracle,
-Adzuna, LinkedIn) at zero token cost, filters offers against **your** profile,
-and sends them over Telegram, where it is controlled with typed commands:
-`search`, `list`, `review`, `seen N`, `no N [reason]`, `applied N`, `cover N`,
-`mail`, `settings`.
+[![tests](https://img.shields.io/github/actions/workflow/status/JustJans/argus/tests.yml?branch=master&style=flat-square&label=tests&labelColor=201e1d)](https://github.com/JustJans/argus/actions/workflows/tests.yml)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/JustJans/argus/codeql.yml?branch=master&style=flat-square&label=codeql&labelColor=201e1d)](https://github.com/JustJans/argus/actions/workflows/codeql.yml)
+[![release](https://img.shields.io/github/v/release/JustJans/argus?style=flat-square&labelColor=201e1d&color=ec3013)](https://github.com/JustJans/argus/releases)
+![node](https://img.shields.io/badge/node-%E2%89%A5%2020-7d7979?style=flat-square&labelColor=201e1d)
+![platforms](https://img.shields.io/badge/runs%20on-Windows%20·%20macOS%20·%20Linux-7d7979?style=flat-square&labelColor=201e1d)
 
-It is sector-agnostic: everything specific to you (target roles, fields, degrees,
-languages, countries, deal-breakers, CV, judge prompts) lives in
-`config/profile.yml` + `cv.md`, not in the code. The defaults ship as a
-marine/offshore example — replace them with your own.
+**It scans job portals every two hours, filters offers against *your* profile,<br>and sends the survivors to Telegram, where every decision is one tap or two typed words.**
 
-One subsystem goes past filtering and asks whether the filtering itself is
-right: **[the Council](#the-council--three-judges-and-why-they-still-do-not-vote)**,
-three LLM judges that review offers in shadow and were measured rather than
-trusted.
+</div>
 
-## What arrives on Telegram
+## What it does
 
-One single message, grouped by country, replaced in place whenever something
-changes — so the bottom of your chat is always the current list. Each line is a
-link, and the `#number` is what you type back at it:
+- **Scans** Workday, Oracle, Adzuna and LinkedIn on a schedule: plain HTTP and JSON, **zero AI tokens**.
+- **Filters** every offer against your profile: title, country, language, years required, degree required, dead links.
+- **Sends** one live list to Telegram, updated in place, so the bottom of your chat is always current.
 
-```
-25/07/2026 — 3 pending offers
+Everything personal (roles, countries, languages, deal-breakers, CV) lives in `config/profile.yml` + `cv.md`, not in the code. The defaults ship as a worked marine/offshore example; `/start` replaces them with yours.
 
-BARCELONA
-- [NEW] #712 Mooring Engineer - SBM Offshore - 2y exp - €42-54k
+## See it work
 
-NETHERLANDS
-- #705 Graduate Offshore Engineer - Van Oord - Rotterdam
-- #698 Survey Engineer - Fugro - Nootdorp - €36-48k
-```
+<p align="center">
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/demo-onboarding-dark.svg"><img src="docs/readme/demo-onboarding-light.svg" width="32%" alt="/start builds your profile in the chat"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/demo-commands-dark.svg"><img src="docs/readme/demo-commands-light.svg" width="32%" alt="Typed commands: the list, then a cover letter as PDF"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/demo-review-dark.svg"><img src="docs/readme/demo-review-light.svg" width="32%" alt="review: one card at a time, every tap undoable"></picture>
+</p>
 
-The years and the salary appear only when the posting actually gives them, so
-most lines are just title, employer and city. The salary in particular comes
-from Adzuna alone — the other boards do not publish one — and even there only a
-minority of postings state it. A `~` in front (`~€36-48k`) would mark a figure
-the board estimated rather than one the posting stated; in practice Adzuna has
-not returned an estimated one, so you are unlikely to ever see it.
+<p align="center"><sub><b>01</b> <code>/start</code> builds your profile in the chat &nbsp;·&nbsp; then two ways to drive it: <b>02</b> typed commands, or <b>03</b> <code>review</code>, the same decisions as buttons.</sub></p>
 
-## Setup
+## Install
 
-**Install with one line.** Paste this — it downloads the **latest release**
-of Argus into `~/argus` (or `C:\Users\you\argus`), installs what is missing,
-registers the schedule (hidden — no flashing console windows), asks for your
-bot token and then gives you a `t.me` link: **one tap on START and the bot
-begins your profile questions**. Re-running the same line later updates to
-the newest release — and repairs a broken install — without touching your
-profile, CV or data. Every release ships only after the full test suite has
-passed on clean Linux and Windows machines; the version history lives on the
-[Releases page](https://github.com/JustJans/argus/releases).
+One line. It downloads the latest release into `~/argus`, installs what is missing, registers the schedule, asks for your bot token and hands you a `t.me` link: **one tap on START and the bot begins your profile questions**. Re-running it later updates (or repairs) without touching your data.
 
-On Windows (open PowerShell from the Start menu):
+**Windows** (PowerShell):
 
 ```powershell
 irm https://raw.githubusercontent.com/JustJans/argus/master/install.ps1 | iex
 ```
 
-On macOS or Linux (open Terminal):
+**macOS / Linux** (Terminal):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JustJans/argus/master/install.sh | bash
 ```
 
-**Prefer to do it by hand?** Open the
-[Releases page](https://github.com/JustJans/argus/releases) and download the
-latest **Source code (zip)** — that is the tested snapshot; the green Code
-button gives you master, which may be mid-work. Unzip it anywhere sensible (on macOS avoid
-Desktop/Documents/Downloads — cron cannot read them) and run the setup script
-for your system, below. Git is only a way of downloading; Argus never needs it
-to run. (Developers can clone as usual.)
+Required: **Node.js 20+** and a **Telegram bot token** ([@BotFather](https://t.me/BotFather)). No server: a laptop is fine; it simply searches while the machine is awake.
 
-**Required:** Node.js 20 or newer (the code uses the built-in `fetch`; the
-cover-letter printer needs 20) and a Telegram bot token. That is all the job
-search itself needs — and on Windows the setup below installs Node for you.
-
-**You do not need a server.** The engine is plain Node and runs natively on
-Windows, macOS and Linux — a laptop is fine. What it does need is to be awake
-when a scan is due: on an always-on machine it works round the clock, and on a
-laptop you close at night it simply searches when the laptop is open. Nothing
-breaks either way.
-
-**Going the ZIP way on Windows?** First take the internet mark off the ZIP:
-right-click it, **Properties**, tick **Unblock**, OK — then extract. (Skip
-that and Windows warns about a missing digital signature on the first
-double-click; that is what it says about ANY free program not signed with a
-paid publisher certificate. The one-line installer avoids all of this.) Then
-double-click **`setup\setup-windows.bat`**: it installs Node.js by itself if
-it is missing (via winget), installs the dependencies, walks you through the
-Telegram token, and creates the four scheduled tasks. On macOS and Linux,
-`bash setup/setup-linux-mac.sh` — same steps, cron instead of Task Scheduler.
-
-**Optional extras**, each one only unlocks its own feature and nothing breaks
-without it:
+<details>
+<summary><b>Optional extras</b></summary>
+<br>
 
 | Extra | Unlocks | Without it |
 |---|---|---|
 | An [Adzuna API key](https://developer.adzuna.com/) (free) | the Adzuna job board | the other portals still work |
 | The Claude CLI, installed and logged in (`npm i -g @anthropic-ai/claude-code`, then `claude setup-token` → `server-bot/claude-token.json`) | `cover N` (AI cover letters) and the Council | searching, filtering and Telegram work exactly the same; the Council ships **off** |
 | Chromium | the cover letter as a PDF | installed on its own at the first `cover N` (~115 MB), or by hand: `npx playwright install chromium` |
+
+</details>
+
+<details>
+<summary><b>Manual install</b></summary>
+<br>
+
+**Prefer to do it by hand?** Open the [Releases page](https://github.com/JustJans/argus/releases) and download the latest **Source code (zip)**, the tested snapshot; the green Code button gives you master, which may be mid-work. Unzip it anywhere sensible (on macOS avoid Desktop/Documents/Downloads: cron cannot read them) and run the setup script for your system. Git is only a way of downloading; Argus never needs it to run.
+
+**Going the ZIP way on Windows?** First take the internet mark off the ZIP: right-click it, **Properties**, tick **Unblock**, OK; then extract. (Skip that and Windows warns about a missing digital signature on the first double-click; that is what it says about ANY free program not signed with a paid publisher certificate. The one-line installer avoids all of this.) Then double-click **`setup\setup-windows.bat`**: it installs Node.js by itself if it is missing (via winget), installs the dependencies, walks you through the Telegram token, and creates the four scheduled tasks. On macOS and Linux, `bash setup/setup-linux-mac.sh`: same steps, cron instead of Task Scheduler.
 
 **Entirely by hand, without any script:**
 
@@ -115,11 +83,13 @@ node server-bot/notify.mjs --setup
 #    {"app_id": "...", "app_key": "..."}
 ```
 
-Next, run it on a schedule (the bot does not schedule itself). Do this **before**
-the step below: the listener line is the one that receives your Telegram
-commands, so until it is running the bot cannot answer, not even `/start`.
-`setup/setup-linux-mac.sh` offers to install all four for you. If you skipped it,
-here they are:
+</details>
+
+<details>
+<summary><b>The schedule</b></summary>
+<br>
+
+Run it on a schedule (the bot does not schedule itself), **before** `/start`: the listener line is the one that receives your Telegram commands. `setup/setup-linux-mac.sh` offers to install all four for you:
 
 ```cron
 *    * * * * cd /path/to/argus && /usr/bin/flock -n /tmp/argus-listener.lock /usr/bin/node server-bot/telegram-listener.mjs >> server-bot/listener.log 2>&1
@@ -128,13 +98,9 @@ here they are:
 0 9   * * 0 cd /path/to/argus && /usr/bin/node server-bot/housekeep.mjs >> server-bot/scan.log 2>&1
 ```
 
-The minute line is a watchdog, not the work itself: the listener it starts
-stays resident and long-polls Telegram, so commands answer in about a second.
-While it lives, `flock` makes every later tick a no-op; on macOS, which ships
-no flock, the listener's own heartbeat file does the same job.
+The minute line is a watchdog, not the work itself: the listener it starts stays resident and long-polls Telegram, so commands answer in about a second. While it lives, `flock` makes every later tick a no-op; on macOS, which ships no flock, the listener's own heartbeat file does the same job.
 
-On **Windows**, the same four go into Task Scheduler — `setup\setup-windows.bat`
-creates them for you. Doing it by hand instead, the shape is:
+On **Windows**, the same four go into Task Scheduler: `setup\setup-windows.bat` creates them for you (through `setup\run-hidden.vbs`, so no console window flashes). Doing it by hand instead, the shape is:
 
 ```powershell
 schtasks /create /tn "Argus listener" /sc minute /mo 1 /tr '"C:\Program Files\nodejs\node.exe" "C:\path\to\argus\server-bot\telegram-listener.mjs"'
@@ -143,247 +109,165 @@ schtasks /create /tn "Argus links"    /sc daily /st 07:30 /tr '"C:\Program Files
 schtasks /create /tn "Argus cleanup"  /sc weekly /d SUN /st 09:00 /tr '"C:\Program Files\nodejs\node.exe" "C:\path\to\argus\server-bot\housekeep.mjs"'
 ```
 
-No administrator rights needed. Windows only runs them while the machine is
-awake, which is fine — a laptop you close simply searches when you open it.
-(The setup registers them through `setup\run-hidden.vbs` so no console window
-flashes on every run; the bare shapes above work too, but they flash.)
+No administrator rights needed. Windows only runs them while the machine is awake, which is fine; a laptop you close simply searches when you open it.
 
-On Windows, Argus behaves like a normal installed program: it appears in
-**Settings → Installed apps** with a working Uninstall button, and its
-processes show in Task Manager as **argus.exe** — the setup copies your Node
-runtime under the product's name (the copy keeps Node's valid signature), so
-you can always tell at a glance that it is Argus running and not some
-anonymous `node.exe`.
+On Windows, Argus behaves like a normal installed program: it appears in **Settings → Installed apps** with a working Uninstall button, and its processes show in Task Manager as **argus.exe**; the setup copies your Node runtime under the product's name (the copy keeps Node's valid signature), so you can always tell at a glance that it is Argus running and not some anonymous `node.exe`.
 
-**If the bot answers nothing**, run the diagnosis: double-click
-`setup\diagnose-windows.bat` (Windows) or run `bash setup/diagnose-linux-mac.sh`
-(macOS/Linux). It checks every piece in order and says which one is broken and
-how to fix it. **To uninstall**, use Windows' own Settings → Installed apps →
-Argus → Uninstall (or `setup\uninstall-windows.bat`); on macOS/Linux, `bash
-setup/uninstall-linux-mac.sh`. Both remove the schedule and the app entry —
-everything Argus keeps outside its folder — and then you just delete the
-folder. Your profile, CV and application history live in that folder and are
-never deleted for you.
+</details>
 
-Finally, build your profile: **send `/start` to the bot.** It walks you through a
-short questionnaire (CV + a few questions, some with buttons) and writes
-`config/profile.yml` + `cv.md` for you; `settings` re-opens any question to edit
-it later. This is the step that makes Argus yours — until you do it, it searches
-with the marine/offshore example, so the first list it sends will not be yours.
-That is expected, not a fault.
+## First run
 
-If you would rather not answer questions in a chat, `config/profile.yml` and
-`cv.md` can be edited directly instead — every key is commented in place.
+Send **`/start`** to the bot. It walks you through a short questionnaire (CV + a few questions, some with buttons) and writes `config/profile.yml` + `cv.md` for you; `settings` re-opens any question later. Until you do it, Argus searches with the marine/offshore example, so the first list will not be yours. That is expected, not a fault.
+
+<details>
+<summary><b>Prefer files over chat?</b></summary>
+<br>
+
+`config/profile.yml` and `cv.md` can be edited directly instead; every key is commented in place.
+
+`config/profile.yml` decides **who you are and what is filtered out**. `portals.yml` decides **where the offers come from**: the boards queried, the search terms sent to them, the tracked companies and the blocked locations. The version shipped here is a **worked marine/offshore example**: a real, running configuration rather than a stub. You do not have to edit it by hand: the `/start` onboarding writes its own `search.queries`, `search.locations` and `track_example_companies: false` into `config/profile.yml`, and those take precedence over this file.
+
+</details>
+
+## What arrives on Telegram
+
+One single message, grouped by country, replaced in place whenever something changes. Each line is a link, and the `#number` is what you type back at it:
+
+```
+23/08/2026 — 3 pending offers
+
+BERLIN
+- [NEW] #412 Data Analyst - Northwind - 2y exp - €38-46k
+
+NETHERLANDS
+- #405 Junior Project Engineer - Vermeer BV - Utrecht
+- #398 QA Engineer - Solvia - Eindhoven - €36-44k
+```
+
+Years and salary appear only when the posting actually gives them; the salary comes from Adzuna alone, and a `~` in front would mark a board estimate rather than a stated figure.
 
 ## Commands
 
-Typed into the Telegram chat. `N` is the `#number` shown on the offer.
+Typed into the chat. `N` is the `#number` shown on the offer.
 
 | Command | What it does |
 |---|---|
 | `search` | run a scan right now instead of waiting for the schedule |
-| `list` | re-send the current list of pending offers — long lists arrive as one message with Prev/Next buttons that turn pages in place |
-| `review` | go through the pending offers one card at a time, with buttons: open the posting, mark it applied/seen, discard it, or ask for the cover letter — every decision reversible with Undo |
+| `list` | re-send the current list; long lists arrive as one message with Prev/Next buttons that turn pages in place |
+| `review` | the pending offers one card at a time, with buttons: open the posting, mark it applied/seen, discard it, or ask for the cover letter; every decision reversible with Undo |
 | `seen N [N...]` | remove one or more offers from the list |
-| `undo [N]` | put an offer back after seen/no/applied and delete the record that decision wrote — button slips leave no trace. Bare `undo` reverts the last card decision |
-| `no N [reason]` | remove an offer **and** record why, in `server-bot/feedback.jsonl` — or, if you already applied to it, close that application |
+| `undo [N]` | put an offer back after seen/no/applied and delete the record that decision wrote |
+| `no N [reason]` | remove an offer **and** record why, or, if you already applied to it, close that application |
 | `applied N` | remove it and log it to `data/applications.jsonl` |
-| `longshot N [reason]` | the same, but flagged: you applied knowing you fall short |
+| `interview N [note]` | record an interview the inbox cannot see (a call, your own calendar) |
+| `longshot N [reason]` | applied, but flagged: you applied knowing you fall short |
 | `cover N` | write a cover letter for it and send it back as a PDF |
 | `mail` | where every application you sent stands, read from your inbox |
 | `settings` | re-open any profile question to change your answer |
 | `/start` | first-time setup: builds your profile from a short questionnaire |
 | `help` | the same list, inside Telegram |
 
-`longshot` exists because the two facts are different. `applied` tells everything
-downstream "this offer suited me"; a hopeful application says the opposite, and
-without the distinction your own record argues against you.
+The rejections you write with `no N reason` are the point of the whole thing: they are your calibration record, and the filters should only ever be tightened or loosened from them.
 
-The rejections you write with `no N reason` are the point of the whole thing:
-they are your calibration record, and the filters should only ever be tightened
-or loosened from them.
+<details>
+<summary><b>Why <code>longshot</code> exists</b></summary>
+<br>
 
-### Where the search itself is configured
+The two facts are different. `applied` tells everything downstream "this offer suited me"; a hopeful application says the opposite, and without the distinction your own record argues against you.
 
-`config/profile.yml` decides **who you are and what is filtered out**.
-`portals.yml` decides **where the offers come from**: the job boards queried, the
-search terms sent to them, the tracked companies and the blocked locations. The
-version shipped here is a **worked marine/offshore example** — a real, running
-configuration rather than a stub, so you can see what a finished one looks like.
-You do not have to edit it by hand: the `/start` onboarding writes its own `search.queries`,
-`search.locations` and `track_example_companies: false` into `config/profile.yml`,
-and those take precedence over this file. Edit `portals.yml` only if you want to
-add a specific employer board or tune the example itself.
+</details>
 
 ## Beyond the filters
 
-Two subsystems go past the filters: the Council reads an offer's body and asks
-whether you should see it at all, and Mail reads what happened after you
-applied. Both are optional, both were measured, and neither is allowed to
-decide anything on its own.
+Two optional subsystems, both measured, neither allowed to decide anything on its own.
 
-### The Council — three judges, and why they still do not vote
+### The Council: three judges that do not vote
 
-`server-bot/argus-council/` · [its README](server-bot/argus-council/README.md)
+[`server-bot/argus-council/`](server-bot/argus-council/README.md) · Three LLM judges read the **body** of an offer and vote in shadow: **The Good** defaults to showing, **The Bad** hunts the mismatch a title cannot reveal, **The Ugly** reads the actual day-to-day and breaks ties. Their word (`[YES]`, `[MYB]`, `[NO]`) appears next to each offer. Advice, never a decision: no offer is ever kept or dropped because of a judge, and the whole thing ships **off**.
 
-Three LLM judges read the **body** of an offer, not just its title, and vote on
-whether you should see it. **The Good** defaults to showing and can only hide by
-quoting the barrier it found. **The Bad** hunts for the mismatch a title cannot
-reveal — the seagoing rotation, the technician role dressed as engineering, the
-language demand. **The Ugly** reads the actual day-to-day and breaks ties.
-Majority of three.
+### Mail: silence counts as an answer
 
-They run in **shadow**: the verdict goes to a journal, and with the Council
-switched on the pending list shows each offer's word — `[YES]`, `[MYB]` or
-`[NO]` — right on its line. That is advice next to the offer, never a
-decision: no offer is ever kept or dropped because of a judge, and the whole
-thing ships off.
-
-That is not caution for its own sake. It is what the measurement said. On 63
-offers with a real decision behind them the Council agreed 49 times — but it
-would have deleted 5 of the 9 offers that were actually wanted, two of which had
-already been applied to. Every voting variant tried, including unanimity and
-"The Good plus one", still loses at least two of those nine. A layer that agrees
-four times in five and still throws away more than half of what mattered is not
-ready to decide, so it does not. `reconcile.mjs` keeps filling in what you
-really did, so the number stays checkable instead of becoming a claim.
-
-### Mail — reading the replies, so silence counts as an answer
-
-`server-bot/argus-mail/`
-
-Everything else in Argus works on offers. This works on what happened *after*
-you applied: it reads your inbox once a night, matches the replies to the
-applications you logged with `applied N`, and writes one state per application.
-`mail` prints it.
-
-It exists because of a number. On one real mailbox, over 46 replies from
-employers: **35 acknowledgements, 5 rejections, 6 interviews**. Almost nobody
-tells you no — they stop writing. So "no reply after a while" is not missing
-data, it *is* the outcome, and a record that leaves it out flatters itself.
-
-Every application ends up in one of five states:
+[`server-bot/argus-mail/`](server-bot/argus-mail/README.md) · Reads your inbox once a night (Gmail, **read-only by OAuth scope**), matches replies to the applications you logged, and writes one state per application. `mail` prints it:
 
 | | State | Means |
 |---|---|---|
-| ⚪ | **N/A** | nothing came back at all — the commonest outcome by far |
-| ⚪ | **Never arrived** | the mail bounced: nobody read it, so applying again somewhere that works is a real move |
-| 🟡 | **Received** | they acknowledged it and that is all, so far |
-| 🔴 | **Rejected/Ghosted** | they said no — or two months passed with nothing, which is a no nobody wrote down |
+| ⚪ | **N/A** | nothing came back, the commonest outcome by far |
+| ⚪ | **Never arrived** | the mail bounced: nobody read it |
+| 🟡 | **Received** | acknowledged, and that is all so far |
+| 🔴 | **Rejected/Ghosted** | they said no, or two months passed, which is a no nobody wrote down |
 | 🟢 | **Interview** | somebody proposed talking to you |
 
-Two things make this harder than it looks, and both are measured rather than
-assumed:
+<details>
+<summary><b>Why it exists, and how it stays honest</b></summary>
+<br>
 
-- **The sender's own domain is useless.** Not once in 46 replies did an employer
-  write from the domain on the job advert; it is always a third-party
-  recruiting system. What identifies the application is the company name in the
-  text, or failing that the display name on the "From:" line.
-- **Only about a quarter of replies name the company at all.** So matching has
-  to be built from weak signals without inventing links: a company name is worth
-  enough on its own to identify an application, a job title needs two distinct
-  words, and the date is worth something only *alongside* one of those. Timing
-  alone never creates a candidate — otherwise every message that arrived on a
-  busy day becomes a match. When two applications fit equally well, the message
-  is reported as ambiguous instead of being assigned to a guess — with one
-  exception, a bounce, which is about the *address* and so belongs to every
-  application sent there.
+It exists because of a number. On one real mailbox, over 46 replies from employers: **35 acknowledgements, 5 rejections, 6 interviews**. Almost nobody tells you no: they stop writing. So "no reply after a while" is not missing data, it *is* the outcome, and a record that leaves it out flatters itself.
 
-**Some employers never write at all.** They put the verdict on their own portal,
-or their address bounces and nobody fixes it, and the application would sit
-under "no reply" for ever although you already know how it ended. `no N` closes
-it: the same word you use on an offer you do not want, for an application that
-is finished. It is kept apart from your offer rejections on purpose — one trains
-the filter, and this one must not, because you were right to apply.
+Two things make this harder than it looks, and both are measured rather than assumed:
 
-Classification is word lists, not a model: on 500 real messages they found 46
-outcomes and 2 false alarms, and when one is wrong you add the phrase and it
-stays fixed. Two mistakes worth knowing about, because both are in the tests:
-"we will be in touch about the next steps" is the closing line of nearly every
-automated receipt, not an invitation; and neither is "we will let you know
-**whether** we see the right fit to invite you for an interview" — a promise is
-not an invitation, and read without the start of the sentence the two are
-identical.
+- **The sender's own domain is useless.** Not once in 46 replies did an employer write from the domain on the job advert; it is always a third-party recruiting system. What identifies the application is the company name in the text, or failing that the display name on the "From:" line.
+- **Only about a quarter of replies name the company at all.** So matching has to be built from weak signals without inventing links: a company name is worth enough on its own, a job title needs two distinct words, and the date is worth something only *alongside* one of those. When two applications fit equally well, the message is reported as ambiguous instead of being assigned to a guess.
 
-**It can only read.** The token is issued for `gmail.readonly`, which Google
-enforces on their side, so the guarantee does not depend on this code being
-correct. There is one function that talks to the mail API and the verb `GET` is
-written into it rather than passed in, and a test reads the file as text and
-fails if a second verb ever appears. Nothing from a message is ever written to
-disk: the body is read, matched in memory and dropped, and what survives is the
-kind of message and its date. Your own sent mail is excluded from the search —
-a reply you wrote reads exactly like an invitation to any pattern here, and it
-would be your own words handed back to you as news.
+**Some employers never write at all.** They put the verdict on their own portal, or their address bounces. `no N` closes the application: the same word you use on an offer you do not want. It is kept apart from your offer rejections on purpose: one trains the filter, and this one must not, because you were right to apply.
 
-Setting it up needs a Google Cloud OAuth client of your own — the README in
-`server-bot/argus-mail/` walks through it. Without one, the rest of Argus works
-exactly as before and `mail` simply says so.
+Classification is word lists, not a model: on 500 real messages they found 46 outcomes and 2 false alarms, and when one is wrong you add the phrase and it stays fixed.
+
+**It can only read.** The token is issued for `gmail.readonly`, which Google enforces on their side. There is one function that talks to the mail API and the verb `GET` is written into it rather than passed in; a test reads the file as text and fails if a second verb ever appears. Nothing from a message is ever written to disk. Setting it up needs a Google Cloud OAuth client of your own; [the README in `server-bot/argus-mail/`](server-bot/argus-mail/README.md) walks through it. Without one, the rest of Argus works exactly as before and `mail` simply says so.
+
+</details>
 
 ## Structure
 
-The engine lives in `server-bot/`:
+The engine lives in [`server-bot/`](server-bot/README.md); its README is the full reference: every program, every data file, how to change things without breaking them.
 
-- `scan.mjs` — portal scanning and title filters.
-- `requirements.mjs` — reads the years of experience and the degree an offer
-  demands (in 6 languages) from its body, to drop impossible ones. Also loads
-  and exposes the search profile.
-- `notify.mjs` / `live-list.mjs` — Telegram messaging. The "live list" is a
-  single message that is deleted and re-sent, updated, on every change, leaving
-  the commands and confirmations as history.
-- `telegram-listener.mjs` — the Telegram remote control. Always-on: it
-  long-polls Telegram and answers in about a second; the minute schedule only
-  revives it if it dies.
-- `review.mjs` — the `review` mode: one offer per card with buttons, edited in
-  place, every decision undoable.
-- `onboarding.mjs` — the `/start` setup + `settings` editor (writes the profile).
-- `esco.mjs` — the setup's bridge to the EU's [ESCO](https://esco.ec.europa.eu/)
-  occupation taxonomy (free, no key): the terms read from your CV become real
-  occupations, so roles and degree areas arrive suggested instead of asked cold.
-- `cover-letter.mjs` — generates cover letters as PDFs (Claude + Chromium).
-- `argus-council/` — the three shadow judges. See
-  [Beyond the filters](#the-council--three-judges-and-why-they-still-do-not-vote);
-  their prompts can be overridden per user via `search.judge_prompts`.
-- `gmail.mjs` / `gmail-auth.mjs` — the read-only door to your inbox: one
-  `GET`-only reader and the one-time authorisation.
-- `argus-mail/` — turns the replies into one state per application. See
-  [its README](server-bot/argus-mail/README.md) for the Gmail setup.
+<details>
+<summary><b>The pieces, in one look</b></summary>
+<br>
+
+- `scan.mjs`: portal scanning and title filters.
+- `requirements.mjs`: reads the years and the degree an offer demands (in 6 languages) from its body, to drop impossible ones.
+- `notify.mjs` / `live-list.mjs`: Telegram messaging; the single live list, deleted and re-sent on every change.
+- `telegram-listener.mjs`: the remote control. Always-on: long-polls Telegram and answers in about a second.
+- `review.mjs`: the `review` mode: one offer per card, edited in place, every decision undoable.
+- `onboarding.mjs`: the `/start` setup + `settings` editor.
+- `esco.mjs`: the setup's bridge to the EU's [ESCO](https://esco.ec.europa.eu/) occupation taxonomy: roles and degree areas arrive suggested instead of asked cold.
+- `cover-letter.mjs`: cover letters as PDFs (Claude + Chromium).
+- `argus-council/`: the three shadow judges; prompts can be overridden per user.
+- `gmail.mjs` / `gmail-auth.mjs` / `argus-mail/`: the read-only door to your inbox and the reply-matching.
+
+Plain Node, four dependencies (`js-yaml`, `playwright`, `pdf-parse`, `html-to-text`), no database, no service to sign up for beyond the portals themselves.
+
+</details>
 
 ## When something doesn't work
 
-Every part can be run by hand, and each one prints why it failed:
-
 ```bash
-npm test                                    # 1582 tests; run this first
-node server-bot/scan.mjs --dry-run          # scan without writing or notifying
-node server-bot/scan.mjs --explain          # why each offer was dropped → data/scan-explain.txt
+npm test                                      # 1582 tests; run this first
+node server-bot/scan.mjs --dry-run            # scan without writing or notifying
+node server-bot/scan.mjs --explain            # why each offer was dropped → data/scan-explain.txt
 node server-bot/telegram-listener.mjs --once  # process pending commands once
-node server-bot/housekeep.mjs --dry-run     # what the weekly cleanup would delete
+node server-bot/housekeep.mjs --dry-run       # what the weekly cleanup would delete
 ```
 
-- **The bot says nothing.** Check the watchdog line is in `crontab -l`, read
-  `server-bot/listener.log`, and look at `server-bot/listener-alive.json` — its
-  timestamp refreshes every 30s while the listener lives. The diagnose scripts
-  check all three for you.
-- **No offers ever arrive.** Run `--explain` and read the file: it has one line
-  per discarded offer with the exact reason. If your own field is being
-  dropped, the fix is in `config/profile.yml`, not in the code.
-- **`cover N` replies with an error.** That command is the one part that needs
-  the Claude CLI. The message tells you which of the two is missing (installed,
-  or authenticated).
-- **Nothing writes anything.** Secrets live in `server-bot/*.json` and are
-  created with mode 600; if you copied the folder as another user, check you
-  can still read them.
+If the bot answers nothing, run the diagnosis (`setup\diagnose-windows.bat` or `bash setup/diagnose-linux-mac.sh`): it checks every piece in order and says which one is broken and how to fix it.
 
-Some behaviour that looks wrong is deliberate, and some of what the bot gets
-wrong is knowingly left alone. Both are written down, with the reasoning, in
-[KNOWN-LIMITS.md](KNOWN-LIMITS.md) — read it before "fixing" a filter.
+<details>
+<summary><b>The usual four suspects</b></summary>
+<br>
+
+- **The bot says nothing.** Check the watchdog line is in `crontab -l`, read `server-bot/listener.log`, and look at `server-bot/listener-alive.json`; its timestamp refreshes every 30s while the listener lives. The diagnose scripts check all three for you.
+- **No offers ever arrive.** Run `--explain` and read the file: one line per discarded offer with the exact reason. If your own field is being dropped, the fix is in `config/profile.yml`, not in the code.
+- **`cover N` replies with an error.** That command is the one part that needs the Claude CLI. The message tells you which of the two is missing (installed, or authenticated).
+- **Nothing writes anything.** Secrets live in `server-bot/*.json` and are created with mode 600; if you copied the folder as another user, check you can still read them.
+
+Some behaviour that looks wrong is deliberate, and some of what the bot gets wrong is knowingly left alone. Both are written down, with the reasoning, in [KNOWN-LIMITS.md](KNOWN-LIMITS.md); read it before "fixing" a filter.
+
+**To uninstall:** Windows Settings → Installed apps → Argus → Uninstall (or `setup\uninstall-windows.bat`); on macOS/Linux, `bash setup/uninstall-linux-mac.sh`. Your profile, CV and application history live in the folder and are never deleted for you.
+
+</details>
 
 ## Notes
 
-- **Secrets** (Telegram/Claude tokens, API keys) and **activity data** (offers,
-  applications, feedback) are NOT in the repository.
-- Everything is plain Node with four dependencies (`js-yaml`, `playwright`, `pdf-parse`,
-  `html-to-text`), no
-  database and no service to sign up for beyond the portals themselves.
-- The scan costs zero AI tokens: it is HTTP and JSON. Only `cover N` and the
-  optional Council call a model.
+- **Secrets** (Telegram/Claude tokens, API keys) and **activity data** (offers, applications, feedback) are **not** in the repository.
+- The scan costs **zero AI tokens**: it is HTTP and JSON. Only `cover N` and the optional Council call a model.
+- **Argus** is the hundred-eyed watchman of Greek myth, who never sleeps.
