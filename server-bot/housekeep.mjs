@@ -37,6 +37,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
 import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, detectTitleLang, NOT_AN_EMPLOYER, titleDemandsForeignLanguage, titleEncodingBroken, bodyLanguageBlock, overrideDeadIfApply } from './scan.mjs';
+import { loadVetoes, titleNegativesWith, companyFilterWith, locationFilterWith } from './vetoes.mjs';
 import { experienceScreen, degreeScreen, stripHtml, extractAdzunaJd, PRIORITY_KEEP, searchProfile } from './requirements.mjs';
 // ➤ To refresh the Telegram list after deleting: otherwise you keep seeing on
 // ➤ your phone offers that no longer exist (audit 2026-07-25).
@@ -499,14 +500,18 @@ async function main() {
     // ➤ portals.yml while scan.mjs prefers config/profile.yml, so after editing
     // ➤ your profile the scan admitted offers under the new rule and the Sunday
     // ➤ cleanup deleted them under the old one.
+    // ➤ The standing vetoes ride here too, so a veto taught after a "no"
+    // ➤ clears its matching saved offers on the next cleanup — the same
+    // ➤ promise the panel makes when it reports what still matches.
+    const vetoes = loadVetoes();
     const titleOk = buildTitleFilter({
       positive: searchProfile.positive_titles || (config.title_filter || {}).positive,
-      negative: searchProfile.negative_titles || (config.title_filter || {}).negative,
+      negative: titleNegativesWith(searchProfile.negative_titles || (config.title_filter || {}).negative, vetoes),
     });
-    const locFilter = buildLocationFilter(searchProfile.locations || config.location_filter);
+    const locFilter = buildLocationFilter(locationFilterWith(searchProfile.locations || config.location_filter, vetoes));
     // ➤ The company blacklist is also re-applied here: if you veto a
     // ➤ company, its already-saved offers fall in the next cleanup.
-    const companyOk = buildCompanyFilter(config.company_filter);
+    const companyOk = buildCompanyFilter(companyFilterWith(config.company_filter, vetoes));
     // ➤ GEOGRAPHY IS CHECKED ON BOTH HALVES, like the scanner (audit
     // ➤ 2026-07-31). Only the TITLE was being tested here, so the offer's actual
     // ➤ LOCATION was never re-checked and a country you switched off after the

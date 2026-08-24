@@ -41,6 +41,10 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } fr
 // ➤ truncate the pending list. Used for the pipeline.md rewrite below.
 import { writeFileAtomic, withFileLock, trimLog } from './fs-atomic.mjs';
 import { PENDING_HEADING, PROCESSED_HEADING, pendingIndex } from './pipeline-format.mjs';
+// ➤ EXPERIMENTAL (2026-08-24): the standing vetoes the user taught by tapping
+// ➤ after a "no". Merged into every filter below so a veto behaves exactly
+// ➤ like a hand-written negative.
+import { loadVetoes, titleNegativesWith, companyFilterWith, locationFilterWith } from './vetoes.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
@@ -1814,9 +1818,10 @@ async function main() {
   // ➤ Title keywords come from your profile (search.positive_titles /
   // ➤ search.negative_titles) when set; otherwise from portals.yml (the marine
   // ➤ default). This lets the onboarding configure the base filter in one file.
+  const vetoes = loadVetoes();
   const titleFilter = buildTitleFilter({
     positive: searchProfile.positive_titles || (config.title_filter || {}).positive,
-    negative: searchProfile.negative_titles || (config.title_filter || {}).negative,
+    negative: titleNegativesWith(searchProfile.negative_titles || (config.title_filter || {}).negative, vetoes),
   });
   // ➤ ── WHERE THE OFFERS COME FROM ──────────────────────────────────────
   // ➤ Until the 2026-07-25 audit these SOURCES were fixed in portals.yml, which
@@ -1833,8 +1838,8 @@ async function main() {
   // ➤   geography wholesale.
   const profileLocations = searchProfile.locations && typeof searchProfile.locations === 'object' ? searchProfile.locations : null;
 
-  const locationFilter = buildLocationFilter(profileLocations || config.location_filter);
-  const companyFilter = buildCompanyFilter(config.company_filter);
+  const locationFilter = buildLocationFilter(locationFilterWith(profileLocations || config.location_filter, vetoes));
+  const companyFilter = buildCompanyFilter(companyFilterWith(config.company_filter, vetoes));
   const country = buildCountryFilter();
   // ➤ Workday searches one term at a time, so each query is used as a term.
   const workdayTerms = profileQueries || config.workday_search_terms || [];

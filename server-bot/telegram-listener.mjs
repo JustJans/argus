@@ -38,6 +38,7 @@
  *   mail                  where every application you sent stands (from your inbox)
  *   seen N [N...]         hide offer(s) from the pending list
  *   no N [reason]         hide an offer AND record why to feedback.jsonl
+ *   vetoes                the standing vetoes taught after a "no", tap to remove
  *   anything else         help text
  *
  * State: telegram-offset.json (last processed update_id) and
@@ -65,6 +66,9 @@ import {
 // ➤ buttons. Decisions run THIS file's command handlers in quiet mode, so a
 // ➤ button and a typed command are one code path.
 import { startReview, handleReviewCallback, undoDecision, REVIEW_STATE_PATH } from './review.mjs';
+// ➤ EXPERIMENTAL (2026-08-24): the "no" that teaches — a one-tap veto panel
+// ➤ after each typed rejection, and the "vetoes" command to manage them.
+import { sendVetoChips, handleVetoCallback, startVetoList } from './vetoes.mjs';
 
 // ➤ Paths and basic settings: where this script lives, the project's root
 // ➤ folder and the configuration files.
@@ -187,7 +191,8 @@ const HELP =
   '<code>search</code> — search for new offers now\n' +
   '<code>seen N</code> — remove offer(s) from the list\n' +
   '<code>undo N</code> — put an offer back after seen/no/applied\n' +
-  '<code>no N reason</code> — remove an offer and note why (improves the filter)\n' +
+  '<code>no N reason</code> — remove an offer and note why; then one tap can turn it into a standing veto\n' +
+  '<code>vetoes</code> — every veto you taught this way, tap one to remove it\n' +
   '<code>applied N</code> — mark as applied (removes it from the list)\n' +
   '<code>interview N</code> — record an interview the inbox cannot see (a call, your own calendar)\n' +
   '<code>longshot N reason</code> — applied, but you know you fall short\n' +
@@ -466,6 +471,18 @@ async function markApplied(n, { longshot = false, reason = '', quiet = false } =
 // ➤ quiet mode. The card is the confirmation; the wrappers hand back only what
 // ➤ the card and a later undo need (the record's ts, and a warning when the
 // ➤ honesty check says the list write failed).
+// ➤ What the veto panel needs from this listener: hiding matched pending
+// ➤ offers exactly as a typed "seen" would (each stays undoable with
+// ➤ "undo N"), plus the list refresh that follows any removal.
+function vetoTapDeps() {
+  return {
+    hide: async ids => {
+      await runNode('seen.mjs', ids.map(String));
+      await refreshList({ markSeen: true });
+    },
+  };
+}
+
 function reviewDeps() {
   return {
     seen: async o => {
@@ -690,7 +707,19 @@ async function handle(text) {
   if (/^no[\s,:]*#?\d+/i.test(t)) {
     // ➤ Split the offer number from the reason text.
     const m = t.match(/^no[\s,:]*#?(\d+)[\s,.:—-]*(.*)$/i);
-    await rejectWithReason(parseInt(m[1], 10), m[2].trim());
+    const n = parseInt(m[1], 10);
+    // ➤ Read the offer BEFORE the rejection removes it from the list: the
+    // ➤ veto panel below needs its title, company and city.
+    const off = pendingOffers().find(o => o.id === n);
+    await rejectWithReason(n, m[2].trim());
+    // ➤ EXPERIMENTAL (2026-08-24): a typed "no" earns a one-tap veto panel
+    // ➤ built from what was just rejected. Typed path only for now — the
+    // ➤ review cards keep their own rhythm.
+    if (off) await sendVetoChips(off, vetoTapDeps());
+    return;
+  }
+  if (/^vetoes$/i.test(t)) {
+    await startVetoList(vetoTapDeps());
     return;
   }
   // ➤ Does it start with "no" but WITHOUT a number ("No, needs 5 years...")?
@@ -858,6 +887,7 @@ async function main({ pollSeconds = 0 } = {}) {
         // ➤ Review-card taps first, page turns second, everything else to the
         // ➤ onboarding. Each handler answers false only for data that is not
         // ➤ its own, so the chain never eats a foreign tap.
+        if (await handleVetoCallback(cb.data, cb.message?.message_id, cb.id, vetoTapDeps())) continue;
         if (await handleReviewCallback(cb.data, cb.message?.message_id, cb.id, reviewDeps())) continue;
         if (await flipListPage(cb.data, cb.message?.message_id, cb.id)) continue;
         await handleOnboardingCallback(cb.data, cb.id, cb.message?.message_id);
