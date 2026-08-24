@@ -156,7 +156,12 @@ const CAP_BEFORE = /(?:up to|bis zu|maximaal|jusqu'?[àa]|max\.?|maximum(?: of)?
 // ➤ (4) DURATION of the JOB, not of your past: "contrato de 2 años". Only
 // ➤ counted ATTACHED before the number. Widened 2026-07-25 — it caught only
 // ➤ "contract of 3 years", so "a 2-year assignment" still dropped good offers.
-const DURATION_BEFORE = /(?:contra(?:ct|to)s?|contrat|vertrag|dienstverband|arbeitsvertrag|assignment|secondment|mission|duraci[óo]n|duration|dur[ée]e|looptijd|laufzeit|posting|placement|project)\s*(?:is|es|ist|van|de|of|for|por|pour|f[üu]r|d[ée]e?|:)*\s*(?:an?\s+)?$/i;
+// ➤ The filler words carry their own \s INSIDE the repetition and "de" is
+// ➤ spelled once, not twice (CodeQL round, 2026-08-24): the old form repeated
+// ➤ bare alternatives with two of them matching the same text, which is the
+// ➤ recipe for exponential backtracking on a near-miss — and this regex runs
+// ➤ against a window of every advert body.
+const DURATION_BEFORE = /(?:contra(?:ct|to)s?|contrat|vertrag|dienstverband|arbeitsvertrag|assignment|secondment|mission|duraci[óo]n|duration|dur[ée]e|looptijd|laufzeit|posting|placement|project)\s*(?:(?:is|es|ist|van|of|for|por|pour|f[üu]r|d[ée]e?|:)\s*)*(?:an?\s+)?$/i;
 
 const WINDOW = 50; // chars of context scanned around each number match
 
@@ -492,11 +497,19 @@ export function extractAdzunaJd(html) {
 // ➤ that ATS descriptions actually use, collapse whitespace. Good enough for
 // ➤ the regex screening above, which is all it is for.
 export function stripHtml(html) {
-  return String(html || '')
+  let s = String(html || '');
+  // ➤ Comments are removed UNTIL NOTHING CHANGES (CodeQL round, 2026-08-24):
+  // ➤ one pass over "<!--<!-- x -->-->" leaves a live "-->" fragment behind,
+  // ➤ and the ad body is the one input the boards write, not us.
+  for (let prev = null; prev !== s;) { prev = s; s = s.replace(/<!--[\s\S]*?-->/g, ''); }
+  // ➤ What the loop cannot pair it sweeps: a nesting like <!--<!-- x -->-->
+  // ➤ leaves one orphan "-->" behind, and an unclosed "<!--" would otherwise
+  // ➤ ride into the tag pass and take a sentence with it.
+  s = s.replace(/<!--|-->/g, ' ');
+  return s
     // ➤ Formatting tags go WITHOUT leaving a space: they sit inside words and a
     // ➤ space breaks them (#526: "<strong>de 3 a</strong>ños" read as "3 a ños"
     // ➤ and the offer slipped). Block tags DO become a space — they separate.
-    .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<\/?(?:strong|b|em|i|u|span|a|sub|sup|mark|small|font)(?:\s[^<>]*)?>/gi, '')
     // ➤ 2026-07-18: each </li> becomes a PERIOD. Bullets carry no final stop, so
     // ➤ flattened they merged into one sentence and an "is a plus" from the next
@@ -514,10 +527,13 @@ export function stripHtml(html) {
     // ➤ requirement because only the named &nbsp; was decoded.
     .replace(/&#(?:160|xa0);/gi, ' ')
     .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
     .replace(/&#3[49];|&rsquo;|&lsquo;|&apos;/gi, "'")
     .replace(/&quot;|&#34;/gi, '"')
-    .replace(/&[a-z]+;/gi, ' ')
+    // ➤ &amp; is decoded LAST, and the catch-all must not eat it (CodeQL
+    // ➤ round, 2026-08-24): decoding it first turned "&amp;quot;" — an ad
+    // ➤ QUOTING an entity — into a real quote, one decode too many.
+    .replace(/&(?!amp;)[a-z]+;/gi, ' ')
+    .replace(/&amp;/gi, '&')
     .replace(/\s+/g, ' ')
     // ➤ If a bullet ALREADY carried a final period, the </li> added another
     // ➤ ("x.. ") — consecutive periods merge into one.

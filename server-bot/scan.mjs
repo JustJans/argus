@@ -1482,8 +1482,13 @@ export function roleKey(company, title) {
   // ➤ Nine of 1,016 real titles carry an entity, all of them his kind of role,
   // ➤ and the effect is that a re-post under a new link comes back and a "no"
   // ➤ on it never sticks.
+  // ➤ The gender-tag pattern is written WITHOUT ambiguous repetition (CodeQL
+  // ➤ round, 2026-08-24): the old optional-separator form backtracked
+  // ➤ exponentially on a pathological title like "(m m m m …" with no closing
+  // ➤ paren — and titles come from the boards, not from us. Separators are one
+  // ➤ mandatory run, and a fused "(mwd)" gets its own branch.
   const norm = s => decodeFieldEntities(String(s)).toLowerCase()
-    .replace(/\(\s*(?:(?:m|w|f|d|x|h|v)(?:\s*[/|,.]?\s*(?:m|w|f|d|x|h|v))+|all\s*genders?|gn)\s*\)/gi, ' ')
+    .replace(/\(\s*(?:[mwfdxhv](?:[\s/|,.]+[mwfdxhv])+|[mwfdxhv]{2,}|all\s*genders?|gn)\s*\)/gi, ' ')
     .replace(/\b\d{2,3}\s*[-–]\s*\d{2,3}\s*%|\b\d{2,3}\s*%/g, ' ')
     .replace(/[–—]/g, '-').replace(/\s+/g, ' ').replace(/[\s,.;:-]+$/, '').trim();
   const who = norm(company);

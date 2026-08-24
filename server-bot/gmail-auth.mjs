@@ -104,9 +104,14 @@ async function main() {
       // ➤ server from here rather than from a finally(). Tearing the loop down
       // ➤ while a response is still in flight is what produced a libuv
       // ➤ assertion on Windows instead of a readable error.
+      // ➤ The error text comes from the request's own query string, so it is
+      // ➤ escaped before it goes back inside HTML (CodeQL round, 2026-08-24).
+      // ➤ The window is a loopback server alive for seconds, but an escape
+      // ➤ costs one line and the alternative is echoing attacker-shaped text.
+      const escHtml = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
       res.end(got
         ? '<h2>Argus is authorised.</h2><p>You can close this tab and go back to the terminal.</p>'
-        : `<h2>Authorisation failed</h2><p>${err || 'no code returned'}</p>`,
+        : `<h2>Authorisation failed</h2><p>${escHtml(err || 'no code returned')}</p>`,
       () => {
         clearTimeout(timer);
         // ➤ Keep-alive sockets hold the server open; close them explicitly or

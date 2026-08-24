@@ -1364,5 +1364,51 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ok(!isSafeUrl(null), 'url: null is refused');
 }
 
+// ── 18) The CodeQL round: adversarial text must not hang or double-decode ──
+// ➤ Titles and advert bodies are the boards' text, not ours. The first CodeQL
+// ➤ sweep (2026-08-24) found regexes whose backtracking went exponential on
+// ➤ near-miss input, an entity decoder that decoded twice, and a comment
+// ➤ stripper one nesting away from leaving live markup. Each fix is pinned
+// ➤ twice: the honest input still behaves, and the hostile one returns fast.
+{
+  const { roleKey } = await import('./scan.mjs');
+  const { fuzzyKey } = await import('./housekeep.mjs');
+  const { compactTitle } = await import('./notify.mjs');
+  const { stripHtml } = await import('./requirements.mjs');
+  const fast = (label, fn) => {
+    const t0 = Date.now();
+    const out = fn();
+    ok(Date.now() - t0 < 3000, `codeql: ${label} answers fast on hostile input`);
+    return out;
+  };
+
+  // ➤ The gender tag in every spelling still folds to one key…
+  eq(roleKey('ACME', 'Automation Engineer (m/w/d)'), roleKey('ACME', 'Automation Engineer'), 'codeql: (m/w/d) still stripped from the dedupe key');
+  eq(roleKey('ACME', 'Automation Engineer (x w m)'), roleKey('ACME', 'Automation Engineer'), 'codeql: space-separated tag too');
+  eq(roleKey('ACME', 'Automation Engineer (mwd)'), roleKey('ACME', 'Automation Engineer'), 'codeql: and the fused (mwd)');
+  eq(fuzzyKey('ACME', 'Engineer (M/W/D)'), fuzzyKey('ACME', 'Engineer'), 'codeql: housekeep folds the same way');
+  ok(roleKey('ACME', 'Engineer (HMI)') !== roleKey('ACME', 'Engineer'), 'codeql: a real parenthesis is NOT a gender tag');
+  // ➤ …and the near-miss that used to backtrack exponentially returns at once.
+  fast('roleKey', () => roleKey('ACME', 'Engineer (' + 'm '.repeat(3000)));
+  fast('fuzzyKey', () => fuzzyKey('ACME', 'Engineer (' + 'm,'.repeat(3000)));
+
+  // ➤ The acronym tail: honest tails still go, hostile ones return fast.
+  eq(compactTitle('Network Engineer DWDM / MPLS-TP / TDM'), 'Network Engineer', 'codeql: the acronym tail is still stripped');
+  fast('compactTitle', () => compactTitle('Engineer ABC' + ' / x'.repeat(60) + ' '.repeat(4000) + '!'));
+
+  // ➤ stripHtml: nested comments leave nothing behind, and an ad QUOTING an
+  // ➤ entity is not decoded one step further than it wrote.
+  eq(stripHtml('a <!--<!-- x -->--> b'), 'a b', 'codeql: a nested comment is removed whole, no live fragment');
+  eq(stripHtml('5&amp;quot; pipe'), '5&quot; pipe', 'codeql: &amp;quot; decodes ONCE, to the literal entity');
+  eq(stripHtml('R&amp;D role'), 'R&D role', 'codeql: a plain &amp; still becomes &');
+  eq(stripHtml('caf&eacute; job'), 'caf job', 'codeql: unknown named entities still collapse to a space');
+
+  // ➤ The OAuth echo: the query-string error goes through the escape, read
+  // ➤ straight from the source like the GET-only pin in the gmail suite.
+  const authSrc = (await import('fs')).readFileSync(new URL('./gmail-auth.mjs', import.meta.url), 'utf-8');
+  ok(/escHtml\(err/.test(authSrc), 'codeql: the OAuth error is escaped before going back as HTML');
+  ok(!/\$\{err \|\|/.test(authSrc), 'codeql: and the raw interpolation is gone');
+}
+
 if (fail) { console.log(`\n${fail}/${pass + fail} robustness tests FAILED.`); process.exit(1); }
 console.log(`All ${pass} robustness tests passed.`);

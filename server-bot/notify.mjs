@@ -194,7 +194,11 @@ export function compactTitle(title) {
   t = t.replace(/\s*\(\s*(?:temp(?:orary)?(?:\s+agency)?|interim|ett|zzp|freelance|w2|contract(?:or)?)\s*\)/gi, '');
 
   // ➤ Removes the trailing "acronym tail" (e.g. " DWDM / MPLS-TP / TDM").
-  t = t.replace(/\s+[A-Z0-9][A-Z0-9-]{2,}(?:\s*\/\s*[^/]{1,40})+\s*$/, '');
+  // ➤ Each slash-segment must start AND end on a non-space (CodeQL round,
+  // ➤ 2026-08-24): with spaces allowed at the edges, the split between the
+  // ➤ separator's \s* and the segment was ambiguous and backtracking went
+  // ➤ polynomial on titles that almost match — and titles are board input.
+  t = t.replace(/\s+[A-Z0-9][A-Z0-9-]{2,}(?:\s*\/\s*[^/\s](?:[^/]{0,38}[^/\s])?)+\s*$/, '');
 
   // ➤ Removes dash-separated chunks that only name the sector ("Sector NAVAL").
   const segs = t.split(/\s+[-–—]\s+/).filter(seg => {
