@@ -6,6 +6,9 @@
 # the setup e2e run fully offline (the mock Telegram is part of the harness).
 name: tests
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [master]
