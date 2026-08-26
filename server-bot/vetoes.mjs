@@ -144,45 +144,70 @@ function clashesWithPositives(chip, positives, { phrase = false } = {}) {
 
 const alreadyVetoed = (word, v) => v.titles.some(t => fold(t) === fold(word));
 
-// ➤ From one rejected offer to at most seven buttons: up to three distinctive
-// ➤ title words, up to two adjacent pairs around them (a category is often two
-// ➤ words — "Divorce Lawyer" says more than "Divorce"), the company, the city.
+// ➤ Words that tie a job name to its complement: "Pulidor DE suelos", "Head OF
+// ➤ Engineering", "Monteur VAN installaties". A phrase may bridge ONE of them,
+// ➤ which is what lets a role written the Romance way survive as a single
+// ➤ concept instead of arriving cut in half. Locatives ("en", "in", "at") are
+// ➤ deliberately absent: "suelos EN Campamento" is a place, not a job — and
+// ➤ "<trade> en <town>" is exactly how the odd-job marketplaces write theirs.
+const CHIP_BRIDGE = new Set('de del da das di du des van von der den of'.split(' '));
+
+// ➤ From one rejected offer to at most seven buttons: the job as ONE phrase
+// ➤ first (narrower, so safer to tap), then the distinctive words on their
+// ➤ own, then the company and the city.
 export function proposeVetoChips(offer, { positives = [], vetoes = null } = {}) {
   const v = vetoes || { titles: [], companies: [], cities: [] };
   const chips = [];
-  const words = String(offer.title || '').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const title = String(offer.title || '');
+  // ➤ Tokens WITH their position, because a phrase is cut from the title
+  // ➤ verbatim: a rebuilt "Pulidor de suelos" would not match the
+  // ➤ "Pulidor/a de suelos" it came from, and a veto that matches nothing is
+  // ➤ worse than no veto — it looks like it worked.
+  const toks = [...title.matchAll(/[\p{L}\p{N}]+/gu)].map(m => ({ w: m[0], at: m.index }));
+  const words = toks.map(t => t.w);
+  const usable = w => w.length >= 4 && !/^\d+$/.test(w) && !CHIP_STOP.has(fold(w));
+  const free = (chip, opts) => !clashesWithPositives(chip, positives, opts) && !alreadyVetoed(chip, v);
 
   const distinctive = [];
   for (const w of words) {
-    if (w.length < 4 || /^\d+$/.test(w)) continue;
-    if (CHIP_STOP.has(fold(w))) continue;
-    if (clashesWithPositives(w, positives) || alreadyVetoed(w, v)) continue;
+    if (!usable(w) || !free(w)) continue;
     if (!distinctive.some(d => fold(d) === fold(w))) distinctive.push(w);
   }
-  for (const w of distinctive.slice(0, 3)) chips.push({ kind: 'title', value: w, label: w });
+  const isDistinctive = w => distinctive.slice(0, 3).some(d => fold(d) === fold(w));
 
-  // ➤ Adjacent pairs: only around a distinctive word, and never a pair that
-  // ➤ merely repeats a single chip's reach with a stopword glued on the side.
-  const pairs = [];
-  for (let i = 0; i < words.length - 1; i++) {
-    const pair = `${words[i]} ${words[i + 1]}`;
-    const hasDistinctive = [words[i], words[i + 1]].some(w => distinctive.slice(0, 3).some(d => fold(d) === fold(w)));
-    if (!hasDistinctive) continue;
-    if (CHIP_STOP.has(fold(words[i])) || CHIP_STOP.has(fold(words[i + 1]))) continue;
-    if (clashesWithPositives(pair, positives, { phrase: true }) || alreadyVetoed(pair, v)) continue;
-    if (!pairs.some(p => fold(p) === fold(pair))) pairs.push(pair);
+  // ➤ Two content words with nothing between them but a bridge word and the
+  // ➤ gender scraps a split leaves behind ("Pulidor/a" → "Pulidor" + "a").
+  const content = toks.filter(t => usable(t.w));
+  const phrases = [];
+  for (let i = 0; i < content.length - 1; i++) {
+    const a = content[i], b = content[i + 1];
+    const between = toks.filter(t => t.at > a.at && t.at < b.at).map(t => t.w);
+    if (between.some(w => w.length > 1 && !CHIP_BRIDGE.has(fold(w)))) continue;
+    if (between.filter(w => CHIP_BRIDGE.has(fold(w))).length > 1) continue;
+    if (!isDistinctive(a.w) && !isDistinctive(b.w)) continue;
+    const span = title.slice(a.at, b.at + b.w.length).trim();
+    if (!free(span, { phrase: true })) continue;
+    if (!phrases.some(p => fold(p) === fold(span))) phrases.push(span);
   }
-  for (const p of pairs.slice(0, 2)) chips.push({ kind: 'title', value: p, label: p });
+  for (const p of phrases.slice(0, 2)) chips.push({ kind: 'title', value: p, label: p });
+  for (const w of distinctive.slice(0, 3)) chips.push({ kind: 'title', value: w, label: w });
 
   const company = String(offer.company || '').trim();
   if (company && !v.companies.some(c => fold(c) === fold(company))) {
     chips.push({ kind: 'company', value: company, label: `Company: ${company}` });
   }
-  const city = cityOf(offer.location || '') || String(offer.location || '').split(',')[0].trim();
+  // ➤ cityOf and NOTHING ELSE. It already refuses to call a country a city,
+  // ➤ and an earlier fallback to the raw first segment walked straight around
+  // ➤ that guard: an offer located plain "España" offered "City: España", one
+  // ➤ tap from vetoing the whole country.
+  const city = cityOf(offer.location || '');
   if (city && !v.cities.some(c => fold(c) === fold(city))) {
     chips.push({ kind: 'city', value: city, label: `City: ${city}` });
   }
-  return chips;
+  // ➤ Every chip must block the offer it was proposed from. A button that
+  // ➤ changes nothing is the worst button on the panel, because tapping it
+  // ➤ reads as done.
+  return chips.filter(c => vetoHits(c.kind, c.value, [offer]).length === 1);
 }
 
 // ➤ ── The panel after a "no" ────────────────────────────────────────────
@@ -207,7 +232,7 @@ function idList(ids) {
 function chipsPanel(state) {
   const lines = [
     `<b>Teach the filter</b> from #${state.offer.id} — ${esc(state.offer.title)} (${esc(state.offer.company)})`,
-    'One tap = a standing veto: offers matching it never reach you again.',
+    'One tap = a standing veto. The words below are the posting\'s own, in its own language: that is the text future postings are matched against.',
   ];
   for (const a of state.added) {
     const hits = a.hits || [];

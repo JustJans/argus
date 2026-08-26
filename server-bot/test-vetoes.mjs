@@ -128,6 +128,41 @@ const eq = (got, want, label) => {
   eq(proposeVetoChips({ id: 4, title: '', company: '', location: '' }, { positives: [], vetoes: none }), [], 'nothing to read, nothing to offer');
 }
 
+// ── The job as ONE concept, whatever language wrote it ─────────────────────
+// ➤ Field case #875 (2026-08-26): "Pulidor/a de suelos en Campamento de
+// ➤ Marines" arrived split into "Pulidor" and "suelos", two taps for one
+// ➤ trade — because the pair rule refused to cross the "de" that Romance job
+// ➤ names are built with, and the "/a" left a stray letter in the middle.
+{
+  const none = { titles: [], companies: [], cities: [] };
+  const chips = proposeVetoChips(
+    { id: 875, title: 'Pulidor/a de suelos en Campamento de Marines', company: 'Cronoshare.com', location: 'España' },
+    { positives: ['Marine'], vetoes: none },
+  );
+  const labels = chips.map(c => c.label);
+  ok(labels.includes('Pulidor/a de suelos'), 'the trade arrives whole, cut from the title verbatim');
+  eq(labels[0], 'Pulidor/a de suelos', 'and first: a phrase is narrower than a word, so it is the safer tap');
+  ok(labels.includes('Pulidor'), 'the broader single word is still there for whoever wants it');
+  ok(!labels.some(l => /suelos en|en Campamento/i.test(l)), 'a locative is never bridged: "<trade> en <town>" is a place, not a job');
+  ok(!labels.some(l => /^City:/.test(l)), 'a country is NEVER offered as a city — one tap would have vetoed all of Spain');
+  ok(!labels.some(l => /^marines$/i.test(l)), "and the town that happens to carry the user's own field word is not offered on its own");
+
+  // ➤ The English shape must not regress while the Romance one is fixed.
+  const en = proposeVetoChips(
+    { id: 5, title: 'Senior Divorce Lawyer (m/w/d)', company: 'X', location: 'Barcelona, Spain' },
+    { positives: ['lawyer'], vetoes: none },
+  ).map(c => c.label);
+  eq(en[0], 'Divorce Lawyer', 'an English two-word role is still the first chip');
+  ok(en.includes('City: Barcelona'), 'and a real city is still offered');
+
+  // ➤ THE INVARIANT: a chip that does not block its own offer is a button
+  // ➤ that does nothing. Every chip is checked against the real filters.
+  for (const [kind, value, label] of chips.map(c => [c.kind, c.value, c.label])) {
+    ok(vetoHits(kind, value, [{ id: 875, title: 'Pulidor/a de suelos en Campamento de Marines', company: 'Cronoshare.com', location: 'España' }]).length === 1,
+      `chip "${label}" actually blocks the offer it came from`);
+  }
+}
+
 // ── The panel, tap by tap, against fake Telegram and a fake store ──────────
 function fakeWorld({ pending = [], positives = [] } = {}) {
   const world = {
