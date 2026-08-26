@@ -22,7 +22,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { pendingOffers } from './list-offers.mjs';
 import { restorePendingInLines } from './seen.mjs';
-import { esc, sendTelegramButtons, editTelegramButtons, answerCallback, sendTelegramMessage, deleteTelegramMessage } from './notify.mjs';
+import { esc, sendTelegramButtons, editTelegramButtons, answerCallback, sendTelegramMessage, deleteTelegramMessage, councilVerdicts } from './notify.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(SCRIPT_DIR);
@@ -70,6 +70,10 @@ export function reviewKeyboard(state) {
 // ➤ The card's text: two lines for a pending offer, a struck title and one
 // ➤ word for a decided one. Everything shown comes from a job portal or from
 // ➤ the pipeline, so it is escaped — a title with "<" must not kill the card.
+// ➤ The Council's word rides the title line exactly as it does on the list
+// ➤ ([YES]/[MYB]/[NO], field find 2026-08-25: review shipped without it) —
+// ➤ and only on the PENDING card: a decided one is a receipt, the advice
+// ➤ already did its job.
 export function reviewCardText(state) {
   const o = state.offers[state.idx];
   const d = state.decisions[o.id];
@@ -77,7 +81,7 @@ export function reviewCardText(state) {
   if (d) {
     return `<s>#${o.id} — ${esc(o.title)}</s>\n${KIND_LABEL[d.kind] || 'Decided'}${d.warn ? `\n${esc(d.warn)}` : ''}`;
   }
-  return `<b>#${o.id} — ${esc(o.title)}</b>\n${facts}`;
+  return `<b>#${o.id} — ${esc(o.title)}</b>${o.verdict ? ` [${o.verdict}]` : ''}\n${facts}`;
 }
 
 // ➤ Removes ONE record from a .jsonl file: the line whose id matches — and,
@@ -149,15 +153,21 @@ export async function startReview(deps = {}) {
     del: deleteTelegramMessage,
     load: () => loadJson(REVIEW_STATE_PATH, null),
     save: s => writeFileAtomic(REVIEW_STATE_PATH, JSON.stringify(s)),
+    verdicts: councilVerdicts,
     ...deps,
   };
   const offers = d.pending().filter(o => o.id != null);
   if (!offers.length) { await d.notify('No pending offers to review.'); return null; }
   const prev = d.load();
   if (prev?.message_id != null) { try { await d.del(prev.message_id); } catch { /* already gone */ } }
+  // ➤ The judges' word is read ONCE, when the deck is cut: the snapshot the
+  // ➤ cards page through is frozen, so its verdicts freeze with it. Keyed by
+  // ➤ url first and by #id as the fallback, same as the list. With the
+  // ➤ Council off, verdicts() is null and every card reads as before.
+  const v = d.verdicts();
   const state = {
     message_id: null, idx: 0,
-    offers: offers.map(o => ({ id: o.id, title: o.title, company: o.company, location: o.location, salary: o.salary, url: o.url })),
+    offers: offers.map(o => ({ id: o.id, title: o.title, company: o.company, location: o.location, salary: o.salary, url: o.url, verdict: v?.get(o.url) || v?.get('#' + o.id) || '' })),
     decisions: {}, ts: new Date().toISOString(),
   };
   const id = await d.send(reviewCardText(state), reviewKeyboard(state), { html: true });

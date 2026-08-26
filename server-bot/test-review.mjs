@@ -67,6 +67,38 @@ const mkState = (over = {}) => ({
     'a warning rides the card, escaped');
 }
 
+// ── The Council's word on the card ─────────────────────────────────────────
+// ➤ The list has shown [YES]/[MYB]/[NO] since the Council went live; the card
+// ➤ shipped without it (field find 2026-08-25). Same word, same brackets,
+// ➤ pending cards only.
+{
+  const st = mkState();
+  st.offers[0].verdict = 'YES';
+  check(reviewCardText(st),
+    '<b>#855 — Offshore Project Engineer</b> [YES]\nCSL OWL SRI B.V. · Rotterdam',
+    "the judges' word rides the title line, like on the list");
+  check(reviewCardText({ ...st, decisions: { 855: { kind: 'no', at: 't' } } }),
+    '<s>#855 — Offshore Project Engineer</s>\nDiscarded',
+    'a decided card is a receipt: the verdict already did its job');
+
+  // ➤ startReview reads the verdicts once and stamps the frozen deck, by url
+  // ➤ or by #id; with the Council off (null) the deck reads exactly as before.
+  const saved = [];
+  const deps = {
+    pending: () => [
+      { id: 1, title: 'T', company: 'C', location: 'L', salary: null, url: 'https://x/1' },
+      { id: 2, title: 'U', company: 'C', location: 'L', salary: null, url: 'https://x/2' },
+    ],
+    send: async () => 900, notify: async () => {}, del: async () => {},
+    load: () => null, save: s => saved.push(s),
+    verdicts: () => new Map([['https://x/1', 'NO'], ['#2', 'MYB']]),
+  };
+  await startReview(deps);
+  check(saved[0].offers.map(o => o.verdict), ['NO', 'MYB'], 'the deck carries the word, by url or by id');
+  await startReview({ ...deps, verdicts: () => null });
+  check(saved[1].offers.map(o => o.verdict), ['', ''], 'with the Council off the deck says nothing');
+}
+
 // ── Tap handling ───────────────────────────────────────────────────────────
 const wire = (state) => {
   const calls = [];
