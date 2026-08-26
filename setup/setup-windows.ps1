@@ -54,13 +54,26 @@ if (-not $node) {
         exit 1
     }
 }
-$nodeMajor = [int](& $node -p "process.versions.node.split('.')[0]")
-if ($nodeMajor -lt 20) {
-    Warn "Node $(& $node -v) is too old. Argus needs 20 or newer (playwright, which prints the cover letters, requires it)."
+# ➤ A node that EXISTS is not a node that RUNS. Asking a broken one for its
+# ➤ version returns nothing, [int]$null is 0, and 0 is younger than 20 — so the
+# ➤ setup used to stop with "your Node is too old" in front of a Node that was
+# ➤ not old at all, sending the user to upgrade something already current.
+# ➤ Ask it to speak, keep what it says, and check that it is a version.
+$nodeSays = (& $node -p "process.versions.node" 2>&1 | Out-String).Trim()
+if ($nodeSays -notmatch '^\d+(\.\d+)*$') {
+    Warn "Node is installed, but it cannot run."
+    if ($nodeSays) { $nodeSays -split "`n" | Select-Object -First 3 | ForEach-Object { "      $_" } }
+    else { Warn "It crashed without saying anything." }
+    Warn "Reinstall Node 20 or newer from https://nodejs.org and run this again."
     Read-Host "  Press Enter to close"
     exit 1
 }
-Ok "Node $(& $node -v)"
+if ([int]($nodeSays -split '\.')[0] -lt 20) {
+    Warn "Node v$nodeSays is too old. Argus needs 20 or newer (playwright, which prints the cover letters, requires it)."
+    Read-Host "  Press Enter to close"
+    exit 1
+}
+Ok "Node v$nodeSays"
 
 # -- 1b. The app's face -------------------------------------------------------
 # ➤ Task Manager shows the process NAME, and "node.exe" tells the user nothing

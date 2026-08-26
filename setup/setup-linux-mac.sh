@@ -62,12 +62,45 @@ if ! command -v node >/dev/null 2>&1; then
   warn "newer), install it, and run the installer again."
   exit 1
 fi
-NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
+# ➤ A node that EXISTS is not a node that RUNS (field case 2026-08-26, macOS).
+# ➤ Homebrew replaced the icu4c its own node was built against, so every node
+# ➤ call died with "Library not loaded … not in dyld cache". This gate asked
+# ➤ the broken binary for its version, got nothing back, and compared "" with
+# ➤ 20 — which bash reports as an ERROR, not as a false, so the `if` did not
+# ➤ fire and the setup walked on to npm. There the user met a wall of linker
+# ➤ noise and three words of ours: "npm install failed". Ask node to speak,
+# ➤ and check that what came back is a version.
+# ➤ stderr is captured ON PURPOSE and the exit code is NOT used to blank it:
+# ➤ what a broken node prints IS the diagnosis, and clearing it on failure
+# ➤ threw away the one line that tells the user which library went missing.
+NODE_SAYS="$(node -p 'process.versions.node' 2>&1)"
+case "$NODE_SAYS" in
+  (""|*[!0-9.]*)
+    warn "Node is installed, but it cannot run."
+    if [ -n "$NODE_SAYS" ]; then
+      printf '%s\n' "$NODE_SAYS" | head -3 | sed 's/^/      /'
+    else
+      warn "It crashed without saying anything."
+    fi
+    case "$NODE_SAYS" in
+      (*dyld*|*"Library not loaded"*|*"image not found"*)
+        warn "This is a broken Node, not an Argus problem: a library it was built"
+        warn "against was replaced underneath it, which Homebrew does on upgrade."
+        warn "Reinstall Node and run this again:"
+        echo
+        echo "  brew reinstall node"
+        echo ;;
+      (*)
+        warn "Reinstall Node 20 or newer from https://nodejs.org and run this again." ;;
+    esac
+    exit 1 ;;
+esac
+NODE_MAJOR="${NODE_SAYS%%.*}"
 if [ "$NODE_MAJOR" -lt 20 ]; then
-  warn "Node $(node -v) is too old. Argus needs 20 or newer (playwright, which prints the cover letters, requires it)."
+  warn "Node v$NODE_SAYS is too old. Argus needs 20 or newer (playwright, which prints the cover letters, requires it)."
   exit 1
 fi
-ok "Node $(node -v)"
+ok "Node v$NODE_SAYS"
 
 # ── 2. Dependencies ──────────────────────────────────────────────────────
 # ➤ Not only when node_modules is missing (audit 2026-08-08): an UPDATE copies
