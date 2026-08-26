@@ -515,11 +515,14 @@ export function stripHtml(html) {
   // ➤ which cuts at 6,000, never reached a word of the advert. It voted on
   // ➤ cookie banners. The letter writer drinks from the same function, so it
   // ➤ was sending that code to Claude too.
-  // ➤ The closing tag may carry spaces ("</script >") and browsers accept it,
-  // ➤ so the pattern does too. A tag left UNCLOSED swallows the rest of the
-  // ➤ document in a real parser, and it does here as well.
-  s = s.replace(/<script\b[\s\S]*?<\/script\s*>/gi, ' ')
-    .replace(/<style\b[\s\S]*?<\/style\s*>/gi, ' ')
+  // ➤ A closing tag may carry anything up to its ">" — "</script >" and even
+  // ➤ "</script\t\n foo>" close it in a browser, so they close it here (a
+  // ➤ pattern that only allowed spaces was still one shape short: CodeQL #10).
+  // ➤ "</scriptfoo>" does NOT close it, which is what the word boundary is for.
+  // ➤ A tag left UNCLOSED swallows the rest of the document in a real parser,
+  // ➤ and it does here as well.
+  s = s.replace(/<script\b[\s\S]*?<\/script\b[^>]*>/gi, ' ')
+    .replace(/<style\b[\s\S]*?<\/style\b[^>]*>/gi, ' ')
     .replace(/<(?:script|style)\b[\s\S]*$/i, ' ');
   return s
     // ➤ Formatting tags go WITHOUT leaving a space: they sit inside words and a

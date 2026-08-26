@@ -1425,6 +1425,8 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
     'Before Requirements: Telecom', 'code: the script goes with its contents, the advert stays');
   eq(stripHtml('<style>.a{color:red}</style><p>Profile</p>'), 'Profile', 'code: so does the stylesheet');
   eq(stripHtml('<p>A</p><script>code</script ><p>B</p>'), 'A B', 'code: a closing tag with a space is still a closing tag, as in a browser');
+  eq(stripHtml('<p>A</p><script>code</script\t\n foo><p>B</p>'), 'A B', 'code: and one carrying junk up to its ">" closes it too');
+  eq(stripHtml('<p>A</p><script>x</scriptfoo></script><p>B</p>'), 'A B', 'code: but "</scriptfoo>" closes nothing — the real end tag does');
   eq(stripHtml('<SCRIPT>code</SCRIPT><p>B</p>'), 'B', 'code: case does not save it');
   eq(stripHtml('<script src="x.js" async>c()</script><p>B</p>'), 'B', 'code: attributes do not save it');
   // ➤ Unclosed, a real parser swallows the rest of the document as code. So
