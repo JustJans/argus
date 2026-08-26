@@ -508,6 +508,19 @@ export function stripHtml(html) {
   // ➤ leaves one orphan "-->" behind, and an unclosed "<!--" would otherwise
   // ➤ ride into the tag pass and take a sentence with it.
   s = s.replace(/<!--|--!?>/g, ' ');
+  // ➤ SCRIPT AND STYLE GO WITH THEIR CONTENTS (field case #1005, 2026-08-26).
+  // ➤ Stripping only the tags left the JavaScript and the CSS behind AS PROSE:
+  // ➤ a careers page that loads Google Tag Manager at the top handed 6,942
+  // ➤ characters of code to whoever read the "offer body" — and the Council,
+  // ➤ which cuts at 6,000, never reached a word of the advert. It voted on
+  // ➤ cookie banners. The letter writer drinks from the same function, so it
+  // ➤ was sending that code to Claude too.
+  // ➤ The closing tag may carry spaces ("</script >") and browsers accept it,
+  // ➤ so the pattern does too. A tag left UNCLOSED swallows the rest of the
+  // ➤ document in a real parser, and it does here as well.
+  s = s.replace(/<script\b[\s\S]*?<\/script\s*>/gi, ' ')
+    .replace(/<style\b[\s\S]*?<\/style\s*>/gi, ' ')
+    .replace(/<(?:script|style)\b[\s\S]*$/i, ' ');
   return s
     // ➤ Formatting tags go WITHOUT leaving a space: they sit inside words and a
     // ➤ space breaks them (#526: "<strong>de 3 a</strong>ños" read as "3 a ños"

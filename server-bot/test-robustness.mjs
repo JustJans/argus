@@ -1411,5 +1411,37 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ok(!/\$\{err \|\|/.test(authSrc), 'codeql: and the raw interpolation is gone');
 }
 
+// ── 19) A page's own code is not the advert (field case #1005) ────────────
+// ➤ stripHtml removed the <script> and <style> TAGS and left what was inside
+// ➤ them standing as prose. A careers page that loads Google Tag Manager at
+// ➤ the top therefore opened with 6,942 characters of JavaScript, and every
+// ➤ reader of the "offer body" believed it: the Council, which cuts at 6,000,
+// ➤ judged an offer without reaching one word of it, and the letter writer
+// ➤ was feeding the same code to Claude.
+{
+  const { stripHtml } = await import('./requirements.mjs');
+
+  eq(stripHtml('<p>Before</p><script>var x = function(){ junk };</script><p>Requirements: Telecom</p>'),
+    'Before Requirements: Telecom', 'code: the script goes with its contents, the advert stays');
+  eq(stripHtml('<style>.a{color:red}</style><p>Profile</p>'), 'Profile', 'code: so does the stylesheet');
+  eq(stripHtml('<p>A</p><script>code</script ><p>B</p>'), 'A B', 'code: a closing tag with a space is still a closing tag, as in a browser');
+  eq(stripHtml('<SCRIPT>code</SCRIPT><p>B</p>'), 'B', 'code: case does not save it');
+  eq(stripHtml('<script src="x.js" async>c()</script><p>B</p>'), 'B', 'code: attributes do not save it');
+  // ➤ Unclosed, a real parser swallows the rest of the document as code. So
+  // ➤ does this: what follows is not advert text, whatever it looks like.
+  eq(stripHtml('<p>Before</p><script>code that never closes'), 'Before', 'code: an unclosed script takes the rest with it');
+  // ➤ <noscript> is ADVERT-side markup and must survive: it is the very tag a
+  // ➤ page uses to write something for readers without JavaScript.
+  eq(stripHtml('<noscript>Enable JavaScript</noscript><p>B</p>'), 'Enable JavaScript B', 'code: noscript is text, not code');
+
+  // ➤ The shape that started it: the requirement sits past the Council's
+  // ➤ 6,000-character window while the page's code sits in front of it.
+  const chrome = '<script>' + 'var a=1;'.repeat(900) + '</script>';
+  const page = `${chrome}<p>Formación: Grado en Ingeniería de Telecomunicaciones</p>`;
+  ok(chrome.length > 6000, 'code: the fixture really is bigger than the judges\' window');
+  ok(stripHtml(page).slice(0, 6000).includes('Telecomunicaciones'),
+    'code: with the code gone, the requirement is inside the window the judges read');
+}
+
 if (fail) { console.log(`\n${fail}/${pass + fail} robustness tests FAILED.`); process.exit(1); }
 console.log(`All ${pass} robustness tests passed.`);
