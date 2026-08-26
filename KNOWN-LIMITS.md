@@ -62,6 +62,23 @@ Nederlands" (applied to) are the same sentence. No wording rule separates them,
 so the only honest line is which languages you list. A language you half-speak
 still belongs in the list: what decides is whether the offer DEMANDS it.
 
+### A blocked city does not sink an offer that also lists a city you accept
+`server-bot/scan.mjs`, in `buildLocationFilter` (the `one(place)` helper).
+
+A posting open in several places arrives as ONE string — `Barcelona, ES; Dubai,
+AE`, the way Teamtailor joins them. Read whole, that offer was vetoed because
+the block list saw Dubai, and the job in Barcelona was real and never seen. So
+each place is judged on its own and the offer survives if **any** of them
+passes.
+
+The consequence reads as a leak and is not one: block or veto `Cádiz`, and an
+offer listing `Rotterdam, NL; Cádiz, ES` still reaches you. It is the Rotterdam
+seat that admitted it, and that seat is one you can take. An offer whose only
+seat is the blocked city is dropped exactly as expected (measured against a live
+veto, 2026-08-26: `Cádiz`, `Cadiz`, `CÁDIZ` and `San Fernando, Cádiz` all
+blocked; `Barcelona` and `Cadizburg` untouched — the match is whole-word and
+accent-blind on both sides).
+
 ### The Council has no decision power
 `server-bot/argus-council/judge-shadow.mjs`. (`portals.yml` → `council.enabled` only
 decides whether the judges RUN at all; it is not a switch for their authority.)
@@ -72,6 +89,19 @@ offers with a real decision behind them the Council agreed 49 times, but it
 would have deleted 5 of the 9 offers the owner actually wanted, two of which they
 had applied to. Every voting variant measured (unanimity, "The Good plus one")
 still loses at least 2 of those 9. Until that number reaches zero, shadow only.
+
+### The veto panel refuses to offer a word your own search is built on
+`server-bot/vetoes.mjs`, in `clashesWithPositives`.
+
+After a rejection the bot offers what it read in the offer as one-tap vetoes.
+A word that overlaps one of your positive terms is never among them: reject one
+bad mooring job and a single tap on `Mooring` would silently veto your whole
+field, and the damage would only show as a list that quietly stopped filling.
+A missing chip is cheap; that is not.
+
+Pairs are held to a looser rule — offered unless they equal a positive exactly
+— because a pair always narrows: `Divorce Lawyer` blocks divorce lawyers and
+leaves every other lawyer alone, however central `lawyer` is to your search.
 
 ---
 
