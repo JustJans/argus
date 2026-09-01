@@ -12,7 +12,7 @@
 import { parseVerdict, JUDGES } from './judges.mjs';
 import { councilVote } from './vote.mjs';
 import { buildJudgePrompt } from './engine.mjs';
-import { sampleDropped, formatCouncilEntry, offerKey, filterUnjudged } from './judge-shadow.mjs';
+import { sampleDropped, formatCouncilEntry, offerKey, filterUnjudged, bodyVerdict, MIN_BODY_CHARS, hostOf } from './judge-shadow.mjs';
 import { buildUserDecisions, decideFor } from './reconcile.mjs';
 
 let passed = 0;
@@ -225,6 +225,29 @@ ok(parseVerdict('{"vote":"show","reason":"x","confidence":5}').confidence <= 1, 
 }
 
 // ── Result ──────────────────────────────────────────────────────────────
+// ➤ bodyVerdict: what the judges are given, and whether asking them is worth it
+// ➤ (2026-08-26, case #1005: a cookie wall judged as a YES).
+{
+  const page = (text, status = 200) => ({ text, status });
+  eq(bodyVerdict({ title: 'Rigger' }, page('', 0)), 'judge', 'no URL → judged by title (the dropped samples, by design)');
+  eq(bodyVerdict({ url: 'https://x/1' }, page('', 0)), 'retry', 'no answer at all → retry, never a verdict');
+  eq(bodyVerdict({ url: 'https://x/1' }, page('', 429)), 'retry', 'a rate limit → retry');
+  eq(bodyVerdict({ url: 'https://x/1' }, page('', 403)), 'retry', 'a block → retry');
+  eq(bodyVerdict({ url: 'https://x/1' }, page('', 503)), 'retry', 'a server error → retry');
+  eq(bodyVerdict({ url: 'https://x/1' }, page('', 404)), 'blind', 'a page that is gone → blind, not retried forever');
+  eq(bodyVerdict({ url: 'https://x/1' }, page('   \n ')), 'blind', 'a 200 with only whitespace → blind');
+  eq(bodyVerdict({ url: 'https://x/1' }, page('Accept cookies. Menu. Login.')), 'blind', 'a 200 that answered with chrome only → blind');
+  eq(bodyVerdict({ url: 'https://x/1' }, page('x'.repeat(MIN_BODY_CHARS))), 'judge', 'exactly the floor is enough to judge');
+  eq(bodyVerdict({ url: 'https://x/1' }, page('x'.repeat(MIN_BODY_CHARS - 1))), 'blind', 'one under the floor is blind');
+  eq(bodyVerdict({ url: 'https://x/1' }, page('x'.repeat(50)), 40), 'judge', 'the floor comes from config');
+  eq(hostOf('https://www.adzuna.fr/details/5863783815'), 'adzuna.fr', 'the board behind a URL, without www');
+  eq(hostOf('https://careers.bureauveritas.com/job/x/1/'), 'careers.bureauveritas.com', 'a careers subdomain is its own board');
+  eq(hostOf(''), '', 'no URL → no board');
+  const blind = formatCouncilEntry({ id: 1005, company: 'Indra', title: 'Ingeniero', botDecision: 'presented', council: 'blind', bodyChars: 41, verdicts: {} });
+  ok(blind.includes('COUNCIL: BLIND') && blind.includes('41 characters'), 'a blind record prints what the page gave, not votes');
+  ok(!/good|bad|ugly/i.test(blind), 'and no judge line, since nobody was asked');
+}
+
 if (fails.length) {
   console.error(`\n${fails.length} council test(s) FAILED:`);
   for (const f of fails) console.error(`  ✗ ${f}`);

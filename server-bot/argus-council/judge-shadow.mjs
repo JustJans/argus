@@ -10,7 +10,7 @@
 // ➤      a SAMPLE of dropped ones (by title, from data/scan-explain.txt).
 // ➤   3. Drops the ones it ALREADY judged before (anti-repeat lock): each offer
 // ➤      goes through the Council ONLY once, even if it stays pending and cron
-// ➤      sees it again. For each NEW offer: it fetches its body (fetchOfferBody),
+// ➤      sees it again. For each NEW offer: it fetches its body (fetchOfferPage),
 // ➤      runs the 3 judges, computes the verdict (2 of 3) and logs it.
 // ➤ WHEN IT RUNS: CHAINED right after the scan (same cron line:
 // ➤ «scan ; council»), with flock, reading the freshly written pipeline.md.
@@ -19,7 +19,7 @@
 // ➤ "Argus Plus": it only adds its opinion (in shadow, to the log); if it's turned off
 // ➤ (council.enabled:false) Argus keeps working the same. It can also be run by hand to test.
 // ➤ WHAT IT USES (read-only): pendingOffers() from list-offers.mjs (presented),
-// ➤ data/scan-explain.txt (sample of dropped), fetchOfferBody() from
+// ➤ data/scan-explain.txt (sample of dropped), fetchOfferPage() from
 // ➤ cover-letter.mjs (body), and the Council's judges/engine/ballot-box. The ONLY
 // ➤ thing it writes are TWO of its own files: data/judge-shadow.jsonl (a machine
 // ➤ log, one JSON line per offer) and data/council-log.txt (the SAME
@@ -32,7 +32,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
 import { pendingOffers } from '../list-offers.mjs';
-import { fetchOfferBody } from '../offer-body.mjs';
+import { fetchOfferPage } from '../offer-body.mjs';
 import { JUDGES } from './judges.mjs';
 import { runJudge } from './engine.mjs';
 import { councilVote } from './vote.mjs';
@@ -91,6 +91,14 @@ export function formatCouncilEntry(rec) {
   // ➤ one line. It is NOT truncated (it used to be cut at 220 and split sentences).
   const reason = s => String(s || '').replace(/\s+/g, ' ').trim();
   const id = rec.id != null ? `#${rec.id} · ` : '';
+  // ➤ A blind record has no votes to print: say what the page gave instead.
+  if (rec.council === 'blind') {
+    return [
+      `${id}${rec.company || '(no company)'} — ${rec.title || '(no title)'}`,
+      `   bot: ${rec.botDecision}  →  COUNCIL: BLIND   (the page gave ${rec.bodyChars ?? 0} characters of readable text; the judges were not asked)`,
+      '',
+    ].join('\n');
+  }
   return [
     `${id}${rec.company || '(no company)'} — ${rec.title || '(no title)'}`,
     `   bot: ${rec.botDecision}  →  COUNCIL: ${String(rec.council).toUpperCase()}   (Good ${vote(g)} · Bad ${vote(b)} · Ugly ${vote(u)})`,
@@ -112,10 +120,45 @@ export function readCouncilConfig() {
       enabled: c.enabled === true,
       model: c.model || null,            // ➤ null = each judge uses its default model
       sample_dropped: Number.isInteger(c.sample_dropped) ? c.sample_dropped : 0,
+      // ➤ Below this many characters of readable text a page is "blind": the
+      // ➤ judges are not asked and the record says so (see bodyVerdict).
+      min_body_chars: Number.isInteger(c.min_body_chars) ? c.min_body_chars : MIN_BODY_CHARS,
     };
   } catch {
-    return { enabled: false, model: null, sample_dropped: 0 };
+    return { enabled: false, model: null, sample_dropped: 0, min_body_chars: MIN_BODY_CHARS };
   }
+}
+
+// ➤ WHAT THE JUDGES ARE GIVEN, and whether it is worth asking them (2026-08-26).
+// ➤ A careers page can answer with a cookie wall and a menu and not one word
+// ➤ of the advert. Fed that, two of the three judges — forbidden to hide
+// ➤ without quoting a barrier — defaulted to show, and the verdict was pinned
+// ➤ to YES by construction: a [YES] that meant "we could not read it" and
+// ➤ looked exactly like one that meant "this fits". Case #1005, an offer whose
+// ➤ stated degree none of them ever saw.
+// ➤   'judge' — a body worth reading, or no URL at all (the dropped samples
+// ➤             are judged by title on purpose; that is their design).
+// ➤   'retry' — the board would not answer this time: no reply at all (0),
+// ➤             a rate limit (429), a block (403) or a server error. Not a
+// ➤             verdict, not journalled; the next run asks again. Measured
+// ➤             2026-09-01: Adzuna serves 3-6k characters of offer when asked
+// ➤             one page every 6 s, and 429/403 when asked in a burst.
+// ➤   'blind' — the board answered, but with fewer than minChars of readable
+// ➤             text (a cookie wall, a page that is gone). Journalled as
+// ➤             blind, shown as [?], no judge asked.
+export const MIN_BODY_CHARS = 300;
+// ➤ Two fetches to the same board never come closer than this.
+export const PACE_MS = 8_000;
+const boardSaidLater = status => status === 0 || status === 403 || status === 408 || status === 425 || status === 429 || status >= 500;
+export function bodyVerdict(offer, page, minChars = MIN_BODY_CHARS) {
+  if (!offer?.url) return 'judge';
+  if (boardSaidLater(Number(page?.status) || 0)) return 'retry';
+  const n = String(page?.text || '').trim().length;
+  return n < minChars ? 'blind' : 'judge';
+}
+// ➤ The board behind a URL ("adzuna.fr", "careers.bureauveritas.com"); '' if none.
+export function hostOf(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
 }
 
 // ➤ Reads a SAMPLE of DROPPED offers from data/scan-explain.txt. It only
@@ -160,10 +203,27 @@ export function sampleDropped(text, limit, judgedKeys = new Set()) {
 
 // ➤ Judges ONE offer with the 3 judges and returns the full record ready
 // ➤ to save. `model` (if provided) forces the model of all judges.
-async function judgeOffer(offer, model) {
+async function judgeOffer(offer, model, minBody = MIN_BODY_CHARS) {
   // ➤ Fetches the body only if there's a URL (dropped ones don't carry it → title only).
-  let body = '';
-  if (offer.url) { try { body = await fetchOfferBody(offer.url); } catch { body = ''; } }
+  let page = { text: '', status: 0 };
+  if (offer.url) { try { page = await fetchOfferPage(offer.url); } catch { page = { text: '', status: 0 }; } }
+  const body = page.text;
+  const base = {
+    ts: new Date().toISOString(),
+    id: offer.id ?? null,
+    company: offer.company || '',
+    title: offer.title || '',
+    url: offer.url || '',
+    source: offer.source || 'pending',
+    botDecision: offer.botDecision || 'presented',
+    // ➤ How much the judges had to read. Written down so a verdict can be
+    // ➤ weighed against what it was based on, months later.
+    bodyChars: body.length,
+    httpStatus: page.status,
+  };
+  const state = bodyVerdict(offer, page, minBody);
+  if (state === 'retry') return { ...base, retry: true };
+  if (state === 'blind') return { ...base, verdicts: {}, council: 'blind', userDecision: null };
   const verdicts = {};
   // ➤ One judge at a time (sequential): the volume is low and this keeps the server
   // ➤ from getting overloaded with 3 AI calls at once.
@@ -172,13 +232,7 @@ async function judgeOffer(offer, model) {
   }
   const council = councilVote([verdicts.good, verdicts.bad, verdicts.ugly]);
   return {
-    ts: new Date().toISOString(),
-    id: offer.id ?? null,
-    company: offer.company || '',
-    title: offer.title || '',
-    url: offer.url || '',
-    source: offer.source || 'pending',
-    botDecision: offer.botDecision || 'presented',
+    ...base,
     verdicts,
     council,
     userDecision: null, // ➤ reconcile.mjs fills this in when the user decides
@@ -250,9 +304,31 @@ async function main() {
   appendFileSync(LOG_PATH, `\n════════ The Council — ${stamp} ════════\n${work.length} offer(s): ${presented.length} presented + ${dropped.length} sampled dropped\n\n`);
 
   let done = 0, failed = 0;
-  const tally = { show: 0, hide: 0, tie: 0 };
+  const tally = { show: 0, hide: 0, tie: 0, blind: 0 };
+  // ➤ One board at a time, slowly. A board that said "later" (429, 403, no
+  // ➤ reply) is not asked again this run — its other offers wait — and two
+  // ➤ fetches to the same board are spaced by PACE_MS. The judges' own pace
+  // ➤ already spaces judged offers; this bites when several blind ones come
+  // ➤ in a row, exactly when a burst would earn the next 429.
+  const refusing = new Set(), lastAsked = new Map();
+  let unread = 0;
   for (const offer of work) {
-    const rec = await judgeOffer(offer, cfg.model);
+    const host = hostOf(offer.url);
+    if (host && refusing.has(host)) { unread++; continue; }
+    if (host) {
+      const wait = PACE_MS - (Date.now() - (lastAsked.get(host) || 0));
+      if (wait > 0) await new Promise(r => setTimeout(r, wait));
+      lastAsked.set(host, Date.now());
+    }
+    const rec = await judgeOffer(offer, cfg.model, cfg.min_body_chars);
+    // ➤ Not a verdict and not journalled, so the next run asks again — like a
+    // ➤ judge that could not speak, except it is one board, so the batch goes on.
+    if (rec.retry) {
+      unread++;
+      refusing.add(host);
+      console.log(`  [·] ${rec.title} — ${rec.company}: ${host} answered HTTP ${rec.httpStatus}; its other offers wait for the next run.`);
+      continue;
+    }
     // ➤ If ANY judge could not speak (Claude out of credit, not authenticated,
     // ➤ down), this is NOT a verdict: we do not journal it. Journalling it
     // ➤ would mark the offer as "already judged" and it would never be looked
@@ -283,7 +359,8 @@ async function main() {
   }
   // ➤ Footer with the batch summary.
   if (failed) appendFileSync(LOG_PATH, `Batch stopped: the judges could not answer (${failed} offer(s) left unjudged; they will be retried).\n`);
-  appendFileSync(LOG_PATH, `Summary: SHOW ${tally.show} · HIDE ${tally.hide} · ties ${tally.tie}\n`);
+  if (unread) appendFileSync(LOG_PATH, `${unread} offer(s) gave no readable body this run and will be retried.\n`);
+  appendFileSync(LOG_PATH, `Summary: SHOW ${tally.show} · HIDE ${tally.hide} · ties ${tally.tie} · blind ${tally.blind}\n`);
   console.log(`Done. ${done} offer(s) → data/judge-shadow.jsonl (machine) and data/council-log.txt (readable).`);
   // ➤ The verdicts just written are SHOWN on the Telegram list, and the list
   // ➤ the scan sent minutes ago predates them. One silent refresh and the new

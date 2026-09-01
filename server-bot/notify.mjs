@@ -611,7 +611,10 @@ export function councilVerdicts({ portalsPath = PORTALS_PATH, journalPath = JUDG
   try {
     if (yaml.load(readFileSync(portalsPath, 'utf-8'))?.council?.enabled !== true) return null;
   } catch { return null; }
-  const WORD = { show: 'YES', tie: 'MYB', hide: 'NO' };
+  // ➤ blind → [?]: the page gave the judges nothing to read, so nobody voted.
+  // ➤ It must not look like a YES (2026-08-26): fed a cookie wall, two judges
+  // ➤ defaulted to show and the list said YES to an offer none of them had read.
+  const WORD = { show: 'YES', tie: 'MYB', hide: 'NO', blind: '?' };
   const map = new Map();
   try {
     for (const line of readFileSync(journalPath, 'utf-8').split('\n')) {

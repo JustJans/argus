@@ -181,7 +181,7 @@ Two optional subsystems, both measured, neither allowed to decide anything on it
 
 ### The Council: three judges that do not vote
 
-[`server-bot/argus-council/`](server-bot/argus-council/README.md) · Three LLM judges read the **body** of an offer and vote in shadow: **The Good** defaults to showing, **The Bad** hunts the mismatch a title cannot reveal, **The Ugly** reads the actual day-to-day and breaks ties. Their word (`[YES]`, `[MYB]`, `[NO]`) appears next to each offer. Advice, never a decision: no offer is ever kept or dropped because of a judge, and the whole thing ships **off**.
+[`server-bot/argus-council/`](server-bot/argus-council/README.md) · Three LLM judges read the **body** of an offer and vote in shadow: **The Good** defaults to showing, **The Bad** hunts the mismatch a title cannot reveal, **The Ugly** reads the actual day-to-day and breaks ties. Their word (`[YES]`, `[MYB]`, `[NO]` — or `[?]` when the page gave them nothing to read) appears next to each offer. Advice, never a decision: no offer is ever kept or dropped because of a judge, and the whole thing ships **off**.
 
 ### Mail: silence counts as an answer
 

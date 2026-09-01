@@ -31,7 +31,11 @@ funnel, never inside it. Specifically:
   - **`data/council-log.txt`** — HUMAN-READABLE by you: for each offer, the vote
     and confidence of the three judges, the Council's ruling and each one's
     reasoning (the same format as the rehearsal). This is the one you look at to "see it".
-  - **`data/judge-shadow.jsonl`** — for machines: one JSON line per offer,
+    When a page answered with fewer than `council.min_body_chars` characters of
+    readable text (default 300), the entry says **BLIND** instead: no judge was
+    asked, and the list shows `[?]` rather than a word nobody earned.
+  - **`data/judge-shadow.jsonl`** — for machines: one JSON line per offer
+    (`bodyChars` records how much text the judges were given),
     which `reconcile.mjs` uses to measure agreement with your decisions.
 - It is controlled by `council.enabled` in `portals.yml`, and it ships **off**:
   the Council is the only part that needs the Claude CLI installed and logged

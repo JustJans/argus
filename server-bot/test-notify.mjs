@@ -296,12 +296,14 @@ check(languageOfPlace('Francesca Ltd, Aberdeen'), '', 'a name that merely contai
     JSON.stringify({ url: 'https://x/a', id: 5, council: 'show' }),
     JSON.stringify({ url: 'https://x/b', id: 6, council: 'tie' }),
     JSON.stringify({ url: 'https://x/c', id: 7, council: 'hide' }),
+    JSON.stringify({ url: 'https://x/d', id: 8, council: 'blind', bodyChars: 41 }),
     '{broken line',
   ].join(String.fromCharCode(10)));
   const v = councilVerdicts({ portalsPath: pOn, journalPath: pJ });
   check(v.get('https://x/a'), 'YES', 'the Council speaks YES for show');
   check(v.get('#6'), 'MYB', 'MYB for tie, reachable by number too');
   check(v.get('https://x/c'), 'NO', 'and NO for hide');
+  check(v.get('#8'), '?', 'and a question mark when the page gave the judges nothing to read');
   check(v.get('https://x/never'), undefined, 'an unjudged offer says nothing');
   check(councilVerdicts({ portalsPath: pOff, journalPath: pJ }), null, 'with the Council off the journal is not even read');
   const empty = councilVerdicts({ portalsPath: pOn, journalPath: join(dir, 'missing.jsonl') });
