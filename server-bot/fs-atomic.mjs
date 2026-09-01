@@ -88,7 +88,12 @@ function sleepSync(ms) { Atomics.wait(SLEEP_BUF, 0, 0, ms); }
 
 export const LOCK_TIMEOUT_MS = 5000;
 
-export function withFileLock(path, fn, { timeoutMs = LOCK_TIMEOUT_MS, io = { mkdirSync, rmdirSync, statSync }, log = console.log } = {}) {
+// ➤ `staleMs` is the age at which a lock is presumed to belong to a dead job.
+// ➤ It defaults to the timeout, as it always did, but is its own knob: a test
+// ➤ that shortens the WAIT to 60ms must not also declare a 61ms-old live lock
+// ➤ dead, reap it and walk in — which is exactly what made the "runs unlocked
+// ➤ and says so" test flicker with the load on the machine.
+export function withFileLock(path, fn, { timeoutMs = LOCK_TIMEOUT_MS, staleMs = timeoutMs, io = { mkdirSync, rmdirSync, statSync }, log = console.log } = {}) {
   const lock = `${path}.lock`;
   const started = Date.now();
   let held = false;
@@ -112,7 +117,7 @@ export function withFileLock(path, fn, { timeoutMs = LOCK_TIMEOUT_MS, io = { mkd
     // ➤ unlocked — for ever, and there the writes do succeed.
     try {
       const age = Date.now() - io.statSync(lock).mtimeMs;
-      if (age > timeoutMs || age < -timeoutMs) { io.rmdirSync(lock); continue; }
+      if (age > staleMs || age < -staleMs) { io.rmdirSync(lock); continue; }
     } catch { /* it vanished: try again */ }
     sleepSync(15);
   }

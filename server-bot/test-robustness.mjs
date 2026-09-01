@@ -213,8 +213,11 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   const said = [];
   withFileLock(file, () => {
     ok(existsSync(`${file}.lock`), 'while the work runs, the lock exists on disk');
-    // ➤ Short timeout so the test does not wait for the real one.
-    withFileLock(file, () => { inner = 'got in'; }, { timeoutMs: 60, log: m => said.push(m) });
+    // ➤ Short WAIT so the test does not sit out the real timeout — but with the
+    // ➤ stale age kept long, or a 61ms-old live lock would be reaped as dead
+    // ➤ and this would test the wrong path, at random, whenever the machine was
+    // ➤ slow (it flickered twice on 2026-08-26 before that was understood).
+    withFileLock(file, () => { inner = 'got in'; }, { timeoutMs: 60, staleMs: 60_000, log: m => said.push(m) });
   });
   eq(inner, 'got in', 'a blocked writer waits, then proceeds rather than dropping the work');
   // ➤ AND IT SAYS SO. Going ahead unlocked is deliberate, but in silence a lock
