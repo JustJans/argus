@@ -890,7 +890,7 @@ async function main({ pollSeconds = 0 } = {}) {
         if (await flipListPage(cb.data, cb.message?.message_id, cb.id)) continue;
         await handleOnboardingCallback(cb.data, cb.id, cb.message?.message_id);
       }
-      catch (e) { try { await sendTelegram(`Error: ${String(e.message).slice(0, 200)}`); } catch {} }
+      catch (e) { try { await sendTelegram(`Error: ${String(e.message).slice(0, 200)}`); } catch { /* Telegram unreachable: nothing left to tell */ } }
       continue;
     }
     const msg = u.message;
@@ -909,7 +909,7 @@ async function main({ pollSeconds = 0 } = {}) {
       if (onboardingActive() && await handleOnboardingText(msg.text)) continue;
       await handle(msg.text);
     } catch (e) {
-      try { await sendTelegram(`Error: ${String(e.message).slice(0, 200)}`); } catch {}
+      try { await sendTelegram(`Error: ${String(e.message).slice(0, 200)}`); } catch { /* Telegram unreachable: nothing left to tell */ }
     }
   }
   return (j.result || []).length;

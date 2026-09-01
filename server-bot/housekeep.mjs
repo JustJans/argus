@@ -90,7 +90,7 @@ function ensureInHistory(offers, why) {
       const u = l.split('\t')[0];
       if (u) known.add(normUrl(u));
     }
-  } catch {}
+  } catch { /* no history yet: nothing is known */ }
   const sane = s => String(s || '').replace(/[\t|]/g, ' ').replace(/\s+/g, ' ').trim();
   const today = new Date().toISOString().slice(0, 10);
   const rows = offers.filter(o => o.url && !known.has(normUrl(o.url)))
@@ -287,7 +287,7 @@ async function isLikelyDead(url) {
     const timer = setTimeout(() => controller.abort(), 12_000);
     const res = await fetch(url, { signal: controller.signal, redirect: 'follow' });
     let body = '';
-    try { body = (await res.text()).slice(0, 20_000); } catch {}
+    try { body = (await res.text()).slice(0, 20_000); } catch { /* body unreadable: the status and final URL still speak */ }
     clearTimeout(timer);
     // ➤ Classifier verdict + anti-false-dead second opinion (caught
     // ➤ 2026-07-18): if the "expired" comes only from a phrase in the text and the
@@ -486,7 +486,7 @@ async function main() {
     for (const p of pending) if (deadIdx.has(p.lineIdx)) console.log(`  dead ${p.company} — ${p.title}`);
     // ➤ The pending list changed on disk, so the list on your phone is stale:
     // ➤ redraw it (silently — this is housekeeping, not a new offer).
-    if (!dryRun && deadIdx.size) { try { await refreshList({ alert: false }); } catch {} }
+    if (!dryRun && deadIdx.size) { try { await refreshList({ alert: false }); } catch { /* refreshList logs its own failures; the cleaner does not stop for the phone list */ } }
     return;
   }
 
@@ -647,7 +647,7 @@ async function main() {
       ensureInHistory(pending.filter(p => deadIdx.has(p.lineIdx)), 'dead');
       rewritePipelineWithout(lines.filter((_, i) => gone.has(i)));
       // ➤ The pending list changed, so redraw it on Telegram (silently).
-      try { await refreshList({ alert: false }); } catch {}
+      try { await refreshList({ alert: false }); } catch { /* refreshList logs its own failures; the cleaner does not stop for the phone list */ }
     }
   }
 

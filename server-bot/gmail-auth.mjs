@@ -133,7 +133,7 @@ async function main() {
     console.log('Google will also warn the app is not verified — expected for a personal');
     console.log('app: choose Advanced, then "Go to Argus".');
     console.log('\nWaiting for you to approve (5 minutes)...');
-  }).catch(e => { try { server.closeAllConnections?.(); server.close(); } catch {} throw e; });
+  }).catch(e => { try { server.closeAllConnections?.(); server.close(); } catch { /* the server is going down anyway */ } throw e; });
 
   // ➤ Redeem the code. The verifier proves we are the same process that asked.
   const body = new URLSearchParams({

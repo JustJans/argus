@@ -114,7 +114,8 @@ const COUNTRY_TO_GROUP = Object.fromEntries(_COUNTRIES.map(c => [c.name, c.label
 // ➤ location.
 export function loadCountryMatchers() {
   let cfg = {};
-  try { cfg = yaml.load(readFileSync(COUNTRIES_PATH, 'utf-8')) || {}; } catch {}
+  try { cfg = yaml.load(readFileSync(COUNTRIES_PATH, 'utf-8')) || {}; }
+  catch (e) { console.warn(`[countries] ${COUNTRIES_PATH} is unreadable (${e.message}); no country aliases.`); }
   const aliases = cfg.aliases || {};
   // Match in the user's priority order so e.g. "Monaco" wins over a
   // coincidental match later in the list.

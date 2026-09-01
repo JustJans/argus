@@ -27,7 +27,7 @@ const API = process.env.ARGUS_ESCO_API || 'https://ec.europa.eu/esco/api';
 async function esco(path, key) {
   if (!existsSync(CACHE_DIR)) mkdirSync(CACHE_DIR, { recursive: true });
   const file = join(CACHE_DIR, `${key.replace(/[^a-z0-9]+/gi, '_').slice(0, 80)}.json`);
-  if (existsSync(file)) { try { return JSON.parse(readFileSync(file, 'utf-8')); } catch {} }
+  if (existsSync(file)) { try { return JSON.parse(readFileSync(file, 'utf-8')); } catch { /* unreadable cache: fetched again below */ } }
   // ➤ With a timeout, like every other request in the project. Without one a
   // ➤ stalled connection hangs the setup with nothing on screen.
   const res = await fetch(`${API}${path}`, { signal: AbortSignal.timeout(20_000) });

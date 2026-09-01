@@ -578,7 +578,7 @@ function loadAdzunaCreds() {
     try {
       const j = JSON.parse(readFileSync(keyPath, 'utf-8'));
       if (j.app_id && j.app_key) return { id: j.app_id, key: j.app_key };
-    } catch {}
+    } catch (e) { console.warn(`[adzuna] ${keyPath} is unreadable (${e.message}); Adzuna is off this run.`); }
   }
   return null;
 }
@@ -886,7 +886,7 @@ async function isLikelyDead(url) {
     const timer = setTimeout(() => controller.abort(), 12_000);
     const res = await fetch(url, { signal: controller.signal, redirect: 'follow' });
     let body = '';
-    try { body = (await res.text()).slice(0, 20_000); } catch {}
+    try { body = (await res.text()).slice(0, 20_000); } catch { /* body unreadable: the status and final URL still speak */ }
     clearTimeout(timer);
     return deadFromEvidence(res.status, res.url, body);
   } catch {

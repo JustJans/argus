@@ -67,9 +67,9 @@ function loadJudgedKeys() {
   try {
     for (const line of readFileSync(JOURNAL_PATH, 'utf-8').split('\n')) {
       if (!line.trim()) continue;
-      try { keys.add(offerKey(JSON.parse(line))); } catch {}
+      try { keys.add(offerKey(JSON.parse(line))); } catch { /* a half-written line: the next run reads it whole */ }
     }
-  } catch {}
+  } catch { /* no journal yet: nothing judged */ }
   return keys;
 }
 
