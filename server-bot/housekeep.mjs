@@ -36,7 +36,9 @@ import { isPendingHeading } from './pipeline-format.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
-import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, detectTitleLang, NOT_AN_EMPLOYER, titleDemandsForeignLanguage, titleEncodingBroken, bodyLanguageBlock, overrideDeadIfApply } from './scan.mjs';
+import { detectTitleLang, NOT_AN_EMPLOYER, titleDemandsForeignLanguage, titleEncodingBroken, bodyLanguageBlock, overrideDeadIfApply } from './scan.mjs';
+import { buildTitleFilter, buildLocationFilter, buildCompanyFilter } from './filters.mjs';
+import { titleKey } from './text.mjs';
 import { loadVetoes, titleNegativesWith, companyFilterWith, locationFilterWith } from './vetoes.mjs';
 import { experienceScreen, degreeScreen, stripHtml, extractAdzunaJd, PRIORITY_KEEP, searchProfile } from './requirements.mjs';
 // ➤ To refresh the Telegram list after deleting: otherwise you keep seeing on
@@ -170,13 +172,9 @@ export function looksLikeAnOutage(pendingCount, deadCount) {
 // ➤ went wrong once (see below) and nothing stopped it coming back.
 export function fuzzyKey(company, title) {
   // ➤ (2026-07-19) the gender-tag separator can be a space: "(x w m)".
-  // ➤ Same unambiguous form as scan's norm (CodeQL round, 2026-08-24): the
-  // ➤ optional-separator version backtracked exponentially on adversarial
-  // ➤ titles, and this runs over every stored offer on cleanup day.
-  const norm = s => String(s).toLowerCase()
-    .replace(/\(\s*(?:[mwfdxhv](?:[\s/|,.]+[mwfdxhv])+|[mwfdxhv]{2,}|all\s*genders?|gn)\s*\)/gi, ' ')
-    .replace(/\b\d{2,3}\s*[-–]\s*\d{2,3}\s*%|\b\d{2,3}\s*%/g, ' ')
-    .replace(/[–—]/g, '-').replace(/\s+/g, ' ').replace(/[\s,.;:-]+$/, '').trim();
+  // ➤ The same titleKey the scanner's roleKey uses (text.mjs): one
+  // ➤ normalisation, so a re-post the scan recognises, the cleanup does too.
+  const norm = titleKey;
   // ➤ FIXED 2026-07-25 (audit): it used to keep only the FIRST word of the
   // ➤ company, so "Royal IHC" and "Royal Niestern Sander" shared one key and a
   // ➤ genuine second vacancy was deleted as a duplicate.

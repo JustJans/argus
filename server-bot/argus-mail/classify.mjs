@@ -9,7 +9,8 @@
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 // ➤ Accents removed and lowercased, so "recibí" and "recibi" are one thing.
-export const fold = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+import { fold } from '../text.mjs';
+export { fold };
 
 // ➤ ── DUTCH: BELGIUM AND THE NETHERLANDS ──────────────────────────────────
 // ➤ Both write here, and they differ in words, not accents — Belgian first:

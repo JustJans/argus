@@ -33,6 +33,7 @@ import { readFileSync, writeFileSync, existsSync, chmodSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
+import { unaccent } from './text.mjs';
 import { writeFileAtomic } from './fs-atomic.mjs';
 // ➤ The user's fields (mooring/offshore/survey...) — the same list the filters
 // ➤ use — to push what's "most theirs" to the top within each country.
@@ -287,7 +288,6 @@ const COUNTRY_LANG = [
   [/\bitaly\b|\bitalia\b|\.it[/?]|\.it$/i, 'it'],
   [/\bportugal\b|\.pt[/?]|\.pt$/i, 'pt'],
 ];
-const unaccent = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
 export const languageOfPlace = place => (COUNTRY_LANG.find(([re]) => re.test(unaccent(place))) || [])[1] || '';
 
 // ➤ fetchImpl is injectable so the two-attempt logic can be tested without a

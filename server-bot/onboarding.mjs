@@ -42,6 +42,7 @@ import {
 // ➤ CV's skills into the person's actual professional area(s) — an
 // ➤ accountant's, a salesman's, or both at once.
 import { occupationsForTerms } from './esco.mjs';
+import { fold } from './text.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(SCRIPT_DIR);
@@ -202,7 +203,7 @@ function unglueDisplayText(line) {
 // ➤ Institutions and companies wear name-shaped clothes too (field case
 // ➤ 2026-08-23: "Universidad Argentina del Comercio" won the shape test).
 const NAME_ORG_WORDS = /(universi|instituto|institut|college|escuela|school|academ|colegio|fundaci|foundation|\bS\.?L\.?\b|\bS\.?A\.?\b|GmbH|B\.?V\.?\b|Ltd|Inc\b|Corp\b)/i;
-const foldLetters = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z]/g, '');
+const foldLetters = s => fold(s).replace(/[^a-z]/g, '');
 
 // ➤ PDFs shout — CAMILA — and a signature should not. Only fully-uppercase
 // ➤ words are touched, capitalising each segment around apostrophes and

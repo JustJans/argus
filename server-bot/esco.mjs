@@ -12,6 +12,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { fold } from './text.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const CACHE_DIR = join(SCRIPT_DIR, '.esco-cache');
@@ -20,11 +21,6 @@ const CACHE_DIR = join(SCRIPT_DIR, '.esco-cache');
 // ➤ back deterministically instead of depending on the network being up.
 const API = process.env.ARGUS_ESCO_API || 'https://ec.europa.eu/esco/api';
 
-// ➤ Accents out and lowercase, so "hydrograaf" and "Hydrograaf" are the same
-// ➤ label whichever case the taxonomy shipped it in.
-function fold(s) {
-  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-}
 
 // ➤ ESCO is a fixed classification: the same URI returns the same answer
 // ➤ forever. Caching on disk means re-running the setup costs no requests.

@@ -23,9 +23,8 @@ import { dirname, join } from 'path';
 import { writeFileAtomic } from './fs-atomic.mjs';
 // ➤ The hit test reuses the REAL filter builders, so "would this veto block
 // ➤ that offer" is answered by exactly the code that will do the blocking.
-// ➤ (scan.mjs also imports this file's merge helpers — a cycle, but neither
-// ➤ side calls the other while loading, only later, which ESM resolves fine.)
-import { buildTitleFilter, buildCompanyFilter, buildLocationFilter } from './scan.mjs';
+import { buildTitleFilter, buildCompanyFilter, buildLocationFilter } from './filters.mjs';
+import { fold as foldText } from './text.mjs';
 import { sendTelegramButtons, editTelegramButtons, clearTelegramButtons, deleteTelegramMessage, answerCallback, cityOf, esc } from './notify.mjs';
 import { pendingOffers } from './list-offers.mjs';
 import { searchProfile } from './requirements.mjs';
@@ -40,7 +39,7 @@ export const VETOES_PATH = join(ROOT, 'data', 'vetoes.json');
 export const CHIPS_STATE_PATH = join(ROOT, 'data', 'veto-chips.json');
 export const LIST_STATE_PATH = join(ROOT, 'data', 'veto-list.json');
 
-const fold = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+const fold = s => foldText(s).trim();
 
 // ➤ kind → array name in the store. Three kinds only, one per thing the
 // ➤ rejected offer can teach: its title words, its company, its city.

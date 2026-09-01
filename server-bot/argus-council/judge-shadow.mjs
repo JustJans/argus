@@ -32,7 +32,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
 import { pendingOffers } from '../list-offers.mjs';
-import { fetchOfferBody } from '../cover-letter.mjs';
+import { fetchOfferBody } from '../offer-body.mjs';
 import { JUDGES } from './judges.mjs';
 import { runJudge } from './engine.mjs';
 import { councilVote } from './vote.mjs';
