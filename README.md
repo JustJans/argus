@@ -240,7 +240,7 @@ Plain Node, four dependencies (`js-yaml`, `playwright`, `pdf-parse`, `html-to-te
 ## When something doesn't work
 
 ```bash
-npm test                                      # 1582 tests; run this first
+npm test                                      # every suite at once; run this first
 node server-bot/scan.mjs --dry-run            # scan without writing or notifying
 node server-bot/scan.mjs --explain            # why each offer was dropped → data/scan-explain.txt
 node server-bot/telegram-listener.mjs --once  # process pending commands once

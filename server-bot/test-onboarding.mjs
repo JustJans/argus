@@ -7,13 +7,10 @@
 // ➤ writes the slots — not the typing order — into the profile.
 
 import { parseContact, mergeContact, buildProfileYaml, cvDegreesHeld, cvSuggestions, cvProfileSuggestions, cvFullName, cvContact, optionsFor, extractCvSkills } from './onboarding.mjs';
+import { harness } from './test-harness.mjs';
 
-let total = 0, failures = 0;
-const check = (got, want, label) => {
-  total++;
-  const g = JSON.stringify(got), w = JSON.stringify(want);
-  if (g !== w) { failures++; console.log(`  FAIL ${label}\n    got:      ${g}\n    expected: ${w}`); }
-};
+const { ok, eq, done } = harness('onboarding');
+const check = eq;
 
 // ── parseContact: shape, not position ──────────────────────────────────────
 check(parseContact('camila@ejemplo.com'),
@@ -183,5 +180,4 @@ check(mergeContact({ email: 'a@b.co', phone: '600 111 222', city: 'Roma' }, pars
   check(optionsFor(q, { answers: {} }).options, q.options, 'no record at all: the shipped catalog');
 }
 
-console.log(failures === 0 ? `All ${total} onboarding tests passed.` : `${failures}/${total} FAILED.`);
-process.exit(failures === 0 ? 0 : 1);
+done();

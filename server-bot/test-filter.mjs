@@ -28,6 +28,7 @@ import yaml from 'js-yaml';
 import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, buildCountryFilter, admissionVerdict, roleKey, slugTitle, parseJobPostingLd, parseLinkedInCards, titleDemandsForeignLanguage, titleEncodingBroken, bodyLanguageBlock, pipelineRoleKey, hasApplySignal, overrideDeadIfApply, formatSalary, normUrl } from './scan.mjs';
 import { offerAffinity } from './notify.mjs';
 import { extractRequiredYears, stripHtml, experienceScreen, extractAdzunaJd, degreeScreen } from './requirements.mjs';
+import { harness } from './test-harness.mjs';
 
 // ➤ Locates the project folder, reads the real configuration (portals.yml)
 // ➤ and builds the two filters exactly as the real scanner uses them:
@@ -410,17 +411,8 @@ const TITLE_NO_BLOCKHIT = [
   'Offshore Engineer Ukraine Support',   // boundary: UK ≠ Ukraine
 ];
 
-// ➤ Mini-checker: if a case doesn't give the expected result, it adds a failure
-// ➤ and prints it on screen. At the end the total failures are counted.
-let failures = 0;
-// ➤ `total` counts the checks that actually RAN. It used to be a sum written by
-// ➤ hand at the end of the file, so adding a test left the reported number
-// ➤ untouched and the tally quietly lied.
-let total = 0;
-const check = (ok, kind, value) => {
-  total++;
-  if (!ok) { failures++; console.log(`  FAIL [${kind}] ${value}`); }
-};
+const { ok, eq, done } = harness('filter');
+const check = (cond, kind, value) => ok(cond, `[${kind}] ${value}`);
 
 // ➤ Runs each list through its filter and checks the decision is as expected.
 for (const t of PASS) check(title(t) === true, 'title should PASS', t);
@@ -1234,7 +1226,4 @@ for (const [name, ok] of COMPANY) {
 }
 
 // ➤ so other scripts can detect it.
-console.log(failures === 0
-  ? `All ${total} filter tests passed.`
-  : `${failures}/${total} tests FAILED.`);
-process.exit(failures === 0 ? 0 : 1);
+done();

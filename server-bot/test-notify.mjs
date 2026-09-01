@@ -23,18 +23,11 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { cleanTitle, compactTitle, cityOf, classifyLocation, loadCountryMatchers, urlGroupHint, esc, languageOfPlace, translateTitle, MAX_CHUNK, MAX_TITLE_CHARS, TELEGRAM_LIMIT, councilVerdicts, listPageKeyboard } from './notify.mjs';
 import { flipListPage, claimListenerSlot, pidAlive } from './telegram-listener.mjs';
+import { harness } from './test-harness.mjs';
 
 const matchers = loadCountryMatchers();
-let failures = 0;
-// ➤ `total` counts the checks that actually RAN (it used to be a sum written by
-// ➤ hand at the end, which stopped being true as soon as a test was added).
-let total = 0;
-// ➤ "check" is the judge for each test: if the result (got) isn't the
-// ➤ expected value (want), it records a failure and shows it on screen.
-const check = (got, want, label) => {
-  total++;
-  if (got !== want) { failures++; console.log(`  FAIL ${label}: got "${got}", want "${want}"`); }
-};
+const { ok, eq, done } = harness('notify');
+const check = eq;
 
 // ── cleanTitle: strip gender/grade tags ─────────────────────────────
 // ➤ "Clean title" tests: German/French postings carry gender tags like
@@ -399,5 +392,4 @@ check(languageOfPlace('Francesca Ltd, Aberdeen'), '', 'a name that merely contai
   check(pidAlive(1, throwing('EPERM')), true, 'EPERM: alive, just not ours');
 }
 
-console.log(failures === 0 ? `All ${total} notify tests passed.` : `${failures}/${total} FAILED.`);
-process.exit(failures === 0 ? 0 : 1);
+done();

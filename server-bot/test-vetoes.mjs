@@ -15,14 +15,9 @@ import {
   proposeVetoChips, sendVetoChips, handleVetoCallback, startVetoList,
 } from './vetoes.mjs';
 import { buildTitleFilter } from './scan.mjs';
+import { harness } from './test-harness.mjs';
 
-let total = 0, failures = 0;
-const ok = (cond, label) => { total++; if (!cond) { failures++; console.log(`  FAIL ${label}`); } };
-const eq = (got, want, label) => {
-  total++;
-  const g = JSON.stringify(got), w = JSON.stringify(want);
-  if (g !== w) { failures++; console.log(`  FAIL ${label}\n    got:      ${g}\n    expected: ${w}`); }
-};
+const { ok, eq, done } = harness('veto');
 
 // ── The store: tolerant on the way in, atomic on the way out ───────────────
 {
@@ -266,5 +261,4 @@ function fakeWorld({ pending = [], positives = [] } = {}) {
 }
 
 // ── Result ────────────────────────────────────────────────────────────────
-if (failures) { console.log(`\n${failures}/${total} veto tests FAILED.`); process.exit(1); }
-console.log(`All ${total} veto tests passed.`);
+done();

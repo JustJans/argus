@@ -6,9 +6,10 @@ import { loadListIds, saveListIds, loadSeenIds, saveSeenIds, refreshList } from 
 import { writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { harness as testKit } from './test-harness.mjs';
 
-let pass = 0, fail = 0;
-const check = (name, cond) => { cond ? pass++ : (fail++, console.log('FAIL:', name)); };
+const { ok, eq, done } = testKit('live-list');
+const check = (name, cond) => ok(cond, name);
 
 const p = join(tmpdir(), `argus-live-list-test-${process.pid}.json`);
 
@@ -128,5 +129,4 @@ check('a successful refresh answers the number of pending offers', typeof (await
 try { rmSync(p); } catch { /* best-effort cleanup */ }
 try { rmSync(sp); } catch { /* best-effort cleanup */ }
 
-if (fail === 0) console.log(`All ${pass} live-list tests passed.`);
-else { console.log(`${fail} live-list test(s) FAILED`); process.exit(1); }
+done();

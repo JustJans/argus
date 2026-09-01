@@ -26,14 +26,13 @@ import { pathToFileURL, fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import yaml from 'js-yaml';
 import { buildProfileYaml, pdfText } from './onboarding.mjs';
+import { harness } from './test-harness.mjs';
 
 // ➤ Where this test file itself lives, so the lock test can launch standalone
 // ➤ programs that import the real module rather than a copy of it.
 const SELF_DIR = dirname(fileURLToPath(import.meta.url));
 
-let pass = 0, fail = 0;
-const ok = (cond, name) => { if (cond) pass++; else { fail++; console.log(`  FAIL ${name}`); } };
-const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want), `${name} (got ${JSON.stringify(got)}, want ${JSON.stringify(want)})`);
+const { ok, eq, done } = harness('robustness');
 
 // ── 1) The Claude CLI complaint must never pass for an answer ─────────────
 // ➤ The real 2026-07-24 outage: the program prints this on its NORMAL output,
@@ -1475,5 +1474,4 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(profileTerm('(unclosed').literal, true, 'profile: an unclosed group is plain text too');
 }
 
-if (fail) { console.log(`\n${fail}/${pass + fail} robustness tests FAILED.`); process.exit(1); }
-console.log(`All ${pass} robustness tests passed.`);
+done();

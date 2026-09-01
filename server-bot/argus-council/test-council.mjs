@@ -14,15 +14,9 @@ import { councilVote } from './vote.mjs';
 import { buildJudgePrompt } from './engine.mjs';
 import { sampleDropped, formatCouncilEntry, offerKey, filterUnjudged, bodyVerdict, MIN_BODY_CHARS, hostOf } from './judge-shadow.mjs';
 import { buildUserDecisions, decideFor } from './reconcile.mjs';
+import { harness } from '../test-harness.mjs';
 
-let passed = 0;
-const fails = [];
-// ➤ Simple comparison: if it doesn't match, the failure is recorded with its label.
-function eq(actual, expected, label) {
-  const a = JSON.stringify(actual), e = JSON.stringify(expected);
-  if (a === e) { passed++; } else { fails.push(`${label}\n    expected: ${e}\n    actual:   ${a}`); }
-}
-function ok(cond, label) { if (cond) { passed++; } else { fails.push(label); } }
+const { ok, eq, done } = harness('council');
 
 // ── 1) The ballot: councilVote (majority 2 of 3, ties, nulls) ───────────────
 eq(councilVote(['show', 'show', 'hide']), 'show', 'vote: 2 show wins');
@@ -248,11 +242,4 @@ ok(parseVerdict('{"vote":"show","reason":"x","confidence":5}').confidence <= 1, 
   ok(!/good|bad|ugly/i.test(blind), 'and no judge line, since nobody was asked');
 }
 
-if (fails.length) {
-  console.error(`\n${fails.length} council test(s) FAILED:`);
-  for (const f of fails) console.error(`  ✗ ${f}`);
-  console.error(`\n${passed} passed, ${fails.length} failed.`);
-  process.exit(1);
-}
-console.log(`All ${passed} council tests passed.`);
-process.exit(0);
+done();

@@ -9,15 +9,10 @@
 import { reviewKeyboard, reviewCardText, handleReviewCallback, startReview, undoDecision, removeJsonlRecord } from './review.mjs';
 import { restorePendingInLines } from './seen.mjs';
 import { toInlineKeyboard } from './notify.mjs';
+import { harness } from './test-harness.mjs';
 
-let total = 0, failures = 0;
-function check(actual, expected, label) {
-  total++;
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    failures++;
-    console.log(`  FAIL ${label}\n    got:      ${JSON.stringify(actual)}\n    expected: ${JSON.stringify(expected)}`);
-  }
-}
+const { ok, eq, done } = harness('review');
+const check = eq;
 
 // ➤ A three-offer deck; the middle one carries HTML-hostile text and a link
 // ➤ Telegram would refuse as a URL button.
@@ -301,5 +296,4 @@ const wire = (state) => {
     'a url button becomes a Telegram link button, a data button a callback');
 }
 
-console.log(failures === 0 ? `All ${total} review tests passed.` : `${failures}/${total} FAILED.`);
-process.exit(failures === 0 ? 0 : 1);
+done();

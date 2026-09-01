@@ -15,11 +15,10 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { SCOPE, AUTH_ENDPOINT, TOKEN_ENDPOINT, BODY_LIMIT, accessToken, listMessageIds, messageSummary, messageText } from './gmail.mjs';
 import { buildAuthUrl, pkcePair } from './gmail-auth.mjs';
+import { harness } from './test-harness.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-let pass = 0, fail = 0;
-const ok = (cond, name) => { if (cond) pass++; else { fail++; console.log(`  FAIL ${name}`); } };
-const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want), `${name} (got ${JSON.stringify(got)}, want ${JSON.stringify(want)})`);
+const { ok, eq, done } = harness('gmail');
 
 // ── 1) The scope is read-only, and pinned ─────────────────────────────────
 {
@@ -262,5 +261,4 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ok(messageText(broken).includes('still here'), 'one unreadable part does not lose the others');
 }
 
-if (fail) { console.log(`\n${fail}/${pass + fail} gmail tests FAILED.`); process.exit(1); }
-console.log(`All ${pass} gmail tests passed.`);
+done();

@@ -11,10 +11,9 @@ import { scoreLink, linkOutcomes, tokens, senderName, senderDomainCore } from '.
 import { buildStatus, summarise, applyVerdicts } from './status.mjs';
 import { windowFrom, gmailDate, searchFor } from './listen.mjs';
 import { formatStatus } from './report.mjs';
+import { harness } from '../test-harness.mjs';
 
-let pass = 0, fail = 0;
-const ok = (cond, name) => { if (cond) pass++; else { fail++; console.log(`  FAIL ${name}`); } };
-const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want), `${name} (got ${JSON.stringify(got)}, want ${JSON.stringify(want)})`);
+const { ok, eq, done } = harness('mail');
 
 // ── 1) Telling the four kinds of message apart ────────────────────────────
 {
@@ -972,5 +971,4 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ok(/Applications . 3/.test(txt), 'the header still counts it');
 }
 
-if (fail) { console.log(`\n${fail}/${pass + fail} mail tests FAILED.`); process.exit(1); }
-console.log(`All ${pass} mail tests passed.`);
+done();
