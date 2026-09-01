@@ -506,64 +506,145 @@ function reviewDeps() {
   };
 }
 
-// ➤ The listener's "brain": takes the text of one of your messages, works out which
-// ➤ command it corresponds to (trying patterns one by one, top to bottom) and
-// ➤ runs the matching action. If nothing fits, it sends the help text.
-async function handle(text) {
-  const t = text.trim();
-  console.log(`[${new Date().toISOString()}] cmd: ${t.slice(0, 100)}`);
+// ➤ "undo 845" (or a bare "undo" for the last card decision) → the offer
+// ➤ comes back to pending and the record its decision wrote (feedback or
+// ➤ application) is removed, so a slip of the finger leaves no trace. Works
+// ➤ for typed decisions too: any offer hidden with the "| visto" tag.
+async function undoCommand(t) {
+  const st = loadJson(REVIEW_STATE_PATH, null);
+  const mNum = t.match(/(\d+)/);
+  let n = mNum ? parseInt(mNum[1], 10) : null;
+  if (n == null) {
+    const entries = Object.entries(st?.decisions || {});
+    if (!entries.length) {
+      await sendTelegram('Nothing to undo: no recent card decision. Use "undo N" with the offer number.');
+      return;
+    }
+    entries.sort((a, b) => String(a[1].at || '').localeCompare(String(b[1].at || '')));
+    n = parseInt(entries[entries.length - 1][0], 10);
+  }
+  const decision = st?.decisions?.[String(n)] || null;
+  const r = undoDecision(n, decision);
+  if (st?.decisions && st.decisions[String(n)]) {
+    delete st.decisions[String(n)];
+    writeFileAtomic(REVIEW_STATE_PATH, JSON.stringify(st));
+  }
+  if (r.restored) {
+    await sendTelegram(`#${n} is back in the pending list${r.recordRemoved ? ', and the record of that decision was removed' : ''}.`);
+    await refreshList({ markSeen: true });
+  } else if (r.recordRemoved) {
+    await sendTelegram(`#${n}: the record of that decision was removed. The offer itself was not restored (already pending, or hidden by the cleanup rather than by you).`);
+  } else {
+    await sendTelegram(`Nothing to undo for #${n}: no decision of yours found on it.`);
+  }
+}
 
+// ➤ Is it "applied N"? → record that you SENT the application:
+// ➤ it's logged in data/applications.jsonl (your history of sent applications) and
+// ➤ the offer drops off pending (and won't come back even if reposted).
+// ➤ (optional separator — "applied5" without a space is also valid, audit)
+// ➤ "longshot 729 I don't have the 3 years" — checked BEFORE "applied" so the
+// ➤ two never race, and the trailing text is kept as the requirement you fall
+// ➤ short of (same shape as "no N reason").
+// ➜ "mail": where every application you have sent stands. The twin of
+// ➜ "list" — one shows the offers waiting for you, the other what came back
+// ➜ from the ones you sent. It RE-READS THE INBOX FIRST (2026-08-05): the
+// ➜ report used to be whatever the nightly run left, so "mail" could answer
+// ➜ with yesterday. If Gmail cannot be read right now (down, token expired),
+// ➜ the last report is shown with its date rather than nothing. The nightly
+// ➜ run stays — it keeps the report fresh without being asked.
+// ➜ "status" still answers too: it was the first name this had.
+async function mailCommand() {
+  const { formatStatus } = await import('./argus-mail/report.mjs');
+  const workingId = await sendTelegramMessage('Reading your inbox — this takes a minute.', { silent: true });
+  const refreshed = await new Promise(resolve => {
+    execFile(process.execPath, [join(SCRIPT_DIR, 'argus-mail', 'listen.mjs')],
+      { cwd: ROOT, timeout: 5 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 },
+      (err) => resolve(!err));
+  });
+  const status = loadJson(join(ROOT, 'data', 'application-status.json'), null);
+  if (workingId != null) await deleteTelegramMessage(workingId);
+  if (!status) {
+    await sendTelegram('No status yet. Set Gmail up first (see server-bot/argus-mail/README.md); the report appears after the first read.');
+    return;
+  }
+  const stale = refreshed ? '' : `\n\nThe inbox could not be read just now — this is the report from ${String(status.generated || '').slice(0, 10)}.`;
+  // ➤ ONE mail report in the chat, not a pile: each "mail" replaces the
+  // ➤ previous report, the same discipline as the live list. Send FIRST,
+  // ➤ delete after — a failed send must never leave the chat with no report
+  // ➤ at all. The previous ids ride in data/mail-message.json.
+  // ➤ CHUNKED like the offers list (audit 2026-08-08): the report grows one
+  // ➤ line per application and Telegram refuses anything over 4096 chars —
+  // ➤ around 60-odd listed applications the single send started failing
+  // ➤ EVERY time, exactly when there was most to report.
+  const MAIL_MSG_PATH = join(ROOT, 'data', 'mail-message.json');
+  const prev = loadJson(MAIL_MSG_PATH, null);
+  const ids = [];
+  for (const chunk of chunkLines(formatStatus(status) + esc(stale))) {
+    const id = await sendTelegramMessage(chunk, { html: true });
+    if (id != null) ids.push(id);
+  }
+  if (ids.length) {
+    writeFileAtomic(MAIL_MSG_PATH, JSON.stringify({ message_ids: ids, ts: new Date().toISOString() }));
+    // ➤ Older installs stored a single message_id; both shapes are honoured.
+    const prevIds = prev?.message_ids || (prev?.message_id != null ? [prev.message_id] : []);
+    for (const pid of prevIds) {
+      if (!ids.includes(pid)) await deleteTelegramMessage(pid);
+    }
+  }
+}
+
+// ➤ THE COMMAND TABLE. One entry per command, tried top to bottom, first match
+// ➤ wins — and the order is part of the meaning in two places: "longshot N"
+// ➤ sits before "applied N" so the two can never race, and "no N" sits before
+// ➤ the bare "no" that asks which offer you meant. Every command is
+// ➤ case-insensitive and offer numbers are accepted with or without "#".
+const COMMANDS = [
   // ➤ Every command is case-insensitive, and offer numbers are accepted with
   // ➤ or without the hash ("#412" or "412").
   // ➤ Is it "help" (or "/help")? → show the list of commands.
-  if (/^\/?help$/i.test(t)) {
+  { match: /^\/?help$/i, run: async (t) => {
     await sendTelegram(HELP, { html: true });
-    return;
-  }
+  } },
   // ➤ "/start" → the one-time setup (CV + profile questions).
   // ➤ "/start yes" confirms replacing a profile you already have: the first
   // ➤ question is "paste your CV", and from then on ANY text you type is stored
   // ➤ as an answer — so starting again by accident used to cost you the CV.
   // ➤ "/start abc12345" is the installer's deep link (t.me/bot?start=CODE):
   // ➤ Telegram delivers the code as a payload, and it reads as a plain /start.
-  if (/^\/?start(\s+yes|\s+[a-z0-9]{6,12})?$/i.test(t)) {
+  { match: /^\/?start(\s+yes|\s+[a-z0-9]{6,12})?$/i, run: async (t) => {
     await startOnboarding(/\s+yes$/i.test(t));
-    return;
-  }
+  } },
   // ➤ "settings" → edit any profile answer later (menu with buttons).
-  if (/^\/?settings$/i.test(t)) {
+  { match: /^\/?settings$/i, run: async (t) => {
     await startSettings();
-    return;
-  }
+  } },
   // ➤ Is the message "seen" followed by one or more numbers? → mark as seen.
-  if (/^seen(\s+#?\d+)+$/i.test(t)) {
+  { match: /^seen(\s+#?\d+)+$/i, run: async (t) => {
     const ids = t.split(/\s+/).slice(1).map(s => s.replace(/^#/, ''));
     const out = await runNode('seen.mjs', ids);
     await sendTelegram(seenReply(ids, out));
     // ➤ The confirmation above stays; only the list refreshes (the previous one is
     // ➤ deleted and re-sent without those offers).
     await refreshList({ markSeen: true });
-    return;
-  }
+  } },
   // ➤ Is it "search" (or "scan")? → launch a full scan right now.
-  if (/^(search|scan)$/i.test(t)) {
+  { match: /^(search|scan)$/i, run: async (t) => {
     await forceScan();
-    return;
-  }
+  } },
   // ➤ Is it "cover 412" (or "cover #412")? → generate the cover-letter
   // ➤ PDF for that offer and send it here.
-  if (/^cover\s*#?\d+$/i.test(t)) {
+  { match: /^cover\s*#?\d+$/i, run: async (t) => {
     const n = parseInt(t.match(/(\d+)/)[1], 10);
     await coverCommand(n);
-    return;
-  }
+  } },
   // ➤ Is it "list"? → send the pending offers grouped by country.
   // ➤ (Button history: per-offer buttons ON THE LIST were tried 2026-07-18 and
   // ➤ removed the same day — under a 25-offer message no button can say which
   // ➤ offer it belongs to. On 2026-08-22 the owner approved buttons on the
   // ➤ review CARD instead, one offer per message, where they are unambiguous.
   // ➤ The list itself keeps only navigation and the review entry.)
-  if (/^list$/i.test(t)) {
+  { match: /^list$/i, run: async (t) => {
     // ➤ "list" now refreshes the live list: deletes the previous one and re-sends the
     // ➤ pending offers to the bottom of the chat (if there are none, it says "No pending offers").
     // ➤ AND IT ANSWERS WHEN IT CANNOT (audit 2026-07-31). If the send failed or
@@ -572,108 +653,19 @@ async function handle(text) {
     // ➤ ignored you, with no way to tell that from "there is nothing new".
     const r = await refreshList({ markSeen: true });
     if (r === false) await sendTelegram('The list could not be sent just now. Try again in a moment.');
-    return;
-  }
+  } },
   // ➤ "review" → the pending offers one card at a time, with buttons. The
   // ➤ same flow the list's "Review one by one" button opens.
-  if (/^review$/i.test(t)) {
+  { match: /^review$/i, run: async (t) => {
     await startReview();
-    return;
-  }
-  // ➤ "undo 845" (or a bare "undo" for the last card decision) → the offer
-  // ➤ comes back to pending and the record its decision wrote (feedback or
-  // ➤ application) is removed, so a slip of the finger leaves no trace. Works
-  // ➤ for typed decisions too: any offer hidden with the "| visto" tag.
-  if (/^undo(\s+#?\d+)?$/i.test(t)) {
-    const st = loadJson(REVIEW_STATE_PATH, null);
-    const mNum = t.match(/(\d+)/);
-    let n = mNum ? parseInt(mNum[1], 10) : null;
-    if (n == null) {
-      const entries = Object.entries(st?.decisions || {});
-      if (!entries.length) {
-        await sendTelegram('Nothing to undo: no recent card decision. Use "undo N" with the offer number.');
-        return;
-      }
-      entries.sort((a, b) => String(a[1].at || '').localeCompare(String(b[1].at || '')));
-      n = parseInt(entries[entries.length - 1][0], 10);
-    }
-    const decision = st?.decisions?.[String(n)] || null;
-    const r = undoDecision(n, decision);
-    if (st?.decisions && st.decisions[String(n)]) {
-      delete st.decisions[String(n)];
-      writeFileAtomic(REVIEW_STATE_PATH, JSON.stringify(st));
-    }
-    if (r.restored) {
-      await sendTelegram(`#${n} is back in the pending list${r.recordRemoved ? ', and the record of that decision was removed' : ''}.`);
-      await refreshList({ markSeen: true });
-    } else if (r.recordRemoved) {
-      await sendTelegram(`#${n}: the record of that decision was removed. The offer itself was not restored (already pending, or hidden by the cleanup rather than by you).`);
-    } else {
-      await sendTelegram(`Nothing to undo for #${n}: no decision of yours found on it.`);
-    }
-    return;
-  }
-  // ➤ Is it "applied N"? → record that you SENT the application:
-  // ➤ it's logged in data/applications.jsonl (your history of sent applications) and
-  // ➤ the offer drops off pending (and won't come back even if reposted).
-  // ➤ (optional separator — "applied5" without a space is also valid, audit)
-  // ➤ "longshot 729 I don't have the 3 years" — checked BEFORE "applied" so the
-  // ➤ two never race, and the trailing text is kept as the requirement you fall
-  // ➤ short of (same shape as "no N reason").
-  // ➜ "mail": where every application you have sent stands. The twin of
-  // ➜ "list" — one shows the offers waiting for you, the other what came back
-  // ➜ from the ones you sent. It RE-READS THE INBOX FIRST (2026-08-05): the
-  // ➜ report used to be whatever the nightly run left, so "mail" could answer
-  // ➜ with yesterday. If Gmail cannot be read right now (down, token expired),
-  // ➜ the last report is shown with its date rather than nothing. The nightly
-  // ➜ run stays — it keeps the report fresh without being asked.
-  // ➜ "status" still answers too: it was the first name this had.
-  if (/^(mail|status)$/i.test(t)) {
-    const { formatStatus } = await import('./argus-mail/report.mjs');
-    const workingId = await sendTelegramMessage('Reading your inbox — this takes a minute.', { silent: true });
-    const refreshed = await new Promise(resolve => {
-      execFile(process.execPath, [join(SCRIPT_DIR, 'argus-mail', 'listen.mjs')],
-        { cwd: ROOT, timeout: 5 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 },
-        (err) => resolve(!err));
-    });
-    const status = loadJson(join(ROOT, 'data', 'application-status.json'), null);
-    if (workingId != null) await deleteTelegramMessage(workingId);
-    if (!status) {
-      await sendTelegram('No status yet. Set Gmail up first (see server-bot/argus-mail/README.md); the report appears after the first read.');
-      return;
-    }
-    const stale = refreshed ? '' : `\n\nThe inbox could not be read just now — this is the report from ${String(status.generated || '').slice(0, 10)}.`;
-    // ➤ ONE mail report in the chat, not a pile: each "mail" replaces the
-    // ➤ previous report, the same discipline as the live list. Send FIRST,
-    // ➤ delete after — a failed send must never leave the chat with no report
-    // ➤ at all. The previous ids ride in data/mail-message.json.
-    // ➤ CHUNKED like the offers list (audit 2026-08-08): the report grows one
-    // ➤ line per application and Telegram refuses anything over 4096 chars —
-    // ➤ around 60-odd listed applications the single send started failing
-    // ➤ EVERY time, exactly when there was most to report.
-    const MAIL_MSG_PATH = join(ROOT, 'data', 'mail-message.json');
-    const prev = loadJson(MAIL_MSG_PATH, null);
-    const ids = [];
-    for (const chunk of chunkLines(formatStatus(status) + esc(stale))) {
-      const id = await sendTelegramMessage(chunk, { html: true });
-      if (id != null) ids.push(id);
-    }
-    if (ids.length) {
-      writeFileAtomic(MAIL_MSG_PATH, JSON.stringify({ message_ids: ids, ts: new Date().toISOString() }));
-      // ➤ Older installs stored a single message_id; both shapes are honoured.
-      const prevIds = prev?.message_ids || (prev?.message_id != null ? [prev.message_id] : []);
-      for (const pid of prevIds) {
-        if (!ids.includes(pid)) await deleteTelegramMessage(pid);
-      }
-    }
-    return;
-  }
-  if (/^longshot[\s,:]*#?\d+/i.test(t)) {
+  } },
+  { match: /^undo(\s+#?\d+)?$/i, run: t => undoCommand(t) },
+  { match: /^(mail|status)$/i, run: () => mailCommand() },
+  { match: /^longshot[\s,:]*#?\d+/i, run: async (t) => {
     const m = t.match(/^longshot[\s,:]*#?(\d+)[\s,.:—-]*(.*)$/i);
     await markApplied(parseInt(m[1], 10), { longshot: true, reason: m[2].trim() });
-    return;
-  }
-  if (/^applied[\s,:]*#?\d+/i.test(t)) {
+  } },
+  { match: /^applied[\s,:]*#?\d+/i, run: async (t) => {
     const m = t.match(/^applied[\s,:]*#?(\d+)[\s,.:—-]*(.*)$/i);
     const n = parseInt(m[1], 10);
     await markApplied(n);
@@ -687,24 +679,22 @@ async function handle(text) {
       // ➤ so the tags arrived as literal text in the middle of the sentence.
       await sendTelegram(`Note: "${esc(m[2].trim())}" was not saved — <code>applied</code> only reads the number.\nIf you meant you fall short of it, use <code>longshot ${n} ${esc(m[2].trim())}</code> instead.`, { html: true });
     }
-    return;
-  }
+  } },
   // ➤ "interview 749 friday 9am" — an interview arranged where the inbox cannot
   // ➤ see it: a phone call, LinkedIn, or a Calendar event you created yourself
   // ➤ (its invite mail comes FROM you, and mail reading skips your own). The
   // ➤ trailing text is an optional note, kept with the record.
-  if (/^interview[\s,:]*#?\d+/i.test(t)) {
+  { match: /^interview[\s,:]*#?\d+/i, run: async (t) => {
     const m = t.match(/^interview[\s,:]*#?(\d+)[\s,.:—-]*(.*)$/i);
     const n = parseInt(m[1], 10);
     if (!(await recordApplicationState(n, 'interview', m[2].trim()))) {
       await sendTelegram(`No application with the number #${n}. <code>interview</code> works on applications you marked with <code>applied</code>.`, { html: true });
     }
-    return;
-  }
+  } },
   // ➤ Is it "no 3 reason..." (or stuck together "no3")? → reject the offer
   // ➤ recording why. (Optional separator — audit 2026-07-18: "no5"
   // ➤ typed quickly fell through to the help text.)
-  if (/^no[\s,:]*#?\d+/i.test(t)) {
+  { match: /^no[\s,:]*#?\d+/i, run: async (t) => {
     // ➤ Split the offer number from the reason text.
     const m = t.match(/^no[\s,:]*#?(\d+)[\s,.:—-]*(.*)$/i);
     const n = parseInt(m[1], 10);
@@ -716,18 +706,26 @@ async function handle(text) {
     // ➤ built from what was just rejected. Typed path only for now — the
     // ➤ review cards keep their own rhythm.
     if (off) await sendVetoChips(off, vetoTapDeps());
-    return;
-  }
-  if (/^vetoes$/i.test(t)) {
+  } },
+  { match: /^vetoes$/i, run: async (t) => {
     await startVetoList(vetoTapDeps());
-    return;
-  }
+  } },
   // ➤ Does it start with "no" but WITHOUT a number ("No, needs 5 years...")?
   // ➤ → ask which one you mean, instead of dumping generic help.
-  if (/^no\b/i.test(t)) {
+  { match: /^no\b/i, run: async (t) => {
     await sendTelegram('Which one do you mean? Tell me the number shown next to the offer, e.g.:\nno #412 needs 10 years of experience');
-    return;
-  }
+  } },
+];
+
+// ➤ The listener's "brain": takes the text of one of your messages, works out which
+// ➤ The listener's "brain": takes the text of one of your messages, finds the
+// ➤ first command in the table that matches it and runs that one action. If
+// ➤ nothing fits, it sends the help text.
+async function handle(text) {
+  const t = text.trim();
+  console.log(`[${new Date().toISOString()}] cmd: ${t.slice(0, 100)}`);
+  const cmd = COMMANDS.find(c => c.match.test(t));
+  if (cmd) { await cmd.run(t); return; }
   // ➤ Nothing matched: send the help text with the available commands.
   await sendTelegram(HELP, { html: true });
 }
