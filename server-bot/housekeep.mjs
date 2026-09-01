@@ -520,7 +520,7 @@ async function main() {
     // ➤ well, because multi-location postings hide the country there
     // ➤ ("Graduate Programme - Qatar").
     for (const p of pending) {
-      if (!companyOk(p.company) || !titleOk(p.title)
+      if (!companyOk(p.company) || !titleOk(p.title, p.location)
           || (p.location && !locFilter(p.location)) || locFilter.blockHit(p.title)
           || titleDemandsForeignLanguage(p.title) || titleEncodingBroken(p.title)) {
         filteredIdx.add(p.lineIdx);

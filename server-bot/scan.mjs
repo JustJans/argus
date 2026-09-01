@@ -1400,8 +1400,10 @@ export function admissionVerdict(job, gates) {
   if (!job.url || !isSafeUrl(job.url)) return { ok: false, stage: 'NO LINK', reason: 'the offer had no usable/safe link' };
   if (!companyFilter(job.company)) return { ok: false, stage: 'COMPANY', reason: `company blocked by you: ${companyFilter.explain(job.company)}` };
 
-  if (!titleFilter(job.title)) {
-    return { ok: false, stage: 'TITLE', reason: titleFilter.explain(job.title) };
+  // ➤ The location rides along so a field word that is really the region
+  // ➤ ("Seine-Maritime") does not admit the offer on its own.
+  if (!titleFilter(job.title, job.location)) {
+    return { ok: false, stage: 'TITLE', reason: titleFilter.explain(job.title, job.location) };
   }
 
   // ➤ GEOGRAPHY IS NOT A MATTER OF OPINION. Whatever a title suggests, a job

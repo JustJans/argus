@@ -1206,6 +1206,33 @@ for (const [name, ok] of COMPANY) {
 }
 
 // ➤ Final tally: reports the result and returns an exit code (0 = all good)
+// ── A place is not a field (2026-08-26) ────────────────────────────────────
+// ➤ Boards glue the region into the title, and a positive like "Maritime" or
+// ➤ "Marine" fired on the geography: two spine surgeons in Seine-Maritime and a
+// ➤ nanny in the village of Marines reached the list. The filter now masks the
+// ➤ offer's own location segments out of the title before looking for field
+// ➤ words — and nothing else, so a title that merely shares a word with its
+// ➤ city keeps every positive it has.
+{
+  const f = buildTitleFilter({ positive: ['Marine', 'Maritime', 'Offshore'], negative: ['Senior'] });
+  check(f('Chirurgien orthopédiste (spécialiste rachis) - Seine-Maritime (76) - Libéral H/F', 'Seine-Maritime, Normandie, France') === false,
+    'place guard', 'a surgeon whose only field word is the region is dropped');
+  check(f.explain('Chirurgien orthopédiste - Seine-Maritime (76)', 'Seine-Maritime, Normandie, France') === "the title's only keyword from your field is part of its place name",
+    'place guard', 'and --explain says it was the place, not the job');
+  check(f('Garde-periscolaire à MARINES pour 1 enfant, 5 ans', 'Marines, Val-d\'Oise, France') === false,
+    'place guard', 'the nanny in Marines is dropped');
+  check(f('Marine Surveyor - Seine-Maritime (76)', 'Seine-Maritime, Normandie, France') === true,
+    'place guard', 'a real marine job in the same region still passes: its field word is in the job part');
+  check(f('Offshore Engineer', 'Offshore Base, Aberdeen') === true,
+    'place guard', 'sharing a word with the city is not the same as being the city — nothing is masked');
+  check(f('Chirurgien orthopédiste - Seine-Maritime (76)') === true,
+    'place guard', 'without a location nothing can be masked, and the filter behaves exactly as before');
+  check(f('Senior Marine Engineer - Seine-Maritime', 'Seine-Maritime, France') === false,
+    'place guard', 'negatives still read the whole title, place name included');
+  check(f.explain('Plumber in Paris', 'Paris, France') === 'the title has no keyword from your field',
+    'place guard', 'a title with no field word anywhere keeps the plain reason');
+}
+
 // ➤ so other scripts can detect it.
 console.log(failures === 0
   ? `All ${total} filter tests passed.`

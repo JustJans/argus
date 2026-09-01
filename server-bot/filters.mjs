@@ -101,19 +101,43 @@ export function buildTitleFilter(tf) {
     const re = boundaryRegex(t, true);
     return { label: String(t), test: (s) => re.test(s) };
   });
-  const fn = (title) => {
+  // ➤ A PLACE IS NOT A FIELD (field cases 2026-08-26). Boards glue the region
+  // ➤ into the title — "Chirurgien orthopédiste - Seine-Maritime (76)", a
+  // ➤ nanny "à MARINES" — and a positive like "Maritime" or "Marine" then
+  // ➤ fires on the geography. Before the positives are checked, every segment
+  // ➤ of the offer's own location that appears verbatim in the title is
+  // ➤ masked out, so the field words have to be in the JOB part of the title.
+  // ➤ Only whole location segments, five letters or more: a title that merely
+  // ➤ shares a word with its city ("Offshore Engineer" in "Offshore Base,
+  // ➤ Aberdeen") loses nothing, because "offshore base" is not in the title.
+  // ➤ Negatives still read the whole title: a blocked word inside a place
+  // ➤ name still blocks, which is the conservative direction.
+  const placeSegments = location => String(location || '').split(/[,;|]/)
+    .map(s => norm(s).trim()).filter(s => s.length >= 5);
+  const withoutPlaces = (lower, location) => {
+    let masked = lower;
+    for (const seg of placeSegments(location)) if (masked.includes(seg)) masked = masked.split(seg).join(' ');
+    return masked;
+  };
+  const anyPositive = s => positives.length === 0 || positives.some(p => p(s));
+  const fn = (title, location = '') => {
     const lower = norm(title);
-    const hasPos = positives.length === 0 || positives.some(p => p(lower));
-    if (!hasPos) return false;
+    if (!anyPositive(withoutPlaces(lower, location))) return false;
     return !negatives.some(neg => neg.test(lower));
   };
-  // ➤ .explain(title): same verdict as the filter, but RETURNS the reason
-  // ➤ for the discard as text (for the "why each offer was discarded" list,
-  // ➤ --explain mode). If the offer passes the title, it returns null.
-  fn.explain = (title) => {
+  // ➤ .explain(title, location): same verdict as the filter, but RETURNS the
+  // ➤ reason for the discard as text (for the "why each offer was discarded"
+  // ➤ list, --explain mode). If the offer passes the title, it returns null.
+  fn.explain = (title, location = '') => {
     const lower = norm(title);
-    const hasPos = positives.length === 0 || positives.some(p => p(lower));
-    if (!hasPos) return 'the title has no keyword from your field';
+    if (!anyPositive(withoutPlaces(lower, location))) {
+      // ➤ Say WHICH kind of miss it was: no field word at all, or one that
+      // ➤ only sat inside the place name — the reader of --explain then knows
+      // ➤ whether to touch the positives or to shrug at the geography.
+      return anyPositive(lower)
+        ? 'the title\'s only keyword from your field is part of its place name'
+        : 'the title has no keyword from your field';
+    }
     const hit = negatives.find(neg => neg.test(lower));
     return hit ? `the title has the blocked word "${hit.label}"` : null;
   };
