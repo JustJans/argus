@@ -1,7 +1,6 @@
-// ➤ The three text helpers every module used to carry its own copy of.
-// ➤ Seven accent-folders had grown across the engine, five identical and two
-// ➤ near misses; the title-key normalisation was pasted into scan and
-// ➤ housekeep separately and had already drifted once. One home, one meaning.
+// ➤ The three text helpers every module needs, in one home: accent folding and the
+// ➤ title-key normalisation shared by scan and housekeep, so the two ends cannot drift
+// ➤ apart.
 
 // ➤ Accents off, case kept: "Électromécanicien" → "Electromecanicien". For the
 // ➤ places where case still carries meaning (a regex written in capitals, a
@@ -14,17 +13,15 @@ export const unaccent = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g
 // ➤ matching accented text and a filter opens instead of closing.
 export const fold = s => unaccent(s).toLowerCase();
 
-// ➤ A title reduced to what identifies the ROLE, for telling a re-post from a
-// ➤ new vacancy: gender tags "(m/w/d)" / "(x w m)" / "(all genders)" and
-// ➤ schedules "80-100%" vary between postings of the same job and go, dashes
-// ➤ are unified, whitespace collapsed, trailing punctuation dropped. Case is
-// ➤ lowered but accents are KEPT on purpose — a key is only ever compared with
-// ➤ a key built the same way from the same source.
-// ➤ The gender-tag pattern is written WITHOUT ambiguous repetition (CodeQL
-// ➤ round, 2026-08-24): an optional-separator form backtracked exponentially
-// ➤ on a title like "(m m m m …" with no closing paren, and titles come from
-// ➤ the boards. Separators are one mandatory run; a fused "(mwd)" has its own
-// ➤ branch.
+// ➤ A title reduced to what identifies the ROLE, for telling a re-post from a new vacancy:
+// ➤ gender tags "(m/w/d)" / "(x w m)" / "(all genders)" and schedules "80-100%" vary
+// ➤ between postings of the same job and go, dashes are unified, whitespace collapsed,
+// ➤ trailing punctuation dropped. Case is lowered but accents are KEPT on purpose — a key
+// ➤ is only ever compared with a key built the same way from the same source. The
+// ➤ gender-tag pattern is written WITHOUT ambiguous repetition: an optional-separator form
+// ➤ backtracks exponentially on a title like "(m m m m …" with no closing paren, and
+// ➤ titles come from the boards. Separators are one mandatory run; a fused "(mwd)" has its
+// ➤ own branch.
 export function titleKey(s) {
   return String(s).toLowerCase()
     .replace(/\(\s*(?:[mwfdxhv](?:[\s/|,.]+[mwfdxhv])+|[mwfdxhv]{2,}|all\s*genders?|gn)\s*\)/gi, ' ')

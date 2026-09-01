@@ -107,18 +107,14 @@ async function get(path, params, token, fetchImpl = fetch) {
   return j;
 }
 
-// ➤ The ids of the messages matching a Gmail search query (the same syntax you
-// ➤ type in Gmail's own search box, e.g. 'label:Argus newer_than:30d').
-// ➤ IT FOLLOWS THE PAGES (audit 2026-07-31). Gmail hands back at most 500 ids at
-// ➤ a time plus a token for the next page, and that token used to be thrown
-// ➤ away — so the search stopped dead after one page, without saying so. The
-// ➤ search window starts at your OLDEST application and only ever gets longer,
-// ➤ and Gmail answers newest-first, so as soon as the window held more than a
-// ➤ page the OLDEST replies dropped off the end: those applications sat on "no
-// ➤ reply" for ever even though the answer was in the mailbox. `max` is now the
-// ➤ total number of ids wanted, not the size of one page.
-// ➤ The number of pages is capped too, so a query that somehow never runs out
-// ➤ cannot turn the mail run into a loop that never finishes.
+// ➤ The ids of the messages matching a Gmail search query (the same syntax you type in
+// ➤ Gmail's own search box, e.g. 'label:Argus newer_than:30d'). IT FOLLOWS THE PAGES:
+// ➤ Gmail hands back at most 500 ids at a time plus a token for the next page. The search
+// ➤ window starts at your OLDEST application and only ever gets longer, and Gmail answers
+// ➤ newest-first, so without the pages the oldest replies would drop off the end and those
+// ➤ applications would sit on "no reply" for ever. `max` is the total number of ids
+// ➤ wanted, not the size of one page, and the number of pages is capped so a query that
+// ➤ never runs out cannot turn the mail run into a loop that never finishes.
 export async function listMessageIds(query, { max = 50, token, fetchImpl = fetch, maxPages = 20 } = {}) {
   const t = token || await accessToken({ fetchImpl });
   const ids = [];

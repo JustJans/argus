@@ -18,14 +18,12 @@ export { fold };
 // ➤ (not selected), opportuniteit/kans, contactname/contact opnemen, plus a
 // ➤ formal "u". A real Belgian rejection matched nothing, so both are listed.
 
-// ➤ A refusal, and it has to be caught in both directions: the negative ("we
-// ➤ will not continue with you") and the positive, which reads like good news
-// ➤ until the sentence ends — "continue with OTHER candidates", "verder te
-// ➤ gaan met andere kandidaten".
-// ➤ "not to (go|move) forward" added 2026-08-05: a real employer wrote "we
-// ➤ have decided not to go forward with your application" — negation BEFORE
-// ➤ the verb, which neither "not moving/proceeding" nor "decided to go
-// ➤ forward with another" covered, so two real rejections sat as acknowledged.
+// ➤ A refusal, and it has to be caught in both directions: the negative ("we will not
+// ➤ continue with you") and the positive, which reads like good news until the sentence
+// ➤ ends — "continue with OTHER candidates", "verder te gaan met andere kandidaten". "not
+// ➤ to (go|move) forward" covers the negation BEFORE the verb ("we have decided not to go
+// ➤ forward with your application"), which neither "not moving/proceeding" nor "decided to
+// ➤ go forward with another" reaches.
 export const REJECTED = /unfortunately|we regret|regret to inform|not (be )?(moving|proceeding|selected|continuing)|not to (go|move) (forward|ahead)|not to proceed|other candidates|another candidate|no longer under consideration|unsuccessful|decided to (move|proceed|continue|go) (forward |ahead )?with (other|another)|lamentamos|no hemos podido|no continuaremos|no seguiremos|otros candidatos|otro candidato|hemos decidido continuar con|no ha sido seleccion|no encaja|helaas|niet verder|verder te gaan met andere|met andere kandidaten|niet geselecteerd|geen match|niet weerhouden|niet in aanmerking|kandidatuur niet|met een andere kandidaat|leider|absage|nicht beruck|haben wir uns fur (einen anderen|andere)|entschieden, mit anderen|nous ne donnerons pas suite|votre candidature n'a pas|d'autres candidat/;
 
 // ➤ Someone wants to speak to you: the strongest verdict and the easiest to
@@ -36,16 +34,14 @@ export const REJECTED = /unfortunately|we regret|regret to inform|not (be )?(mov
 export const INTERVIEW = /\binterview\b|entrevista|\bgesprek\b|vorstellungsgesprach|schedule a (call|chat|meeting|conversation)|invite you (to|for) an? (interview|call|chat|conversation|meeting)|would like to (speak|talk|meet|arrange)|available for a (call|chat|meeting)|kennismaking|kennismakingsgesprek|een afspraak (in)?plannen|nos gustaria (hablar|conocerte|charlar)|te gustaria (hablar|charlar)|concertar una (llamada|entrevista|reunion)|agendar una (llamada|entrevista|reunion)|primera toma de contacto/;
 
 // ➤ ── A PROMISE IS NOT AN INVITATION ──────────────────────────────────────
-// ➤ Receipts describe what MIGHT follow in the words of a real invitation:
-// ➤ "we will inform you whether we see the right fit TO INVITE YOU FOR AN
-// ➤ INTERVIEW" is a company that has not decided, and it was read as one.
-// ➤ These words mark that pending decision — deliberately NOT "if you are
-// ➤ available" or "if it suits you", which is how a genuine invitation is
-// ➤ politely worded. WHO it hangs on is irrelevant ("if YOU are selected, we
-// ➤ will invite you" passed as a real interview in English, German and Dutch),
-// ➤ so the maybe is pinned to selected/shortlisted/successful, a few words
-// ➤ apart, and to nothing else — "a match" and "the right fit" describe the
-// ➤ OFFER suiting YOU, and binned real invitations.
+// ➤ Receipts describe what MIGHT follow in the words of a real invitation: "we will inform
+// ➤ you whether we see the right fit TO INVITE YOU FOR AN INTERVIEW" is a company that has
+// ➤ not decided. These words mark that pending decision — deliberately NOT "if you are
+// ➤ available" or "if it suits you", which is how a genuine invitation is politely worded.
+// ➤ WHO it hangs on is irrelevant ("if YOU are selected, we will invite you" reads as a
+// ➤ real interview in English, German and Dutch), so the maybe is pinned to
+// ➤ selected/shortlisted/successful, a few words apart, and to nothing else — "a match"
+// ➤ and "the right fit" describe the OFFER suiting YOU, and would bin real invitations.
 const PICKED = '(selected|shortlisted|successful|chosen)';
 export const CONDITIONAL = new RegExp([
   '\\bwhether\\b', 'in case',

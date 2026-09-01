@@ -97,13 +97,12 @@ function main() {
     pipelineText: existsSync(PIPELINE_PATH) ? readFileSync(PIPELINE_PATH, 'utf-8') : '',
   });
 
-  // ➤ READ-FILL-REWRITE UNDER LOCK (audit 2026-08-08). This runs by hand or on
-  // ➤ its own cron, OUTSIDE the scan+council flock — and the Council appends a
-  // ➤ verdict per offer across a batch that lasts minutes. A line appended
-  // ➤ between this read and the rewrite was erased: that offer was re-judged
-  // ➤ later (three paid AI calls repeated) and its history vanished. The lock
-  // ➤ is held for the milliseconds of the read and write only; the shrink
-  // ➤ guard stays as the second line of defence.
+  // ➤ READ-FILL-REWRITE UNDER LOCK. This runs by hand or on its own cron, OUTSIDE the
+  // ➤ scan+council flock — and the Council appends a verdict per offer across a batch that
+  // ➤ lasts minutes. A line appended between this read and the rewrite would be erased: that
+  // ➤ offer re-judged later (three paid AI calls repeated) and its history gone. The lock is
+  // ➤ held for the milliseconds of the read and write only; the shrink guard stays as the
+  // ➤ second line of defence.
   let filled = 0;
   withFileLock(JOURNAL_PATH, () => {
     const records = readJsonl(JOURNAL_PATH);
@@ -113,9 +112,9 @@ function main() {
       const d = decideFor(rec, idx);
       if (d) { rec.userDecision = d; filled++; }
     }
-    // ➤ SAFETY 2026-07-25 (audit): this rewrites the WHOLE journal from the lines
-    // ➤ it managed to parse, so any line it could not read was silently deleted.
-    // ➤ A journal is history: we refuse to shrink it.
+    // ➤ SAFETY: this rewrites the WHOLE journal from the lines it managed to parse, so any
+    // ➤ line it could not read would be silently deleted. A journal is history: we refuse to
+    // ➤ shrink it.
     const onDisk = readFileSync(JOURNAL_PATH, 'utf-8').split('\n').filter(l => l.trim()).length;
     if (records.length < onDisk) {
       console.error(`Refusing to rewrite the journal: ${onDisk} lines on disk but only ${records.length} readable. Nothing was changed.`);

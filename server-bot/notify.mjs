@@ -133,8 +133,7 @@ export function classifyLocation(loc, matchers) {
   if (!lower) return 'NO LOCATION';
   if (HOME_CITY && lower.includes(HOME_CITY.toLowerCase())) return HOME_GROUP;
   for (const m of matchers) {
-    // ➤ WHOLE-WORD (audit 2026-07-25): these were plain substrings, so a location
-    // ➤ like "Argenteuil" was filed under BELGIUM because it contains "gent".
+    // ➤ WHOLE-WORD, or "Argenteuil" would be filed under BELGIUM because it contains "gent".
     // ➤ The boundary uses \p{L} because JS's \b only knows ASCII ("België").
     if (m.keys.some(k => new RegExp(`(?<![\\p{L}\\d])${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\d])`, 'iu').test(lower))) return m.group;
   }
@@ -184,21 +183,19 @@ const COUNTRY_WORDS = new Set([
   ..._COUNTRIES.flatMap(c => [String(c.name).toLowerCase(), String(c.label).toLowerCase()]),
 ]);
 
-// ➤ Takes the NOISE out of a title and nothing else: contract parentheticals
-// ➤ ("(Temp Agency)"), trailing acronym lists ("... DWDM / MPLS-TP / TDM") and
-// ➤ sector tags every offer here already carries ("- NAVAL Sector").
-// ➤ IT NO LONGER SHORTENS: a 72-character cut hit 41 of 1,006 real titles, and
-// ➤ Telegram wraps a long line by itself, so there was only a title to lose.
+// ➤ Takes the NOISE out of a title and nothing else: contract parentheticals ("(Temp
+// ➤ Agency)"), trailing acronym lists ("... DWDM / MPLS-TP / TDM") and sector tags every
+// ➤ offer here already carries ("- NAVAL Sector"). IT DOES NOT SHORTEN: Telegram wraps a
+// ➤ long line by itself, so a cut would only lose title.
 export function compactTitle(title) {
   let t = String(title || '');
 
   // ➤ Removes parentheticals like "(freelance)" or "(temp agency)" that add nothing.
   t = t.replace(/\s*\(\s*(?:temp(?:orary)?(?:\s+agency)?|interim|ett|zzp|freelance|w2|contract(?:or)?)\s*\)/gi, '');
 
-  // ➤ Removes the trailing "acronym tail" (e.g. " DWDM / MPLS-TP / TDM").
-  // ➤ Each slash-segment must start AND end on a non-space (CodeQL round,
-  // ➤ 2026-08-24): with spaces allowed at the edges, the split between the
-  // ➤ separator's \s* and the segment was ambiguous and backtracking went
+  // ➤ Removes the trailing "acronym tail" (e.g. " DWDM / MPLS-TP / TDM"). Each slash-segment
+  // ➤ must start AND end on a non-space: with spaces allowed at the edges the split between
+  // ➤ the separator's whitespace and the segment is ambiguous and backtracking goes
   // ➤ polynomial on titles that almost match — and titles are board input.
   t = t.replace(/\s+[A-Z0-9][A-Z0-9-]{2,}(?:\s*\/\s*[^/\s](?:[^/]{0,38}[^/\s])?)+\s*$/, '');
 
@@ -225,9 +222,8 @@ export function compactTitle(title) {
 // ➤ province dropped: "Marín (Pontevedra) | Lugo, España, Galicia" → "Marín".
 // ➤ If there is no real city it returns empty and none is shown.
 export function cityOf(location) {
-  // ➤ The "· reflotada" marker (from the amnesty, removed 2026-07-18 at the user's
-  // ➤ request) still appears in old lines inside the location — it's stripped
-  // ➤ here so it doesn't show up as part of the city name.
+  // ➤ The "· reflotada" marker (from a removed feature) still appears in old lines inside
+  // ➤ the location — it's stripped here so it doesn't show up as part of the city name.
   let city = String(location || '').replace(/\s*·\s*reflotada\s*/gi, ' ').split(/[|,]/)[0]
     .replace(/\([^)]*\)/g, '')
     .replace(/\s{2,}/g, ' ')
@@ -243,13 +239,12 @@ export function cityOf(location) {
 // ➤ twice within one send.
 const _tcache = new Map();
 
-// ➤ AND ON DISK ACROSS PROCESSES (audit 2026-08-08). The listener is a fresh
-// ➤ process every minute and the in-memory cache died with it, so every list
-// ➤ refresh — each `seen`, each `list`, each scan — re-translated the WHOLE
-// ➤ pending list through 1-2 Google requests per title: ~50-100 sequential
-// ➤ external calls to redo work already done. A title is now translated once
-// ➤ in its lifetime. Only real answers are persisted — a network failure must
-// ➤ stay retryable, or a French title would stay French for ever.
+// ➤ AND ON DISK ACROSS PROCESSES. The listener is a fresh process every minute and an
+// ➤ in-memory cache dies with it; without the disk, every list refresh — each `seen`, each
+// ➤ `list`, each scan — would re-translate the WHOLE pending list through 1-2 Google
+// ➤ requests per title. A title is translated once in its lifetime. Only real answers are
+// ➤ persisted — a network failure must stay retryable, or a French title would stay French
+// ➤ for ever.
 const TRANSLATIONS_PATH = join(ROOT, 'data', 'title-translations.json');
 const TRANSLATIONS_MAX = 2000;   // keep the file small: oldest entries fall off
 let _tdisk = null;
@@ -405,11 +400,10 @@ export async function sendTelegram(text, opts = {}) {
   return (await sendTelegramMessage(text, opts)) !== null;
 }
 
-// ➤ Downloads a file the user sent to the bot (getFile, then the file API).
-// ➤ Exists for the CV question: people send the PDF they already have, not
-// ➤ pasted text (field test 2026-08-06). Returns a Buffer, or null when the
-// ➤ file is missing, oversized (bots can fetch up to ~20 MB; a CV is under 2)
-// ➤ or the network fails — the caller owns the apology.
+// ➤ Downloads a file the user sent to the bot (getFile, then the file API). Exists for the
+// ➤ CV question: people send the PDF they already have, not pasted text. Returns a Buffer,
+// ➤ or null when the file is missing, oversized (bots can fetch up to ~20 MB; a CV is
+// ➤ under 2) or the network fails — the caller owns the apology.
 export async function downloadTelegramFile(fileId, maxBytes = 15 * 1024 * 1024) {
   const c = loadCfg();
   if (!c?.bot_token || !fileId) return null;
@@ -435,9 +429,8 @@ export async function deleteTelegramMessage(messageId) {
     await api(c.bot_token, 'deleteMessage', { chat_id: c.chat_id, message_id: messageId });
     return true;
   } catch (e) {
-    // ➤ Telegram refuses to delete a message older than 48h. Say it once in the
-    // ➤ log instead of failing mutely, so a list that stays in the chat has an
-    // ➤ explanation (audit 2026-07-25).
+    // ➤ Telegram refuses to delete a message older than 48h. Say it once in the log instead of
+    // ➤ failing mutely, so a list that stays in the chat has an explanation.
     console.log(`[${new Date().toISOString()}] could not delete message ${messageId} (older than 48h?): ${String(e && e.message).slice(0, 80)}`);
     return false;
   }
@@ -491,9 +484,9 @@ export async function editTelegramButtons(messageId, text, rows, { html = false 
   } catch { return false; }   // "message is not modified" and stale ids are harmless here
 }
 
-// ➤ Redraws ONLY the keyboard under a message (2026-08-23). editMessageText
-// ➤ resends the whole text on every multi-select tick, and that round trip was
-// ➤ most of why ticking an option felt slow.
+// ➤ Redraws ONLY the keyboard under a message: editMessageText resends the whole text on
+// ➤ every multi-select tick, and that round trip was most of why ticking an option felt
+// ➤ slow.
 export async function editTelegramMarkup(messageId, rows) {
   const c = loadCfg();
   if (!c?.bot_token || !c?.chat_id || messageId == null) return false;
@@ -507,8 +500,8 @@ export async function editTelegramMarkup(messageId, rows) {
   } catch { return false; }
 }
 
-// ➤ Takes the keyboard OFF a message a flow is finished with: dead buttons
-// ➤ left on closed questions kept being tapped (field test 2026-08-23).
+// ➤ Takes the keyboard OFF a message a flow is finished with: dead buttons left on closed
+// ➤ questions keep being tapped.
 export async function clearTelegramButtons(messageId) {
   return editTelegramMarkup(messageId, []);
 }
@@ -524,28 +517,27 @@ export async function answerCallback(callbackId, text = '') {
   } catch { return false; }
 }
 
-// ➤ Affinity score of a title (2026-07-18): +2 if it's one of the user's fields
-// ➤ (mooring/offshore/survey...), +1 if it's junior/graduate. Used ONLY to
-// ➤ order the display — never to filter. Exported so it can be tested in
-// ➤ test-filter.mjs.
+// ➤ Affinity score of a title: +2 if it's one of the user's fields
+// ➤ (mooring/offshore/survey...), +1 if it's junior/graduate. Used ONLY to order the
+// ➤ display — never to filter. Exported so it can be tested in test-filter.mjs.
 export function offerAffinity(title) {
   const t = String(title || '');
   return (USER_FIELDS.test(t) ? 2 : 0) + (/\bjunior\b|\bgraduate\b/i.test(t) ? 1 : 0);
 }
 
-// ➤ (The inline BUTTONS under each offer were tested on 2026-07-18 and the user
-// ➤ removed them that same day: the owner prefers typing the commands. Do not reintroduce them.)
+// ➤ (No inline BUTTONS under each offer: the owner prefers typing the commands. Do not
+// ➤ reintroduce them.)
 
-// ➤ NAVIGATION buttons are different, and owner-requested (2026-08-19): a long
-// ➤ list arrives as ONE message showing a page, with Prev/Next flipping the
-// ➤ page IN PLACE (editMessageText) instead of stacking messages in the chat.
-// ➤ Per-offer action buttons remain vetoed — this row only turns pages.
+// ➤ NAVIGATION buttons are different, and owner-requested: a long list arrives as ONE
+// ➤ message showing a page, with Prev/Next flipping the page IN PLACE (editMessageText)
+// ➤ instead of stacking messages in the chat. Per-offer action buttons remain vetoed —
+// ➤ this row only turns pages.
 export const LIST_PAGES_PATH = join(ROOT, 'data', 'list-pages.json');
 
-// ➤ Since 2026-08-22 the list also carries ONE action row: the entry to the
-// ➤ review mode (review.mjs), where the per-offer buttons live on a card that
-// ➤ shows a single offer — the only place a button can say which offer it
-// ➤ belongs to. The list itself still gets nothing but navigation.
+// ➤ The list also carries ONE action row: the entry to the review mode (review.mjs), where
+// ➤ the per-offer buttons live on a card that shows a single offer — the only place a
+// ➤ button can say which offer it belongs to. The list itself still gets nothing but
+// ➤ navigation.
 export function listPageKeyboard(page, total) {
   const row = [];
   if (page > 1) row.push({ label: '◀ Prev', data: `pg:${page - 1}` });
@@ -612,9 +604,8 @@ export function councilVerdicts({ portalsPath = PORTALS_PATH, journalPath = JUDG
   try {
     if (yaml.load(readFileSync(portalsPath, 'utf-8'))?.council?.enabled !== true) return null;
   } catch { return null; }
-  // ➤ blind → [?]: the page gave the judges nothing to read, so nobody voted.
-  // ➤ It must not look like a YES (2026-08-26): fed a cookie wall, two judges
-  // ➤ defaulted to show and the list said YES to an offer none of them had read.
+  // ➤ blind → [?]: the page gave the judges nothing to read, so nobody voted. It must not
+  // ➤ look like a YES: fed a cookie wall, two judges default to show.
   const WORD = { show: 'YES', tie: 'MYB', hide: 'NO', blind: '?' };
   const map = new Map();
   try {
@@ -670,10 +661,9 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
   // ➤ Here the ids of each sent message are stored (a long list may be split
   // ➤ into several). The "live list" uses them to delete them later.
   const messageIds = [];
-  // ➤ The list is BUILT first as pages and SENT after (2026-08-19). Building
-  // ➤ and sending used to be one interleaved loop; splitting them lets the
-  // ➤ same builder feed both renderings — every page as its own message (the
-  // ➤ old behavior), or one paged message with Prev/Next buttons.
+  // ➤ The list is BUILT first as pages and SENT after: the same builder feeds both
+  // ➤ renderings — every page as its own message, or one paged message with Prev/Next
+  // ➤ buttons.
   const pages = [];
   // ➤ "flush" = close the accumulated text as a finished page.
   const flush = async () => {
@@ -697,17 +687,15 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
     addGroupHeader(groupName);
     currentGroup = groupName;
 
-    // ➤ Order by affinity (2026-07-18, approved improvement): within each
-    // ➤ country, what's "most yours" on top (the user's fields +2, junior/graduate
-    // ➤ +1). It only changes the visual ORDER — it doesn't filter or hide
+    // ➤ Order by affinity: within each country, what's "most yours" on top (the user's fields
+    // ➤ +2, junior/graduate +1). It only changes the visual ORDER — it doesn't filter or hide
     // ➤ anything; on equal affinity the arrival order is kept (Node's sort is stable).
     list.sort((a, b) => offerAffinity(b.title) - offerAffinity(a.title));
 
     for (const o of list) {
-      // ➤ Build the offer line: title - company - city (the city is omitted if
-      // ➤ it just repeats the country), with the offer number in front. Since
-      // ➤ 2026-07-18, if known, the required years and the salary are added
-      // ➤ ("~" = Adzuna estimate, not data from the posting).
+      // ➤ Build the offer line: title - company - city (the city is omitted if it just repeats
+      // ➤ the country), with the offer number in front. If known, the required years and the
+      // ➤ salary are added ("~" = Adzuna estimate, not data from the posting).
       const city = cityOf(o.location);
       const parts = [displayTitle.get(o) || compactTitle(cleanTitle(o.title)), o.company];
       if (city && city.toLowerCase() !== groupName.toLowerCase()) parts.push(city);
@@ -750,8 +738,8 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
     // ➤ message_id ties the pages to their message: a tap on an older, orphan
     // ➤ list finds the id mismatch and gets told the list is outdated.
     const total = pages.length;
-    // ➤ Buttons on every list since 2026-08-22, single page included: a short
-    // ➤ list has no page row, but the review entry is always there.
+    // ➤ Buttons on every list, single page included: a short list has no page row, but the
+    // ➤ review entry is always there.
     const id = await sendTelegramButtons(pages[0], listPageKeyboard(1, total), { html: true, silent });
     if (id != null) {
       messageIds.push(id);
@@ -791,22 +779,19 @@ async function cliSetup() {
     console.error('  {"bot_token": "123456:ABC...", "chat_id": ""}');
     process.exit(1);
   }
-  // ➤ WAIT for the message instead of demanding it already arrived (field test
-  // ➤ 2026-08-03): the user sent their message and pressed Enter within a
-  // ➤ second or two, the single getUpdates came back empty, and the dead end
-  // ➤ forced them to restart the whole setup. Telegram can lag a few seconds,
-  // ➤ so this polls — up to two minutes, stopping the moment it appears —
-  // ➤ before declaring nothing there. The wait costs nothing when the message
-  // ➤ already arrived: the very first look finds it.
+  // ➤ WAIT for the message instead of demanding it already arrived: people send their
+  // ➤ message and press Enter within a second or two, and Telegram can lag a few seconds. So
+  // ➤ this polls — up to two minutes, stopping the moment it appears — before declaring
+  // ➤ nothing there. The wait costs nothing when the message already arrived: the very first
+  // ➤ look finds it.
   let updates;
   const deadline = Date.now() + 120_000;
   for (;;) {
-    // ➤ THE LISTENER MAY HAVE LINKED THE CHAT MEANWHILE (field test
-    // ➤ 2026-08-05): once any listener polls this bot — a scheduled one from
-    // ➤ this install, or a survivor of an earlier one — it CONSUMES the very
-    // ➤ message this poll is looking for, so waiting on getUpdates alone
-    // ➤ waited for ever. telegram.json is the meeting point: the listener
-    // ➤ writes the chat_id there and this console run only has to notice.
+    // ➤ THE LISTENER MAY HAVE LINKED THE CHAT MEANWHILE: once any listener polls this bot — a
+    // ➤ scheduled one from this install, or a survivor of an earlier one — it CONSUMES the
+    // ➤ very message this poll is looking for, so waiting on getUpdates alone would wait for
+    // ➤ ever. telegram.json is the meeting point: the listener writes the chat_id there and
+    // ➤ this console run only has to notice.
     const linked = loadCfg();
     if (linked?.chat_id) {
       console.log(`chat_id ${linked.chat_id} saved (the listener completed the link). Confirmation sent.`);
@@ -815,11 +800,10 @@ async function cliSetup() {
     try {
       updates = await api(c.bot_token, 'getUpdates', {});
     } catch (e) {
-      // ➤ Telegram answers a bad token two different ways, and both mean the
-      // ➤ same thing: 401 Unauthorized when the token is well-formed but wrong,
-      // ➤ 404 Not Found when it is not even token-shaped. Saying so plainly is
-      // ➤ the whole point — the raw error used to send people looking for a
-      // ➤ problem with their chat, when the token was simply mistyped.
+      // ➤ Telegram answers a bad token two different ways, and both mean the same thing: 401
+      // ➤ Unauthorized when the token is well-formed but wrong, 404 Not Found when it is not
+      // ➤ even token-shaped. Saying so plainly is the whole point — the raw error sends people
+      // ➤ looking for a problem with their chat, when the token was simply mistyped.
       if (/unauthorized|not found|HTTP 40[14]/i.test(e.message)) {
         console.error('Telegram rejected the bot token: it is not a valid one.');
         console.error('Check it against the token @BotFather gave you (it looks like 123456789:AAH...),');
@@ -844,8 +828,8 @@ async function cliSetup() {
   }
   const chat = withChat.message.chat;
   c.chat_id = String(chat.id);
-  // ➤ Atomic (audit 2026-08-08): a crash mid-write corrupts the ONE file
-  // ➤ holding the token and the bot goes mute until the setup is re-run.
+  // ➤ Atomic: a crash mid-write would corrupt the ONE file holding the token and the bot
+  // ➤ would go mute until the setup is re-run.
   writeFileAtomic(CFG_PATH, JSON.stringify(c, null, 2) + '\n');
   // ➤ telegram.json holds the bot token — keep it readable only by you (0600).
   // ➤ On systems without POSIX permissions (e.g. Windows) this is a harmless no-op.

@@ -41,8 +41,8 @@ import { buildTitleFilter, buildLocationFilter, buildCompanyFilter } from './fil
 import { titleKey } from './text.mjs';
 import { loadVetoes, titleNegativesWith, companyFilterWith, locationFilterWith } from './vetoes.mjs';
 import { experienceScreen, degreeScreen, stripHtml, extractAdzunaJd, PRIORITY_KEEP, searchProfile } from './requirements.mjs';
-// ➤ To refresh the Telegram list after deleting: otherwise you keep seeing on
-// ➤ your phone offers that no longer exist (audit 2026-07-25).
+// ➤ To refresh the Telegram list after deleting: otherwise you keep seeing on your phone
+// ➤ offers that no longer exist.
 import { refreshList } from './live-list.mjs';
 
 // ➤ Locates the paths of the files it uses: the offer list and your config.
@@ -77,11 +77,10 @@ export function normUrl(u) {
     .replace(/^(https?:\/\/[^/]*adzuna\.[a-z.]+)\/land\/ad\/(\d+)$/, '$1/details/$2');
 }
 
-// ➤ (2026-07-18: "the [x]s are noise") Housekeep NO LONGER hides lines with
-// ➤ [x]: it DELETES them from the pipeline. So the same offer doesn't sneak back
-// ➤ in as "new" on the next scan, before deleting it makes sure its
-// ➤ URL is in data/scan-history.tsv (the scanner's anti-repeat memory).
-// ➤ The "| visto" lines (the user's decisions) don't pass through here: they're kept.
+// ➤ Housekeep DELETES [x] lines from the pipeline rather than hiding them. So the same
+// ➤ offer doesn't sneak back in as "new" on the next scan, before deleting it makes sure
+// ➤ its URL is in data/scan-history.tsv (the scanner's anti-repeat memory). The "| visto"
+// ➤ lines (the user's decisions) don't pass through here: they're kept.
 const SCAN_HISTORY_PATH = join(ROOT, 'data', 'scan-history.tsv');
 function ensureInHistory(offers, why) {
   const known = new Set();
@@ -98,26 +97,15 @@ function ensureInHistory(offers, why) {
   if (rows.length) appendFileSync(SCAN_HISTORY_PATH, rows.join('\n') + '\n', 'utf-8');
 }
 
-// ➤ Builds a "fingerprint" of each offer (company + title) to catch duplicates
-// ➤ even when the company name varies: "Connetix" and "Connetix Nederland"
-// ➤ reposting the same title are one offer, not two.
-// ➤ (2026-07-18, Lonza case #595/#602) Same as the scanner's roleKey:
-// ➤ the gender tags "(m/w/d)"/"(All Genders)" and the schedules
-// ➤ "80-100%" are stripped before comparing — the same role reposted with
-// ➤ another tag no longer dodges the user's decision.
-// ➤ SAFE REWRITE (audit 2026-07-25). housekeep reads pipeline.md, then spends
-// ➤ minutes doing HTTP checks, then rewrites the file from that OLD snapshot —
-// ➤ so anything you did meanwhile from Telegram (a "seen", a "no", a new scan)
-// ➤ was silently undone. Instead of writing back our stale copy, we re-read the
-// ➤ file at the last moment and delete only the LINES WE DECIDED ON, matched by
-// ➤ their exact text. Whatever else changed in between is preserved.
-// ➤ THE ONLY PERMANENT DELETE IN THE PROJECT: it rewrites your pending list
-// ➤ without the lines given. Exported, and with the file to work on as an
-// ➤ argument, so a test can prove what it removes without going anywhere near
-// ➤ your real list — an audit found it had no test at all, which for the one
-// ➤ function that destroys data is the wrong place to be short of them.
-// ➤ Matching is EXACT on the trimmed line: a line that changed in the meantime
-// ➤ no longer matches and survives, which is the safe way round.
+// ➤ SAFE REWRITE. housekeep reads pipeline.md, then spends minutes on HTTP checks;
+// ➤ anything you did meanwhile from Telegram (a "seen", a "no", a new scan) must survive.
+// ➤ So instead of writing back the stale copy, it re-reads the file at the last moment and
+// ➤ deletes only the LINES IT DECIDED ON, matched by their exact trimmed text — a line
+// ➤ that changed in the meantime no longer matches and survives, which is the safe way
+// ➤ round.
+// ➤ THE ONLY PERMANENT DELETE IN THE PROJECT: it rewrites your pending list without the
+// ➤ lines given. Exported, with the file to work on as an argument, so a test can prove
+// ➤ what it removes without going near your real list.
 export function rewritePipelineWithout(linesToDrop, path = PIPELINE_PATH) {
   const drop = new Set(linesToDrop.map(l => l.trim()).filter(Boolean));
   // ➤ Read and write INSIDE the lock. Re-reading late already meant this could
@@ -136,30 +124,21 @@ export function rewritePipelineWithout(linesToDrop, path = PIPELINE_PATH) {
 }
 
 // ➤ ── THE BRAKE ON A MASS DELETE ──────────────────────────────────────────
-// ➤ Deleting here is PERMANENT: the link goes to the anti-repeat history and
-// ➤ the scanner will never propose that job again. "Dead" is decided from a
-// ➤ single HTTP answer, and some of those answers (a 403 while a portal blocks
-// ➤ us, a 404 from a site that is down, our own rate-limiting) mean "not right
-// ➤ now", not "withdrawn". When MOST of the list dies at once, that is a portal
-// ➤ or network problem, not a dozen companies closing their vacancies in the
-// ➤ same minute — so nothing is deleted and the next run re-checks.
-// ➤ EXPORTED, and used by BOTH delete paths (audit 2026-07-31). It used to be a
-// ➤ local inside the daily check only: the Sunday full clean-up deletes strictly
-// ➤ more and had no brake at all. Measured against a portal answering 404 to
-// ➤ everything, the daily run stopped with 14 offers intact and the weekly run,
-// ➤ seconds later, left 0.
-// ➤ NO FLOOR ON THE LIST SIZE. The old version only protected lists of 5 or
-// ➤ more, which had it exactly backwards: a short list is where losing
-// ➤ everything hurts most, and "3 of 3 died in the same second" is just as
-// ➤ TWO WAYS TO TRIGGER, because a ratio alone gets it wrong at both ends.
-// ➤ A ratio with no floor made an ordinary short list impossible to clean: one
-// ➤ genuinely withdrawn offer out of two is half of them, so the brake fired
-// ➤ every single run and the dead link stayed for ever. A count alone would
-// ➤ miss "everything died at once" on a small list.
-// ➤ So: five or more dead AND at least half — many at once is an outage
-// ➤ whatever the list size — OR every single one dead, from three up, which
-// ➤ cannot be a coincidence either. One or two dead links get deleted, which
-// ➤ is what they are for.
+// ➤ Deleting here is PERMANENT: the link goes to the anti-repeat history and the scanner
+// ➤ will never propose that job again. "Dead" is decided from a single HTTP answer, and
+// ➤ some of those answers (a 403 while a portal blocks us, a 404 from a site that is down,
+// ➤ our own rate-limiting) mean "not right now", not "withdrawn". When MOST of the list
+// ➤ dies at once, that is a portal or network problem, not a dozen companies closing their
+// ➤ vacancies in the same minute — so nothing is deleted and the next run re-checks.
+// ➤ Exported and used by BOTH delete paths: the Sunday full clean-up deletes strictly more
+// ➤ than the daily check and needs the same brake.
+// ➤ TWO WAYS TO TRIGGER, because a ratio alone gets it wrong at both ends: with no floor,
+// ➤ one genuinely withdrawn offer out of two is half of them, so the brake would fire
+// ➤ every run and the dead link stay for ever; a count alone would miss "everything died
+// ➤ at once" on a small list. So: five or more dead AND at least half — many at once is an
+// ➤ outage whatever the list size — OR every single one dead, from three up, which cannot
+// ➤ be a coincidence either. One or two dead links get deleted, which is what they are
+// ➤ for.
 export function looksLikeAnOutage(pendingCount, deadCount) {
   if (pendingCount <= 0 || deadCount <= 0) return false;
   const half = deadCount >= Math.ceil(pendingCount * 0.5);
@@ -171,13 +150,12 @@ export function looksLikeAnOutage(pendingCount, deadCount) {
 // ➤ one of them gets deleted. Exported so the rule can be tested: it already
 // ➤ went wrong once (see below) and nothing stopped it coming back.
 export function fuzzyKey(company, title) {
-  // ➤ (2026-07-19) the gender-tag separator can be a space: "(x w m)".
-  // ➤ The same titleKey the scanner's roleKey uses (text.mjs): one
-  // ➤ normalisation, so a re-post the scan recognises, the cleanup does too.
+  // ➤ The gender-tag separator can be a space: "(x w m)". The same titleKey the scanner's
+  // ➤ roleKey uses (text.mjs): one normalisation, so a re-post the scan recognises, the
+  // ➤ cleanup does too.
   const norm = titleKey;
-  // ➤ FIXED 2026-07-25 (audit): it used to keep only the FIRST word of the
-  // ➤ company, so "Royal IHC" and "Royal Niestern Sander" shared one key and a
-  // ➤ genuine second vacancy was deleted as a duplicate.
+  // ➤ The whole company name, not its first word: "Royal IHC" and "Royal Niestern Sander"
+  // ➤ must not share one key.
   const c = norm(company)
     .replace(/\s+(?:group|holding|nederland|netherlands|belgium|belgi[eë]|espa[ñn]a|france|deutschland|bv|b\.v\.|nv|n\.v\.|sa|s\.a\.|sl|s\.l\.|gmbh|ag|ltd|limited|inc|srl|spa)\b.*$/i, '')
     .trim() || '';
@@ -188,9 +166,8 @@ export function fuzzyKey(company, title) {
   return `${c}::${norm(title)}`;
 }
 
-// Oracle/Workday job pages are SPAs that answer 200 even for withdrawn
-// postings ("the link doesn't work" — the user, 2026-07-06, on a filled DNV role).
-// Their APIs do tell the truth, so ask them directly.
+// ➤ Oracle/Workday job pages are SPAs that answer 200 even for withdrawn postings. Their
+// ➤ APIs do tell the truth, so ask them directly.
 
 // ➤ Requests data from a site in JSON format (structured data) with a cap of
 // ➤ 12 seconds so it doesn't hang waiting.
@@ -221,13 +198,10 @@ async function isDeadOracle(url) {
   } catch { return false; }
 }
 
-// ➤ Same for Workday: it asks its data service; if it answers "doesn't
-// ➤ exist" (404 or 403) or brings no offer detail, then it's closed.
-// ➤ VERIFIED LIVE 2026-07-18: Workday answers 403 "permission denied"
-// ➤ for WITHDRAWN offers (even a real browser gets 403 and shows
-// ➤ "the page you are looking for doesn't exist"), and plain 200 for the
-// ➤ live ones. Before, the 403 was read as "live" → the dead Fugro ones stayed
-// ➤ in the list forever (the user's 4 "the link doesn't work", jul 16-17).
+// ➤ Same for Workday: it asks its data service; if it answers "doesn't exist" (404 or 403)
+// ➤ or brings no offer detail, then it's closed. Verified live: Workday answers 403
+// ➤ "permission denied" for WITHDRAWN offers (a real browser gets the 403 too) and plain
+// ➤ 200 for live ones, so a 403 here means dead, not blocked.
 async function isDeadWorkday(url) {
   // ➤ Checks the URL is from Workday and extracts company, data center and path.
   const m = url.match(/^https:\/\/([^.]+)\.(wd\d+)\.myworkdayjobs\.com\/en-US\/([^/]+)(\/.+)$/);
@@ -241,11 +215,10 @@ async function isDeadWorkday(url) {
   } catch { return false; }
 }
 
-// ➤ Is an Adzuna offer dead? Pipeline URLs come as /details/{id} OR as
-// ➤ /land/ad/{id}, and that second form is a redirect to an external board
-// ➤ that answers 200 forever — 15 dead offers slipped past the daily check
-// ➤ that way (2026-07-10). So it always checks /details/{id}, which is the
-// ➤ truth: verified live, a dead ad gives 404 and a live one 200.
+// ➤ Is an Adzuna offer dead? Pipeline URLs come as /details/{id} OR as /land/ad/{id}, and
+// ➤ that second form is a redirect to an external board that answers 200 forever. So it
+// ➤ always checks /details/{id}, which is the truth: verified live, a dead ad gives 404
+// ➤ and a live one 200.
 async function isDeadAdzuna(url) {
   // ➤ Checks the URL is from Adzuna (in either of its two formats) and pulls out country and identifier.
   const m = url.match(/^https:\/\/www\.adzuna\.([a-z.]+)\/(?:details|land\/ad)\/(\d+)/);
@@ -289,9 +262,9 @@ async function isLikelyDead(url) {
     let body = '';
     try { body = (await res.text()).slice(0, 20_000); } catch { /* body unreadable: the status and final URL still speak */ }
     clearTimeout(timer);
-    // ➤ Classifier verdict + anti-false-dead second opinion (caught
-    // ➤ 2026-07-18): if the "expired" comes only from a phrase in the text and the
-    // ➤ page still has an apply button, it's considered live (see scan.mjs).
+    // ➤ Classifier verdict + anti-false-dead second opinion: if the "expired" comes only from
+    // ➤ a phrase in the text and the page still has an apply button, it's considered live (see
+    // ➤ scan.mjs).
     const { result, reason } = overrideDeadIfApply(
       classifyLiveness({ status: res.status, finalUrl: res.url, bodyText: body }), body);
     // ➤ Only marks it dead if the analysis says "expired" and there was enough content to trust it.
@@ -314,11 +287,10 @@ const DESC_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (K
 // ➤ read that as "alive", and a dead offer (#61) reached the phone. Tomorrow's
 // ➤ cron retries with fresh quota.
 const HOST_GAP_MS = { 'adzuna': 1500, 'linkedin': 1200 };
-// ➤ Slot allocator, not a last-request timestamp (audit 2026-08-08, the same
-// ➤ fix as scan.mjs): under 5-way concurrency every waiter computed its wait
-// ➤ from the same stale timestamp, woke at the same moment and fired together
-// ➤ — bursts that provoke the very 429s whose "inconclusive → keep" verdict
-// ➤ lets dead offers survive the daily check (the #61 failure above).
+// ➤ Slot allocator, not a last-request timestamp: under 5-way concurrency every waiter
+// ➤ would compute its wait from the same stale timestamp, wake at the same moment and fire
+// ➤ together — bursts that provoke the very 429s whose "inconclusive → keep" verdict lets
+// ➤ dead offers survive the daily check.
 const hostNext = new Map();    // per host: when the NEXT request may fire
 const hostFloor = new Map();   // per host: floor imposed by a 429 penalty
 async function politeFetch(hostKey, url, opts = {}) {
@@ -338,9 +310,8 @@ async function politeFetch(hostKey, url, opts = {}) {
     try {
       const res = await fetch(url, { ...opts, signal: controller.signal, headers: { 'User-Agent': DESC_UA, ...(opts.headers || {}) } });
       if (res.status === 429) {
-        // ➤ 15 s penalty after a 429, same as scan.mjs (audit 2026-07-25): the
-        // ➤ fix was applied there in July but this copy kept the old 8 s, so the
-        // ➤ retries here still died inside the same rate-limit window.
+        // ➤ 15 s penalty after a 429, same as scan.mjs: a shorter one lets the retries die inside
+        // ➤ the same rate-limit window.
         hostFloor.set(hostKey, Date.now() + 15_000); // back off the whole host
         continue;
       }
@@ -383,11 +354,9 @@ async function fetchDescriptionByUrl(url) {
       const res = await politeFetch('linkedin', `https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/${m[1]}`);
       return res && res.ok ? stripHtml(await res.text()) : '';
     }
-    // ➤ Is it from Adzuna? Download the details page itself and try to extract
-    // ➤ the CLEAN region of the description (adp-body). If obtained, the
-    // ➤ URL is noted in adzunaJdClean: with clean text the body LANGUAGE can
-    // ➤ also be checked (before, Adzuna was blind and French offers
-    // ➤ piled up — 10 rejections from the user, 2026-07-13).
+    // ➤ Is it from Adzuna? Download the details page itself and try to extract the CLEAN
+    // ➤ region of the description (adp-body). If obtained, the URL is noted in adzunaJdClean:
+    // ➤ with clean text the body LANGUAGE can also be checked.
     if (/(^|\.)adzuna\.[a-z.]+\//.test(url)) {
       const res = await politeFetch('adzuna', url, { redirect: 'follow' });
       if (!res || !res.ok) return '';
@@ -411,9 +380,9 @@ async function fetchDescriptionByUrl(url) {
 // ➤ run at once, so as not to overload the sites or the server.
 async function parallel(tasks, limit) {
   let i = 0;
-  // ➤ ERROR ISOLATION 2026-07-25 (audit): a single throwing task used to abort
-  // ➤ its whole worker, so one bad link could cut a sweep short and make the
-  // ➤ remaining offers look like they simply were not there.
+  // ➤ ERROR ISOLATION: a single throwing task must not abort its whole worker, or one bad
+  // ➤ link could cut a sweep short and make the remaining offers look like they simply were
+  // ➤ not there.
   async function next() {
     while (i < tasks.length) {
       const task = tasks[i++];
@@ -439,13 +408,10 @@ async function main() {
     if (isPendingHeading(lines[i])) { inPending = true; continue; }
     if (lines[i].startsWith('## ') && inPending) inPending = false;
     if (!inPending) continue;
-    // ➤ Splits the offer line: link | company | title | [location] | [y:N] |
-    // ➤ [s:salary] | #id.
-    // ➤ THE LOCATION IS READ TOO (audit 2026-07-31). It used to be thrown away
-    // ➤ with everything after the title, so the weekly re-check could not apply
-    // ➤ the geography rule at all: a country you had since switched off stayed
-    // ➤ in your list for ever. It is the first trailing field that is not one of
-    // ➤ the tagged ones, which is exactly how the scanner writes it.
+    // ➤ Splits the offer line: link | company | title | [location] | [y:N] | [s:salary] | #id.
+    // ➤ THE LOCATION IS READ TOO, so the weekly re-check can apply the geography rule: it is
+    // ➤ the first trailing field that is not one of the tagged ones, which is exactly how the
+    // ➤ scanner writes it.
     const m = lines[i].match(/^- \[ \] (\S+)\s*\|\s*([^|\n]+?)\s*\|\s*([^|\n]+?)(\s*\|[^\n]*)?$/);
     if (!m) continue;
     const trailing = (m[4] || '').split('|').map(s => s.trim()).filter(Boolean);
@@ -455,12 +421,10 @@ async function main() {
 
   if (pending.length === 0) { console.log('Nothing pending — pipeline clean.'); return; }
 
-  // ➤ DAILY MODE (--liveness-only), asked for on 2026-07-08: "the bot will
-  // ➤ have to verify DAILY that the links work and that the offer hasn't been
-  // ➤ removed". It runs ONLY the dead/withdrawn check — Oracle API count=0,
-  // ➤ Workday with no jobPostingInfo, HTTP 404/410, or "expired" text — over
-  // ➤ every pending offer, and deletes the dead ones. No re-filtering and no
-  // ➤ dedup: that stays in the weekly full run. Cheap enough for a daily cron.
+  // ➤ DAILY MODE (--liveness-only): runs ONLY the dead/withdrawn check — Oracle API count=0,
+  // ➤ Workday with no jobPostingInfo, HTTP 404/410, or "expired" text — over every pending
+  // ➤ offer, and deletes the dead ones. No re-filtering and no dedup: that stays in the
+  // ➤ weekly full run. Cheap enough for a daily cron.
   // ── Daily link check (--liveness-only) ─────────────────────────────
   if (process.argv.includes('--liveness-only')) {
     const deadIdx = new Set();
@@ -475,8 +439,7 @@ async function main() {
       return;
     }
     if (!dryRun && deadIdx.size) {
-      // ➤ DELETES the line of each dead offer (before it was hidden with [x];
-      // ➤ 2026-07-18: that's noise), first leaving its URL in scan-history.
+      // ➤ DELETES the line of each dead offer, first leaving its URL in scan-history.
       ensureInHistory(pending.filter(p => deadIdx.has(p.lineIdx)), 'dead');
       rewritePipelineWithout(lines.filter((_, i) => deadIdx.has(i)));
     }
@@ -497,13 +460,11 @@ async function main() {
   let config = {};
   if (existsSync(PORTALS_PATH)) {
     config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8'));
-    // ➤ SAME RULES AS THE SCANNER (audit 2026-07-25): housekeep used to read only
-    // ➤ portals.yml while scan.mjs prefers config/profile.yml, so after editing
-    // ➤ your profile the scan admitted offers under the new rule and the Sunday
-    // ➤ cleanup deleted them under the old one.
-    // ➤ The standing vetoes ride here too, so a veto taught after a "no"
-    // ➤ clears its matching saved offers on the next cleanup — the same
-    // ➤ promise the panel makes when it reports what still matches.
+    // ➤ SAME RULES AS THE SCANNER: the profile in config/profile.yml wins over portals.yml
+    // ➤ here too, so the scan and the Sunday cleanup never judge under different rules. The
+    // ➤ standing vetoes ride here too, so a veto taught after a "no" clears its matching saved
+    // ➤ offers on the next cleanup — the same promise the panel makes when it reports what
+    // ➤ still matches.
     const vetoes = loadVetoes();
     const titleOk = buildTitleFilter({
       positive: searchProfile.positive_titles || (config.title_filter || {}).positive,
@@ -513,12 +474,10 @@ async function main() {
     // ➤ The company blacklist is also re-applied here: if you veto a
     // ➤ company, its already-saved offers fall in the next cleanup.
     const companyOk = buildCompanyFilter(companyFilterWith(config.company_filter, vetoes));
-    // ➤ GEOGRAPHY IS CHECKED ON BOTH HALVES, like the scanner (audit
-    // ➤ 2026-07-31). Only the TITLE was being tested here, so the offer's actual
-    // ➤ LOCATION was never re-checked and a country you switched off after the
-    // ➤ offer arrived kept it in your list for ever. The title check stays as
-    // ➤ well, because multi-location postings hide the country there
-    // ➤ ("Graduate Programme - Qatar").
+    // ➤ GEOGRAPHY IS CHECKED ON BOTH HALVES, like the scanner: the offer's LOCATION, so a
+    // ➤ country you switched off after the offer arrived does not keep it in your list, and
+    // ➤ the TITLE as well, because multi-location postings hide the country there ("Graduate
+    // ➤ Programme - Qatar").
     for (const p of pending) {
       if (!companyOk(p.company) || !titleOk(p.title, p.location)
           || (p.location && !locFilter(p.location)) || locFilter.blockHit(p.title)
@@ -532,14 +491,10 @@ async function main() {
   // ➤ language the user can't work in (allows English/Spanish/Catalan).
   const langCfg = config.title_language_filter || {};
   if (langCfg.enabled !== false) {
-    // ➤ SAME FALLBACK CHAIN AS THE SCANNER (audit 2026-08-08). This recheck
-    // ➤ read only portals.yml's allow list and ignored the profile's declared
-    // ➤ languages — so offers in a language the user works in, admitted
-    // ➤ correctly by the scan, were deleted every Sunday and written to the
-    // ➤ anti-repeat history: the project's only PERMANENT delete, applied by
-    // ➤ the copy with the stale rule. The 2026-07-25 note above ("SAME RULES
-    // ➤ AS THE SCANNER") set out to close exactly this class of drift and
-    // ➤ missed the language list.
+    // ➤ SAME FALLBACK CHAIN AS THE SCANNER for languages: the profile's declared languages
+    // ➤ first, portals.yml's allow list after. This recheck feeds the project's only PERMANENT
+    // ➤ delete, so it must never judge under a staler rule than the scan that admitted the
+    // ➤ offer.
     const allow = new Set((searchProfile.languages || langCfg.allow || ['en', 'es', 'ca']).map(s => String(s).toLowerCase()));
     const candidates = pending.filter(p => !filteredIdx.has(p.lineIdx));
     const checks = candidates.map(p => async () => {
@@ -549,11 +504,11 @@ async function main() {
     await parallel(checks, 5);
   }
 
-  // ➤ Step 0c: EXPERIENCE and DEGREE filter — re-downloads the text of each
-  // ➤ offer and hides the ones asking for more years than configured or requiring
-  // ➤ a degree the user doesn't have. With the same text, the nuanced language
-  // ➤ rule (2026-07-18): it doesn't matter which language the offer is
-  // ➤ WRITTEN in; it's only hidden if the body REQUIRES a language the user does not speak.
+  // ➤ Step 0c: EXPERIENCE and DEGREE filter — re-downloads the text of each offer and hides
+  // ➤ the ones asking for more years than configured or requiring a degree the user doesn't
+  // ➤ have. With the same text, the nuanced language rule: it doesn't matter which language
+  // ➤ the offer is WRITTEN in; it's only hidden if the body REQUIRES a language the user
+  // ➤ does not speak.
   const expIdx = new Set();
   const degIdx = new Set();
   const langIdx = new Set();
@@ -569,12 +524,12 @@ async function main() {
       // ➤ Experience verdict: how many years they ask for AND in what field — same
       // ➤ as in the scanner (2 years "in a similar role" of PLC are discarded).
       const verdict = experienceScreen(`${p.title || ''}. ${desc}`, p.title, expMax);
-      // ➤ OrcaFlex exception (2026-07-11): if it mentions OrcaFlex, it's kept
-      // ➤ even if it asks for more years — it's the user's star tool.
+      // ➤ OrcaFlex exception: if it mentions OrcaFlex, it's kept even if it asks for more years
+      // ➤ — it's the user's star tool.
       const priority = PRIORITY_KEEP.test(`${p.title || ''} ${desc}`);
       if (verdict && verdict.drop && !priority) { filteredIdx.add(p.lineIdx); expIdx.add(p.lineIdx); p._years = verdict.years; return; }
-      // ➤ DEGREE requirement in the body (2026-07-16): master's/degree in
-      // ➤ a field the user doesn't have → out (same as in the scanner).
+      // ➤ DEGREE requirement in the body: master's/degree in a field the user doesn't have → out
+      // ➤ (same as in the scanner).
       if (!priority && desc && degreeScreen(desc, p.title)) { filteredIdx.add(p.lineIdx); degIdx.add(p.lineIdx); return; }
       // ➤ Does the body REQUIRE a language the user doesn't speak? → hidden. (On
       // ➤ Adzuna only with the clean description: the whole page carries menus
@@ -591,10 +546,9 @@ async function main() {
   const seenUrl = new Set();
   const seenRole = new Set();
   const dupIdx = new Set();
-  // ➤ KEEP THE NEWEST (audit 2026-07-25). It used to keep the FIRST occurrence,
-  // ➤ i.e. the oldest line — and when a company re-posts a vacancy under a new
-  // ➤ link, the old one is precisely the one about to be deleted as dead in
-  // ➤ step 2, so the role vanished completely. We walk backwards instead.
+  // ➤ KEEP THE NEWEST: when a company re-posts a vacancy under a new link, the old one is
+  // ➤ precisely the one about to be deleted as dead in step 2, so keeping the first
+  // ➤ occurrence would make the role vanish completely. We walk backwards.
   for (let i = pending.length - 1; i >= 0; i--) {
     const p = pending[i];
     if (filteredIdx.has(p.lineIdx)) continue;
@@ -613,12 +567,9 @@ async function main() {
     if (await isLikelyDead(p.url)) deadIdx.add(p.lineIdx);
   });
   await parallel(checks, LIVENESS_CONCURRENCY);
-  // ➤ THE SAME BRAKE AS THE DAILY CHECK (audit 2026-07-31). This path deletes
-  // ➤ strictly more than the daily one and had no brake at all: with a portal
-  // ➤ answering 404 to everything, the daily run stopped with the list intact
-  // ➤ and this one, seconds later, emptied it. Only the DEAD verdicts are
-  // ➤ dropped — the filtered and duplicate ones are decided from text we
-  // ➤ already hold, so a network problem cannot make them wrong.
+  // ➤ THE SAME BRAKE AS THE DAILY CHECK: this path deletes strictly more than the daily one.
+  // ➤ Only the DEAD verdicts are dropped — the filtered and duplicate ones are decided from
+  // ➤ text we already hold, so a network problem cannot make them wrong.
   let deadAborted = 0;
   if (looksLikeAnOutage(survivors.length, deadIdx.size)) {
     deadAborted = deadIdx.size;
@@ -627,9 +578,8 @@ async function main() {
     console.log('That looks like a portal or network problem, not real withdrawals. No link was deleted for being dead; the rest of the clean-up continues.');
   }
 
-  // ➤ Final step: prepares the summary and, unless it's a dry run, DELETES from
-  // ➤ the file all the filtered/duplicate/dead ones (before they were hidden with
-  // ➤ [x]; 2026-07-18: that's noise). Their URLs remain in scan-history.
+  // ➤ Final step: prepares the summary and, unless it's a dry run, DELETES from the file all
+  // ➤ the filtered/duplicate/dead ones. Their URLs remain in scan-history.
   let report = [];
   for (const p of pending) {
     if (expIdx.has(p.lineIdx)) report.push(`  exp  ${p.company} — ${p.title} (${p._years}yr req)`);
@@ -667,10 +617,9 @@ async function main() {
   if (report.length) console.log(report.join('\n'));
 }
 
-// ➤ Starts the process; if something fails completely, it prints the error and signals the system (exit code 1).
-// ➤ GUARD 2026-07-25 (audit): main() DELETES pending offers, and it used to run
-// ➤ just by importing this file — so any tool that imported it would silently
-// ➤ start deleting. It now only runs when launched directly, like scan.mjs.
+// ➤ Starts the process; if something fails completely, it prints the error and signals the
+// ➤ system (exit code 1). GUARD: main() DELETES pending offers, so it only runs when
+// ➤ launched directly, like scan.mjs — importing this file must never start deleting.
 if (process.argv[1] && /(^|[\\/])housekeep\.mjs$/.test(process.argv[1])) {
   main().catch(e => { console.error('Fatal:', e.message); process.exit(1); });
 }

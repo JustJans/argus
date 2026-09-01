@@ -43,11 +43,10 @@ export function pendingOffers() {
   const procIdx = procLine === -1 ? -1 : text.indexOf(lines[procLine]);
   const section = text.slice(pendIdx, procIdx === -1 ? text.length : procIdx);
   const offers = [];
-  // ➤ Walks line by line through the format "- [ ] link | company | title |
-  // ➤ [location] | [y:years] | [s:salary] | [#number]". Instead of a single
-  // ➤ brittle formula, it splits on the bars and CLASSIFIES each extra field by
-  // ➤ its shape (audit 2026-07-18: the previous trick failed when the
-  // ➤ offer had no location and showed "y:2" as if it were the city).
+  // ➤ Walks line by line through the format "- [ ] link | company | title | [location] |
+  // ➤ [y:years] | [s:salary] | [#number]". Instead of a single brittle formula, it splits on
+  // ➤ the bars and CLASSIFIES each extra field by its shape, so an offer without a location
+  // ➤ cannot show "y:2" as if it were the city.
   for (const m of section.matchAll(/^- \[ \] (\S+)\s*\|\s*([^|\n]+?)\s*\|\s*([^|\n]+?)((?:\s*\|[^\n]*)?)$/gm)) {
     const offer = { url: m[1], company: m[2].trim(), title: m[3].trim(), location: '', id: null, years: null, salary: null };
     // ➤ The remaining fields (if any), one by one: #number, y:years,

@@ -1,20 +1,22 @@
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ EXPERIMENTAL (2026-08-24, in no release yet): the "no" that teaches.
+// ➤ EXPERIMENTAL (in no release yet): the "no" that teaches.
 // ➤
-// ➤ WHAT IT IS: until now "no N reason" only wrote a record a human reads
-// ➤ when hand-tuning the filters. This makes the rejection ACT: right after
-// ➤ one, the bot reads the rejected offer and offers one-tap standing vetoes
-// ➤ — the distinctive words of its title, its company, its city. One tap and
-// ➤ offers matching it never reach the list again.
-// ➤ WHY BUTTONS AND NOT A COMMAND: a "veto <word>" command makes the user do
-// ➤ the analysis. The offer is right there; the bot can propose and the user
-// ➤ only has to recognise. Free text stays what it was — the reason record.
-// ➤ WHY A FILE OF ITS OWN (data/vetoes.json): the profile is REGENERATED from
-// ➤ the onboarding answers on every settings edit, so anything written into
-// ➤ profile.yml by another door gets silently wiped. This store survives, and
-// ➤ scan + housekeep merge it into the filters they build.
-// ➤ EVERY VETO IS REVERSIBLE: Undo on the panel just after the tap, and the
-// ➤ "vetoes" command lists every standing one with a remove button.
+// ➤ WHAT IT IS: "no N reason" only wrote a record a human reads when hand-tuning the
+// ➤ filters. This makes the rejection ACT: right after one, the bot reads the rejected
+// ➤ offer and offers one-tap standing vetoes — the distinctive words of its title, its
+// ➤ company, its city. One tap and offers matching it never reach the list again.
+// ➤
+// ➤ WHY BUTTONS AND NOT A COMMAND: a "veto <word>" command makes the user do the analysis.
+// ➤ The offer is right there; the bot can propose and the user only has to recognise. Free
+// ➤ text stays what it was — the reason record.
+// ➤
+// ➤ WHY A FILE OF ITS OWN (data/vetoes.json): the profile is REGENERATED from the
+// ➤ onboarding answers on every settings edit, so anything written into profile.yml by
+// ➤ another door gets silently wiped. This store survives, and scan + housekeep merge it
+// ➤ into the filters they build.
+// ➤
+// ➤ EVERY VETO IS REVERSIBLE: Undo on the panel just after the tap, and the "vetoes"
+// ➤ command lists every standing one with a remove button.
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 import { readFileSync, existsSync } from 'fs';
@@ -33,9 +35,8 @@ import yaml from 'js-yaml';
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(SCRIPT_DIR);
 export const VETOES_PATH = join(ROOT, 'data', 'vetoes.json');
-// ➤ Two panels, each bound to its own message id so a tap on yesterday's
-// ➤ buttons cannot act on today's state (same binding review and the
-// ➤ onboarding use — the stale-tap lesson of the 2026-08-23 field test).
+// ➤ Two panels, each bound to its own message id so a tap on yesterday's buttons cannot
+// ➤ act on today's state (the same binding review and the onboarding use).
 export const CHIPS_STATE_PATH = join(ROOT, 'data', 'veto-chips.json');
 export const LIST_STATE_PATH = join(ROOT, 'data', 'veto-list.json');
 

@@ -1,24 +1,15 @@
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ WHAT IT IS: the single place from which Argus calls Claude on the server.
-// ➤ WHY IT EXISTS: cover-letter.mjs and argus-council/engine.mjs each had their OWN
-// ➤ copy of this, and the copies drifted — the Council one never learned to tell
-// ➤ a "you ran out of credit" from a real answer.
-// ➤ THE BUG IT FIXES (2026-07-25 audit, seen for real on 2026-07-24): when the
-// ➤ account hits its monthly spend limit, the claude program prints the warning
-// ➤ on its NORMAL output (stdout), not on the error channel. The old check was
-// ➤ "failed only if it errored AND printed nothing", so that warning was taken
-// ➤ for a valid answer: it ended up as the BODY of a cover-letter PDF ("Dear
-// ➤ Hiring Manager, You've hit your monthly spend limit...") and as the three
-// ➤ judges' reasoning in the Council journal. Now the text is inspected: if it
-// ➤ looks like a CLI complaint, it is a FAILURE, whichever channel it arrived on.
+// ➤ WHAT IT IS: the single place from which Argus calls Claude on the server. Every caller
+// ➤ gets the same launcher, the same path lookup and the same reading of the CLI's own
+// ➤ complaints (spend limit, login, not installed), which count as failures whichever
+// ➤ channel they arrive on.
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 import { readFileSync, existsSync } from 'fs';
 import { execFile } from 'child_process';
 
-// ➤ Where the "claude" program lives. WATCH OUT: the user cron starts with a
-// ➤ minimal PATH (/usr/bin:/bin) with no /usr/local/bin, and a bare "claude"
-// ➤ gave "spawn claude ENOENT" in production (real case: cover 594, 2026-07-18).
+// ➤ Where the "claude" program lives. Cron starts with a minimal PATH (/usr/bin:/bin, no
+// ➤ /usr/local/bin), so a bare "claude" is not enough.
 export const CLAUDE_BIN = ['/usr/local/bin/claude', '/usr/bin/claude'].find(p => existsSync(p)) || 'claude';
 
 // ➤ Unmistakable signatures of the claude program complaining instead of
@@ -80,12 +71,8 @@ export function runClaudeCli(prompt, { tokenPath, cwd, model = 'sonnet', timeout
       { cwd, env, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 },
       (err, stdout, stderr) => {
         const outText = String(stdout || '').trim();
-        // ➤ 1) IT ERRORED AT ALL → failure, even with output already on screen.
-        // ➤ This used to read "errored AND said nothing", so a run killed by the
-        // ➤ six-minute timeout half-way through a letter came back as a SUCCESS
-        // ➤ carrying half a letter: rendered into a PDF, sent, and cut off
-        // ➤ mid-sentence. The CLI exits 0 when it has finished, so a non-zero
-        // ➤ exit means the answer is not finished, whatever is on screen.
+        // ➤ 1) IT ERRORED AT ALL → failure, even with output already on screen: the CLI exits 0
+        // ➤ only when it has finished, so a non-zero exit means an unfinished answer.
         if (err) {
           const raw = (outText || stderr || err.message || '').slice(0, 500);
           const kind = claudeErrorKind(raw)

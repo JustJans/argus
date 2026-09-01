@@ -46,9 +46,8 @@ import { norm, boundaryRegex, buildCompanyFilter, buildTitleFilter, buildLocatio
 // ➤ Re-exported: the filters moved to filters.mjs, and every test that reaches
 // ➤ them through scan still can.
 export { norm, buildCompanyFilter, buildTitleFilter, buildLocationFilter } from './filters.mjs';
-// ➤ EXPERIMENTAL (2026-08-24): the standing vetoes the user taught by tapping
-// ➤ after a "no". Merged into every filter below so a veto behaves exactly
-// ➤ like a hand-written negative.
+// ➤ EXPERIMENTAL: the standing vetoes the user taught by tapping after a "no". Merged into
+// ➤ every filter below so a veto behaves exactly like a hand-written negative.
 import { loadVetoes, titleNegativesWith, companyFilterWith, locationFilterWith } from './vetoes.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -159,18 +158,16 @@ export function normalizeLocation(loc) {
     if (!seen.has(k)) { seen.add(k); unique.push(p); }
   }
   const out = unique.join(', ');
-  // ➤ NOT A DISPLAY WIDTH. A 70-character cut used to go into pipeline.md, where
-  // ➤ housekeep re-reads the location weeks later to apply the country rule: 35
-  // ➤ of 993 were cut, and a country named last in the string simply vanished.
+  // ➤ NOT A DISPLAY WIDTH: this goes into pipeline.md, where housekeep re-reads the location
+  // ➤ weeks later to apply the country rule — a cut here makes a country named last in the
+  // ➤ string vanish.
   return out.length > MAX_LOCATION_CHARS ? out.slice(0, MAX_LOCATION_CHARS) : out;
 }
 
-// ➤ Simplifies a web address so it can be compared: it removes the tracking
-// ➤ "tail" that changes on every visit. Without this, the same Adzuna offer
-// ➤ would look new on every scan. Also (2026-07-18): Adzuna's
-// ➤ /land/ad/<id> bounce and its /details/<id> page are THE SAME offer,
-// ➤ so for comparison they are both mapped to /details/<id> — without this, the switch
-// ➤ to /details links would have made "new" every offer already seen.
+// ➤ Simplifies a web address so it can be compared: it removes the tracking "tail" that
+// ➤ changes on every visit. Without this, the same Adzuna offer would look new on every
+// ➤ scan. Adzuna's /land/ad/<id> bounce and its /details/<id> page are THE SAME offer, so
+// ➤ for comparison both are mapped to /details/<id>.
 export function normUrl(u) {
   const s = (u || '').split('?')[0].replace(/\/$/, '');
   return s.replace(/^(https?:\/\/[^/]*adzuna\.[a-z.]+)\/land\/ad\/(\d+)$/, '$1/details/$2');
@@ -246,13 +243,11 @@ function detectApi(company) {
 // ➤ "translator" functions convert each portal's response into the
 // ➤ same common format: title, link, company and location.
 
-// ➤ THE ADVERT TEXT COMES ACROSS TOO (audit 2026-07-31). These three parsers
-// ➤ kept only the title, link, company and place, so fetchOfferDescription had
-// ➤ nothing to hand back and the years, the degree and the body-language screens
-// ➤ all ran against an empty body — every offer from these boards walked
-// ➤ straight through, unread. All three send the text along with the list, so
-// ➤ reading it costs no extra request. Greenhouse only includes it when the URL
-// ➤ asks for it, which is done in greenhouseUrlWithContent below.
+// ➤ THE ADVERT TEXT COMES ACROSS TOO. Without it fetchOfferDescription has nothing to hand
+// ➤ back and the years, the degree and the body-language screens run against an empty body
+// ➤ — every offer from these boards would walk straight through, unread. All three send
+// ➤ the text along with the list, so reading it costs no extra request. Greenhouse only
+// ➤ includes it when the URL asks for it, which is done in greenhouseUrlWithContent below.
 export function parseGreenhouse(json, name) {
   // ➤ Tolerant like every other parser here: a degraded feed is a quiet board,
   // ➤ not a crash dressed up as one.
@@ -424,11 +419,10 @@ async function fetchJsonRetry(url, opts = {}, tries = 3) {
 async function collectWorkday(api, name, searchTerms, onPartial = () => {}) {
   const terms = searchTerms.length ? searchTerms : [''];
   const byUrl = new Map();
-  // ➤ DID THIS BOARD ANSWER AT ALL? (audit 2026-07-31) Every request error used
-  // ➤ to be swallowed and an empty list returned, so a board that could not be
-  // ➤ reached looked exactly like one with no matching jobs. Measured with the
-  // ➤ network cut: nine boards reported as scanned, five errors, and seven
-  // ➤ failures invisible — the run read as an ordinary quiet one.
+  // ➤ DID THIS BOARD ANSWER AT ALL? A swallowed request error makes a board that could not
+  // ➤ be reached look exactly like one with no matching jobs — measured with the network
+  // ➤ cut: nine boards reported as scanned, five errors, seven failures invisible, and the
+  // ➤ run read as an ordinary quiet one.
   let answered = false, lastError = null, cutShort = false;
   for (const term of terms) {
     for (let offset = 0; offset < WORKDAY_MAX_PER_TERM; offset += WORKDAY_PAGE) {
@@ -542,8 +536,8 @@ async function collectOracle(api, name, onPartial = () => {}) {
       + `?onlyData=true&expand=requisitionList`
       + `&finder=findReqs;siteNumber=${site},limit=${ORACLE_PAGE},offset=${offset},sortBy=POSTING_DATES_DESC`;
     let json;
-    // ➤ Same as Workday above (audit 2026-07-31): a board that never answered is
-    // ➤ a failure to report, not an employer with nothing on offer.
+    // ➤ Same as Workday above: a board that never answered is a failure to report, not an
+    // ➤ employer with nothing on offer.
     try { json = await fetchJson(url); answered = true; }
     catch (err) { lastError = err; if (answered) cutShort = true; break; }
     const jobs = parseOracle(json, name, api.meta);
@@ -558,13 +552,11 @@ async function collectOracle(api, name, onPartial = () => {}) {
 }
 
 // ── Adzuna aggregator (Indeed + EU boards, by country + query) ──────
-// Free API: https://developer.adzuna.com/ — credentials in
-// server-bot/adzuna-key.json or env ADZUNA_APP_ID / ADZUNA_APP_KEY.
-// One request per (enabled country × query). Failures are COUNTED and
-// surfaced (they used to be silent — that hid real outages).
-// ➤ Adzuna is an aggregator: a search engine that gathers offers from many
-// ➤ portals (Indeed and European job boards). It's queried for each
-// ➤ combination of enabled country × configured search.
+// ➤ Free API: https://developer.adzuna.com/ — credentials in server-bot/adzuna-key.json or
+// ➤ env ADZUNA_APP_ID / ADZUNA_APP_KEY. One request per (enabled country × query).
+// ➤ Failures are COUNTED and surfaced; silent ones hide real outages. Adzuna is an
+// ➤ aggregator: a search engine that gathers offers from many portals (Indeed and European
+// ➤ job boards).
 
 // ➤ Looks for Adzuna's access keys (a kind of username and
 // ➤ password for its service): first in the system variables,
@@ -592,8 +584,8 @@ export function formatSalary(min, max, predicted, countryCode) {
   let lo = Number(min) || 0, hi = Number(max) || 0;
   if (!lo && !hi) return '';
   if (Math.max(lo, hi) < 10_000) return '';
-  // ➤ Audit 2026-07-18: if the API came with min>max, it's reordered (before,
-  // ➤ a nonsensical range like "€80-20k" came out).
+  // ➤ If the API comes with min>max, it's reordered (otherwise a nonsensical range like
+  // ➤ "€80-20k" comes out).
   if (lo && hi && lo > hi) [lo, hi] = [hi, lo];
   const k = v => Math.round(v / 1000);
   const cur = countryCode === 'ch' ? 'CHF ' : '€';
@@ -601,15 +593,12 @@ export function formatSalary(min, max, predicted, countryCode) {
   return `${predicted ? '~' : ''}${cur}${range}`;
 }
 
-// ➤ Adzuna translator to the common offer format. It also saves the
-// ➤ short description snippet, which later serves the years-of-experience
-// ➤ filter without having to make another request — and the SALARY
-// ➤ (2026-07-18, approved improvement: it came free in the same response and was
-// ➤ thrown away; now it's shown on Telegram).
-// ➤ Adzuna sometimes gives the "good" link (/details/<id>: ITS page, where the
-// ➤ offer is READ) and other times a tracking BOUNCE (/land/ad/<id>) that dumps you
-// ➤ on the advertiser's form (in Germany, XING) without letting you read anything
-// ➤ (the user's real case, 2026-07-18). Here the page is ALWAYS forced,
+// ➤ Adzuna translator to the common offer format. It also saves the short description
+// ➤ snippet, which later serves the years-of-experience filter without another request —
+// ➤ and the SALARY, which comes free in the same response and is shown on Telegram. Adzuna
+// ➤ sometimes gives the "good" link (/details/<id>: ITS page, where the offer is READ) and
+// ➤ other times a tracking BOUNCE (/land/ad/<id>) that dumps you on the advertiser's form
+// ➤ (in Germany, XING) without letting you read anything. Here the page is ALWAYS forced,
 // ➤ built with the posting id over the country's domain.
 function adzunaDetailsUrl(redirectUrl, id) {
   const m = String(redirectUrl || '').match(/^(https?:\/\/[^/]*adzuna\.[a-z.]+)\//);
@@ -718,16 +707,14 @@ export function parseLinkedInCards(html) {
     // ➤ The number at the start of the chunk is the offer's identifier.
     const id = c.match(/^(\d+)/)?.[1];
     if (!id) continue;
-    // ➤ These three lines extract title, company and location by looking for
-    // ➤ the tags LinkedIn uses to mark each piece of data on the page.
-    // ➤ THE "REST OF THE TAG" PART IS BOUNDED (audit 2026-07-31). It used to be
-    // ➤ "anything that is not a >", which happily runs across the rest of the
-    // ➤ document looking for a closing bracket that a malformed or hostile page
-    // ➤ simply never provides — and then backtracks over all of it, once per
-    // ➤ card. Measured on a page built to provoke it: 43 seconds for 500 KB, and
-    // ➤ the whole scan sits there waiting. Forbidding "<" as well means the
-    // ➤ search cannot leave the tag it started in, so a bad page costs a missed
-    // ➤ field instead of the run. Real LinkedIn markup matches exactly as before.
+    // ➤ These three lines extract title, company and location by looking for the tags LinkedIn
+    // ➤ uses to mark each piece of data on the page. THE "REST OF THE TAG" PART IS BOUNDED:
+    // ➤ "anything that is not a >" happily runs across the rest of the document looking for a
+    // ➤ closing bracket that a malformed or hostile page never provides — and then backtracks
+    // ➤ over all of it, once per card (measured on a page built to provoke it: 43 seconds for
+    // ➤ 500 KB). Forbidding "<" as well means the search cannot leave the tag it started in,
+    // ➤ so a bad page costs a missed field instead of the run. Real LinkedIn markup matches
+    // ➤ exactly as before.
     const title = c.match(/base-search-card__title[^<>]*>\s*([^<]+)/)?.[1]?.trim() || '';
     const company = c.match(/base-search-card__subtitle[^<>]*>\s*<a[^<>]*>\s*([^<]+)/)?.[1]?.trim()
       || c.match(/base-search-card__subtitle[^<>]*>\s*([^<]+)/)?.[1]?.trim() || 'LinkedIn';
@@ -750,13 +737,12 @@ async function collectLinkedIn(cfg) {
     ? (() => { try { return JSON.parse(readFileSync(LI_STATE_PATH, 'utf-8')); } catch { return {}; } })()
     : {};
   const now = Date.now();
-  // ➤ Are we in a penalty period for having received a "429"? Wait.
-  // ➤ A COOLDOWN CANNOT BE LONGER THAN A COOLDOWN (audit 2026-07-31). The rest
-  // ➤ is stored as an absolute moment, so one excursion of the machine's clock —
-  // ➤ a dead battery, a bad time sync — writes a date months away, and after
-  // ➤ that LinkedIn stays switched off until then with nothing said anywhere.
-  // ➤ Anything further ahead than the cooldown length is not a cooldown, it is a
-  // ➤ wrong clock, so it is ignored and said out loud.
+  // ➤ Are we in a penalty period for having received a "429"? Wait. A COOLDOWN CANNOT BE
+  // ➤ LONGER THAN A COOLDOWN: the rest is stored as an absolute moment, so one excursion of
+  // ➤ the machine's clock — a dead battery, a bad time sync — could write a date months away
+  // ➤ and leave LinkedIn switched off until then with nothing said anywhere. Anything
+  // ➤ further ahead than the cooldown length is not a cooldown, it is a wrong clock, so it
+  // ➤ is ignored and said out loud.
   if (state.cooldown_until && state.cooldown_until - now > LINKEDIN_COOLDOWN_MS) {
     console.log('  ! LinkedIn cooldown is dated far in the future (a clock problem?) — ignoring it.');
     state.cooldown_until = 0;
@@ -811,15 +797,14 @@ async function collectLinkedIn(cfg) {
   // ➤ the 24-hour rest for the next scan.
   const newState = { last_run: now };
   if (rateLimited) newState.cooldown_until = now + LINKEDIN_COOLDOWN_MS;
-  // ➤ --dry-run must touch NO file (audit 2026-07-25): this one slipped through
-  // ➤ and a dry run silently moved the LinkedIn cursor forward.
+  // ➤ --dry-run must touch NO file — a dry run must not move the LinkedIn cursor forward.
   if (!process.argv.includes('--dry-run')) writeFileSync(LI_STATE_PATH, JSON.stringify(newState), 'utf-8');
 
   return {
     offers: [...byUrl.values()], calls,
-    // ➤ "ran" used to cover every outcome short of a 429, so a LinkedIn that
-    // ➤ answers 403 to every call — a permanent block — read exactly like a
-    // ➤ healthy run with no matches. Refusals and total silence say so now.
+    // ➤ "ran" covers only real answers: a LinkedIn that answers 403 to every call — a
+    // ➤ permanent block — must not read like a healthy run with no matches. Refusals and total
+    // ➤ silence say so.
     status: rateLimited ? 'RATE-LIMITED (24h cooldown set)'
       : calls > 0 && refused === calls ? `BLOCKED (HTTP ${lastRefused} on every call)`
       : calls === 0 && (cfg.queries || []).length ? 'unreachable (every query failed on the network)'
@@ -845,20 +830,17 @@ export function hasApplySignal(text) {
   return /apply (?:now|today|here|for this (?:job|position|role))|submit (?:your )?application|start (?:your )?application|solliciteer|postule[rz]\b|jetzt bewerben|bewirb dich|ap[úu]ntate|inscr[íi]bete|env[íi]a tu (?:cv|candidatura)|aplicar? ahora/i.test(String(text || ''));
 }
 
-// ➤ Anti-false-dead second opinion (caught 2026-07-18): the system's
-// ➤ classifier marks "expired" if ANY chunk of the page contains phrases
-// ➤ like "position has been filled" — even if they come from a widget of OTHER
-// ➤ offers or from generic text, and even if the page has a
-// ➤ perfectly live apply button. The user's rule: losing a good offer is
-// ➤ the expensive mistake. So: if the "expired" verdict comes from a PHRASE in the
-// ➤ text (not from a 404/410 or a redirect, which are hard proof) and
-// ➤ the page still has an apply signal → it's considered LIVE.
+// ➤ Anti-false-dead second opinion: the system's classifier marks "expired" if ANY chunk
+// ➤ of the page contains phrases like "position has been filled" — even from a widget of
+// ➤ OTHER offers or generic text, and even if the page has a perfectly live apply button.
+// ➤ The user's rule: losing a good offer is the expensive mistake. So: if the "expired"
+// ➤ verdict comes from a PHRASE in the text (not from a 404/410 or a redirect, which are
+// ➤ hard proof) and the page still has an apply signal → it's considered LIVE.
 export function overrideDeadIfApply(verdict, body) {
-  // ➤ Audit 2026-07-18: the second opinion only applies to the GENERIC
-  // ➤ patterns ("applications closed", "closed on <date>" — the ones that can
-  // ➤ come from a FAQ or a holiday notice). The emphatic ones ("position has
-  // ➤ been filled", "no longer available/accepting", "job has expired") are almost
-  // ➤ always THIS offer's banner: an "Apply Now" from a widget of
+  // ➤ The second opinion only applies to the GENERIC patterns ("applications closed",
+  // ➤ "closed on <date>" — the ones that can come from a FAQ or a holiday notice). The
+  // ➤ emphatic ones ("position has been filled", "no longer available/accepting", "job has
+  // ➤ expired") are almost always THIS offer's banner: an "Apply Now" from a widget of
   // ➤ similar offers must not revive them.
   const reason = String(verdict?.reason || '');
   const generic = /^pattern matched/.test(reason) && /applications?|closed on/i.test(reason) && !/no longer|filled|expired/i.test(reason);
@@ -868,9 +850,9 @@ export function overrideDeadIfApply(verdict, body) {
   return verdict;
 }
 
-// ➤ The verdict on evidence already in hand, split out (audit 2026-08-08) so
-// ➤ the liveness step can judge from the page the experience screen ALREADY
-// ➤ downloaded instead of fetching the same URL a second time.
+// ➤ The verdict on evidence already in hand, split out so the liveness step can judge from
+// ➤ the page the experience screen ALREADY downloaded instead of fetching the same URL a
+// ➤ second time.
 function deadFromEvidence(status, finalUrl, body) {
   // ➤ Classifier verdict + anti-false-dead second opinion.
   const { result, reason } = overrideDeadIfApply(
@@ -913,13 +895,12 @@ const DESC_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (K
 // ➤ mechanism the cleaner (housekeep) already uses — rule: NEVER draw
 // ➤ conclusions from a 429.
 const SCAN_HOST_GAP_MS = { adzuna: 1500, linkedin: 1200 };
-// ➤ Slot allocator per host, not a last-request timestamp (audit 2026-08-08).
-// ➤ The old check-then-act — read the timestamp, sleep, write — let the five
-// ➤ callers of parallel(checks, 5) compute the same wait from the same base,
-// ➤ wake at the same deadline and fire TOGETHER: the 1.5 s gap became bursts
-// ➤ of 5, and the 429s those bursts provoke are what defer offers to the next
-// ➤ scan. Claiming the slot synchronously (no await between read and write)
-// ➤ hands each concurrent caller its own moment, one gap apart.
+// ➤ Slot allocator per host, not a last-request timestamp: a check-then-act — read the
+// ➤ timestamp, sleep, write — lets the five callers of parallel(checks, 5) compute the
+// ➤ same wait from the same base, wake at the same deadline and fire TOGETHER, turning the
+// ➤ 1.5 s gap into bursts of 5 and earning the 429s that defer offers to the next scan.
+// ➤ Claiming the slot synchronously (no await between read and write) hands each
+// ➤ concurrent caller its own moment, one gap apart.
 const scanHostNext = new Map();   // per host: when the NEXT request may fire
 const scanHostFloor = new Map();  // per host: floor imposed by a 429 penalty
 async function scanPoliteFetch(hostKey, url, opts = {}) {
@@ -939,8 +920,7 @@ async function scanPoliteFetch(hostKey, url, opts = {}) {
     try {
       const res = await fetch(url, { ...opts, signal: controller.signal, headers: { 'User-Agent': DESC_UA, ...(opts.headers || {}) } });
       if (res.status === 429) {
-        // ➤ 15 s penalty after a 429 (previously 8 s: it fell short and the 3
-        // ➤ attempts died within the same rate-limit window).
+        // ➤ 15 s penalty after a 429: shorter, and the 3 attempts die within the same rate-limit window.
         scanHostFloor.set(hostKey, Date.now() + 15_000); // back off the whole host
         continue;
       }
@@ -952,12 +932,10 @@ async function scanPoliteFetch(hostKey, url, opts = {}) {
 
 async function fetchOfferDescription(o, targetsByName) {
   try {
-    // ➤ A body some earlier step already extracted wins outright (audit
-    // ➤ 2026-08-08). The sitemap parser stores the whole JD in _jd and the
-    // ➤ Workday location enrichment now stashes it too — yet this function
-    // ➤ fell through to o.description, which is EMPTY for sitemap offers, so
-    // ➤ Van Oord and Boskalis skipped the years/degree/language screens
-    // ➤ entirely — the same failure class fixed for greenhouse/ashby/lever.
+    // ➤ A body some earlier step already extracted wins outright: the sitemap parser stores
+    // ➤ the whole JD in _jd and the Workday location enrichment stashes it too, while
+    // ➤ o.description is EMPTY for sitemap offers — falling through to it would skip the
+    // ➤ years/degree/language screens for those boards entirely.
     if (o._jd) return o._jd;
     // ➤ Workday recipe: the offer's detail page is requested.
     if (o.source === 'workday-api') {
@@ -1026,15 +1004,13 @@ async function fetchOfferDescription(o, targetsByName) {
           const jd = extractAdzunaJd(html);
           if (jd) o._jd = jd;
           body = jd || stripHtml(html);
-          // ➤ Status + page stashed for the liveness step (audit 2026-08-08):
-          // ➤ it used to re-download this same URL minutes later — a second
-          // ➤ full pass over the host whose 429s defer offers, and without the
-          // ➤ 1.5 s pacing.
+          // ➤ Status + page stashed for the liveness step, so it does not re-download this same URL
+          // ➤ minutes later — a second full pass over the host whose 429s defer offers, and without
+          // ➤ the 1.5 s pacing.
           o._live = { status: res.status, finalUrl: res.url, body: html.slice(0, 20_000) };
         } else if (res === null) {
-          // ➤ 429 exhausted or network down: the body could NOT be read. It's flagged
-          // ➤ to DEFER the offer (real case #626/#627, 2026-07-18: without
-          // ➤ this flag they went to the list half-examined).
+          // ➤ 429 exhausted or network down: the body could NOT be read. It's flagged to DEFER the
+          // ➤ offer, so it does not reach the list half-examined.
           o._bodyUnread = true;
         } else {
           // ➤ A definitive non-OK answer (404 and friends) IS liveness evidence.
@@ -1063,11 +1039,11 @@ async function fetchOfferDescription(o, targetsByName) {
 // ➤ offer with a German title is usually a German-speaking job.
 // ➤ English, Spanish and Catalan pass; the rest are discarded.
 
-// ➤ Titles that state the working language outright: "(German or French
-// ➤ speaking)", "Dutch-speaking Support Engineer" (#116, 2026-07-10). It looks
-// ➤ for a language name closely followed by "speaking" or similar — no API
-// ➤ call, fully deterministic. EN/ES/CA are the languages of the profile; any
-// ➤ other named language in the title is a requirement that can't be met.
+// ➤ Titles that state the working language outright: "(German or French speaking)",
+// ➤ "Dutch-speaking Support Engineer". It looks for a language name closely followed by
+// ➤ "speaking" or similar — no API call, fully deterministic. EN/ES/CA are the languages
+// ➤ of the profile; any other named language in the title is a requirement that can't be
+// ➤ met.
 const TITLE_LANG_DEMAND = /\b(german|deutsch|french|dutch|nederlands|flemish|italian|norwegian|danish|swedish|polish|portuguese)\b[^)]{0,25}?(speak(?:ing|er)?|sprechend|sprachig|parlant)/i;
 
 // ➤ ENGLISH AS AN ALTERNATIVE IS NOT A DEMAND. "German or English speaking"
@@ -1084,38 +1060,34 @@ export function titleDemandsForeignLanguage(title) {
   return TITLE_LANG_DEMAND.test(t) && !ENGLISH_ALTERNATIVE.test(t);
 }
 
-// ➤ Broken-encoding detector (field case 2026-08-22): Adzuna delivered
-// ➤ "Automation Engineer ??????" — the non-Latin half of the title destroyed
-// ➤ upstream and replaced by literal question marks — geotagged France,
-// ➤ actually a Shanghai job. A run of ??? (or any U+FFFD) in a title can only
-// ➤ be a portal mangling text it could not encode, and the mangled half is
-// ➤ precisely the half naming the real language or place. No legitimate title
-// ➤ carries either, so this drops nothing real.
+// ➤ Broken-encoding detector: a board can deliver "Automation Engineer ??????" — the
+// ➤ non-Latin half of the title destroyed upstream and replaced by literal question marks
+// ➤ — geotagged France, actually a Shanghai job. A run of ??? (or any U+FFFD) in a title
+// ➤ can only be a portal mangling text it could not encode, and the mangled half is
+// ➤ precisely the half naming the real language or place. No legitimate title carries
+// ➤ either, so this drops nothing real.
 export function titleEncodingBroken(title) {
   return /\?{3,}|�/.test(String(title || ''));
 }
 
-// ➤ BODY LANGUAGE RULE (refined by the user on 2026-07-18): the language in
-// ➤ which the offer IS WRITTEN no longer matters (a Dutch offer that doesn't
-// ➤ ask you to speak Dutch can be good). What DOES discard it is the
-// ➤ body REQUIRING a language the user doesn't speak: "fluent in German",
-// ➤ "Deutschkenntnisse erforderlich", "talen: Nederlands"... And note: if nearby
-// ➤ it says "is a plus" or "valued", it's NOT blocked (it's not mandatory).
-// ➤ List of languages the user doesn't speak (German, French, Dutch...),
-// ➤ written as a search pattern with its variants in several languages.
-// ➤ Built from your profile (config/profile.yml → search.languages_blocked);
-// ➤ the marine default below (German/French/Dutch...) is used if it's missing.
+// ➤ BODY LANGUAGE RULE: the language in which the offer IS WRITTEN does not matter (a
+// ➤ Dutch offer that doesn't ask you to speak Dutch can be good). What DOES discard it is
+// ➤ the body REQUIRING a language the user doesn't speak: "fluent in German",
+// ➤ "Deutschkenntnisse erforderlich", "talen: Nederlands"... And note: if nearby it says
+// ➤ "is a plus" or "valued", it's NOT blocked (it's not mandatory).
+// ➤ List of languages the user doesn't speak (German, French, Dutch...), written as a
+// ➤ search pattern with its variants in several languages. Built from your profile
+// ➤ (config/profile.yml → search.languages_blocked); the marine default below
+// ➤ (German/French/Dutch...) is used if it's missing.
 const LANGWORD = '(?:' + (Array.isArray(searchProfile.languages_blocked) && searchProfile.languages_blocked.length
   ? searchProfile.languages_blocked.join('|')
   : 'german|deutsch\\w*|alem[áa]n|french|fran[çc]ais\\w*|franc[ée]s|dutch|nederlands|neerland[ée]s|flemish|vlaams') + ')';
-// ➤ Words that indicate a requirement: "fluent", "required", "imprescindible",
-// ➤ "se requiere", "erforderlich", C1/C2 levels, "native"...
-// ➤ 2026-07-27: the German and French ways of saying it were missing, so every
-// ➤ German offer walked through. Real sentences that escaped: "Deutsch und
-// ➤ Englisch fließend in Wort und Schrift" (#697), "Sehr gute Deutsch- und
-// ➤ Englischkenntnisse" (#719), "Verhandlungssichere Deutschkenntnisse" (#699).
-// ➤ Note "gut\\w*" is only ever read NEXT TO a language word, so "gute
-// ➤ Excel-Kenntnisse" alone cannot fire it.
+// ➤ Words that indicate a requirement: "fluent", "required", "imprescindible", "se
+// ➤ requiere", "erforderlich", C1/C2 levels, "native"... The German and French ways of
+// ➤ saying it are here too — "Deutsch und Englisch fließend in Wort und Schrift", "Sehr
+// ➤ gute Deutsch- und Englischkenntnisse", "Verhandlungssichere Deutschkenntnisse". Note
+// ➤ the "gut…" stem is only ever read NEXT TO a language word, so "gute Excel-Kenntnisse"
+// ➤ alone cannot fire it.
 const REQWORD = '(?:fluent|fluency|proficien\\w+|mandatory|compulsory|require[sd]?|obligatorio|obligatoria|imprescindible|requier\\w*|requerid\\w*|necesari[oa]s?|erforderlich|vorausgesetzt|vereist|requis|exig[ée]\\w*|c1|c2|native|muttersprach\\w*|moedertaal'
   + '|flie[sß]end\\w*|verhandlungssicher\\w*|sehr gut\\w*|gute?n? kenntnisse|kenntnisse|beherrsch\\w*|sicher\\w* umgang'
   + '|vlot\\w*|beheers\\w*|goede kennis|uitstekend\\w*|spreekt|schrift'
@@ -1127,51 +1099,48 @@ const BODY_LANG_REQ = new RegExp(
   `${REQWORD}[^.!?;]{0,40}\\b${LANGWORD}|\\b${LANGWORD}[^.!?;]{0,30}${REQWORD}|(?:talen|sprachen|langues|idiomas|languages)\\s*:\\s*[^.!?;]{0,30}\\b${LANGWORD}`,
   'i',
 );
-// ➤ "Softener" phrases: if they appear nearby, the language is only desirable
-// ➤ ("a plus", "von Vorteil", "valued"...) and the offer is NOT blocked.
-// ➤ 2026-07-27, the owner's rule: "if it says it's a plus, recommended, or whatever, add
-// ➤ them". This list is what keeps those offers, so it is deliberately WIDE in
-// ➤ the three languages that now block — DE "ein Plus"/"erwünscht", FR "un
-// ➤ plus", NL "strekt tot aanbeveling"/"is meegenomen"/"wenselijk". Being
-// ➤ generous here is the safe direction: it can only let an offer THROUGH.
+// ➤ "Softener" phrases: if they appear nearby, the language is only desirable ("a plus",
+// ➤ "von Vorteil", "valued"...) and the offer is NOT blocked. The owner's rule: "if it
+// ➤ says it's a plus, recommended, or whatever, add them". This list is what keeps those
+// ➤ offers, so it is deliberately WIDE in the three languages that block — DE "ein
+// ➤ Plus"/"erwünscht", FR "un plus", NL "strekt tot aanbeveling"/"is
+// ➤ meegenomen"/"wenselijk". Being generous here is the safe direction: it can only let an
+// ➤ offer THROUGH.
 const LANG_SOFTENER = /nice to have|a plus|is a plus|ein plus|un plus|erw[üu]nscht|von vorteil|wünschenswert|valorable|se valorar[áa]|pluspunt|is een plus|strekt tot aanbeveling|aanbeveling|meegenomen|wenselijk|atout|desirable|preferred|not required|not mandatory|no es necesario|een pr[ée]|advantag\w*|an asset|beneficial|bonus|welcome|appreciated|only for senior|solo para (?:perfiles |puestos )?senior|nur f[üu]r senior/i;
 
-// ➤ NEGATED REQUIREMENT (owner's rule, 2026-07-18: "if it requires it, drop it; if it
-// ➤ doesn't mention it or says it's NOT required, keep it"): phrases like "No German required",
-// ➤ "Kein Deutsch erforderlich", "geen Nederlands vereist", "not compulsory",
-// ➤ "no se requiere alemán"... are GOOD news, not a requirement. If the
-// ➤ phrase contains a negation attached to the requirement word, it's NOT
-// ➤ blocked. (Without this, "No German required" discarded the offer — backwards.)
+// ➤ NEGATED REQUIREMENT (owner's rule: "if it requires it, drop it; if it doesn't mention
+// ➤ it or says it's NOT required, keep it"): phrases like "No German required", "Kein
+// ➤ Deutsch erforderlich", "geen Nederlands vereist", "not compulsory", "no se requiere
+// ➤ alemán"... are GOOD news, not a requirement. If the phrase contains a negation
+// ➤ attached to the requirement word, it's NOT blocked.
 const LANG_NEGATION = /\b(?:no|not|non|pas|kein\w*|geen|niet|nicht|don'?t|do not|doesn'?t|sin|zonder)\b[^.!?;]{0,40}\b(?:requires?|required|requirements?|mandatory|compulsory|necessary|needed|essential|a must|requier\w*|requerid\w*|requisito\w*|necesari[oa]s?|imprescindible|obligatori[oa]s?|requis\w*|exigence\w*|exig[ée]\w*|n[ée]cessaire|erforderlich|voraussetzung\w*|vorausgesetzt|n[öo]tig|vereiste?\w*|nodig|verplicht)\b|no (?:se requiere|hace falta)|not a requirement|geen vereiste|kein muss/i;
 
-// ➤ KNOWN LIMIT, left alone on purpose (2026-07-27). Some portals write
-// ➤ their requirements as "* bullet * bullet * bullet" with no full stop, so the
-// ➤ whole block is ONE sentence — 1639 characters in the real case, #699 — and a
-// ➤ "wünschenswert" two bullets away softens a genuine demand. About 5-10% of
-// ➤ bodies come like that. The obvious fix, splitting on the bullet marker, was
-// ➤ already tried for </p> and <br> on 2026-07-18 and REVERTED: it also cuts the
-// ➤ "Nice to have:" HEADING away from the list under it, and that heading has to
-// ➤ keep protecting its own bullets. Any real fix must tell a softener that
-// ➤ INTRODUCES a list from one sitting inside a sibling bullet — and be measured
-// ➤ verdict by verdict first, because the cost of getting it wrong is a good
-// ➤ offer dropped in silence.
+// ➤ KNOWN LIMIT, left alone on purpose. Some portals write their requirements as "* bullet
+// ➤ * bullet * bullet" with no full stop, so the whole block is ONE sentence — 1,639
+// ➤ characters in a real case — and a "wünschenswert" two bullets away softens a genuine
+// ➤ demand. About 5-10% of bodies come like that. The obvious fix, splitting on the bullet
+// ➤ marker, was tried for </p> and <br> and REVERTED: it also cuts the "Nice to have:"
+// ➤ HEADING away from the list under it, and that heading has to keep protecting its own
+// ➤ bullets. Any real fix must tell a softener that INTRODUCES a list from one sitting
+// ➤ inside a sibling bullet — and be measured verdict by verdict first, because the cost
+// ➤ of getting it wrong is a good offer dropped in silence.
 export function bodyLanguageBlock(text) {
   const t = String(text || '');
   BODY_LANG_REQ.lastIndex = 0;
   const m = BODY_LANG_REQ.exec(t);
   if (!m) return false;
-  // ➤ Audit 2026-07-16: the mitigator ("a plus"/"advantage") only counts if
-  // ➤ it's in the SAME sentence as the requirement. Before, it looked ±60 chars
-  // ➤ crudely, so "German required. English is a plus" was softened by the
-  // ➤ "plus" of the OTHER language → an offer with mandatory German slipped in.
+  // ➤ The mitigator ("a plus"/"advantage") only counts if it's in the SAME sentence as the
+  // ➤ requirement: with a crude ±60-char window, "German required. English is a plus" is
+  // ➤ softened by the "plus" of the OTHER language and an offer with mandatory German slips
+  // ➤ in.
   let s = m.index, e = m.index + m[0].length;
   while (s > 0 && !/[.!?;]/.test(t[s - 1])) s--;
   while (e < t.length && !/[.!?;]/.test(t[e])) e++;
   const clause = t.slice(s, e);
   if (LANG_SOFTENER.test(clause) || LANG_NEGATION.test(clause)) return false;
-  // ➤ Caught 2026-07-18: the negation can come AFTER the sentence break.
-  // ➤ Case 1 — question-answer format: "Is Dutch required? No, English
-  // ➤ suffices." The answer starting with "No" cancels the requirement.
+  // ➤ The negation can come AFTER the sentence break. Case 1 — question-answer format: "Is
+  // ➤ Dutch required? No, English suffices." The answer starting with "No" cancels the
+  // ➤ requirement.
   if (t[e] === '?' && /^\s*(?:no\b|not\b|nee\b|nein\b|non\b|niet\b|nicht\b|para nada|not at all)/i.test(t.slice(e + 1, e + 30))) return false;
   // ➤ Case 2 — clarification in the NEXT sentence that negates THIS requirement:
   // ➤ "French required only for senior positions; this junior role does not
@@ -1181,9 +1150,8 @@ export function bodyLanguageBlock(text) {
   let e2 = e + 1;
   while (e2 < t.length && !/[.!?;]/.test(t[e2])) e2++;
   const next = t.slice(e + 1, e2);
-  // ➤ Audit 2026-07-18: the comparison of the SAME language in the next
-  // ➤ sentence must ignore case ("German required. German is not
-  // ➤ necessary here." — with normal capitalization — stayed blocked).
+  // ➤ The comparison of the SAME language in the next sentence must ignore case ("German
+  // ➤ required. German is not necessary here." — with normal capitalization).
   const langIn = (m[0].match(new RegExp(LANGWORD, 'i')) || [])[0];
   if (LANG_NEGATION.test(next) &&
       (/\bit\b|this (?:junior )?(?:role|position|job)|este puesto|esta posici[óo]n/i.test(next) ||
@@ -1211,13 +1179,11 @@ export async function detectTitleLang(title) {
 
 // ── Country toggle (countries.yml — dynamic on/off) ─────────────────
 
-// ➤ Reads countries.yml (the countries the user turns on or off by editing that
-// ➤ file by hand) and builds the filter: if an offer mentions a country that's
-// ➤ off (or one of its aliases, like "Deutschland" for Germany),
-// ➤ it's discarded.
-// ➤ EXPORTED so a test can reach it (audit 2026-07-31). It was a local, and the
-// ➤ accent bug below — every accented alias silently ignored — lived here for as
-// ➤ long as it did precisely because nothing could call it.
+// ➤ Reads countries.yml (the countries the user turns on or off by editing that file by
+// ➤ hand) and builds the filter: if an offer mentions a country that's off (or one of its
+// ➤ aliases, like "Deutschland" for Germany), it's discarded. EXPORTED so a test can reach
+// ➤ it: an accent bug in this very function lived on for as long as it did precisely
+// ➤ because nothing could call it.
 export function buildCountryFilter(cfg = null) {
   if (!cfg && !existsSync(COUNTRIES_PATH)) return { fn: () => true, off: [] };
   cfg = cfg || parseYaml(readFileSync(COUNTRIES_PATH, 'utf-8')) || {};
@@ -1231,10 +1197,8 @@ export function buildCountryFilter(cfg = null) {
   const isOff = v => v === false || /^(?:no|off|false)$/i.test(String(v).trim());
   const off = Object.entries(countries).filter(([, on]) => isOff(on)).map(([c]) => c);
 
-  // ➤ WHOLE-WORD matching (audit 2026-07-25). This used to be a raw substring
-  // ➤ test, so switching Denmark off also killed anything in "Brandenburg" (its
-  // ➤ alias "Brande") and Italy off killed "Romainville" ("Roma") — allowed
-  // ➤ places, dropped in silence.
+  // ➤ WHOLE-WORD matching, not a raw substring test: switching Denmark off must not kill
+  // ➤ "Brandenburg" (its alias "Brande"), nor Italy off "Romainville" ("Roma").
   const matchers = new Map(off.map(country => [
     country,
     [country, ...(aliases[country] || [])].map(k => boundaryRegex(k, false)),
@@ -1245,14 +1209,12 @@ export function buildCountryFilter(cfg = null) {
     fn: (loc) => {
       if (!loc) return true;
       for (const country of off) {
-        // ➤ FOLD THE TEXT TOO (audit 2026-07-31). boundaryRegex folds the TERM —
-        // ➤ "Zürich" becomes "zurich" — so testing it against the raw location
-        // ➤ could never match the accented spelling, and every accented alias in
-        // ➤ countries.yml was dead: "Zurich" was correctly dropped while
-        // ➤ "Zürich" walked through the gate. Every sibling matcher in this file
-        // ➤ folds both sides, and the note above boundaryRegex says so in as
-        // ➤ many words. Measured on real scan history with one country switched
-        // ➤ off, 110 of its 141 locations leaked through this rule.
+        // ➤ FOLD THE TEXT TOO. boundaryRegex folds the TERM — "Zürich" becomes "zurich" — so
+        // ➤ testing it against the raw location could never match the accented spelling, and every
+        // ➤ accented alias in countries.yml would be dead: "Zurich" dropped while "Zürich" walks
+        // ➤ through the gate. Every sibling matcher in this file folds both sides. Measured on
+        // ➤ real scan history with one country switched off, 110 of its 141 locations leaked
+        // ➤ through the unfolded rule.
         if ((matchers.get(country) || []).some(re => re.test(norm(loc)))) return false;
       }
       return true;
@@ -1287,56 +1249,44 @@ function loadSeenUrls() {
   return seen;
 }
 
-// ➤ Second anti-duplicate barrier: the same role can come back with ANOTHER
-// ➤ link (aggregators re-post it). It's compared by the company+title
-// ➤ pair, normalizing odd dashes and extra spaces: GE Vernova posted the same
-// ➤ role twice as "Power Systems - …" and "Power Systems – …" (en dash).
-// ➤ Exported to be tested: this key is what makes your "no" stick when a board
-// ➤ re-posts the same job with a different link. A mutation that stopped it
-// ➤ normalising the en dash — the exact case that made one employer's role
-// ➤ appear twice — passed every test in the project.
-// ➤ Names that are NOT an employer. Adzuna hides the advertiser on plenty of
-// ➤ ads, and the parser used to write its own name into the field — so every
-// ➤ anonymous "Offshore Engineer" in the country shared one key and the second
-// ➤ one was thrown away as a repost of the first. No key means no role barrier;
-// ➤ the link barrier still catches a genuine duplicate.
-// ➤ Exported: housekeep's weekly dedup keys on company+title too, and a rule
-// ➤ written twice is how the two ends drift. LinkedIn is here for the same
-// ➤ reason as Adzuna — parseLinkedInCards writes it when the ad names nobody.
+// ➤ Second anti-duplicate barrier: the same role can come back with ANOTHER link
+// ➤ (aggregators re-post it). It's compared by the company+title pair, normalizing odd
+// ➤ dashes and extra spaces: GE Vernova posted the same role twice as "Power Systems - …"
+// ➤ and "Power Systems – …" (en dash). Exported to be tested: this key is what makes your
+// ➤ "no" stick when a board re-posts the same job with a different link — a mutation that
+// ➤ stopped it normalising the en dash passed every test in the project.
+// ➤ Names that are NOT an employer. Adzuna hides the advertiser on plenty of ads, and a
+// ➤ parser that writes its own name into the field makes every anonymous "Offshore
+// ➤ Engineer" in the country share one key, so the second one is thrown away as a repost
+// ➤ of the first. No key means no role barrier; the link barrier still catches a genuine
+// ➤ duplicate. Exported: housekeep's weekly dedup keys on company+title too, and a rule
+// ➤ written twice is how the two ends drift. LinkedIn is here for the same reason as
+// ➤ Adzuna — parseLinkedInCards writes it when the ad names nobody.
 export const NOT_AN_EMPLOYER = new Set(['', 'adzuna', 'linkedin']);
 
 export function roleKey(company, title) {
-  // ➤ Also (Lonza case #595/#602, 2026-07-18): German portals
-  // ➤ re-post the SAME role with gender tags "(m/w/d)"/"(All
-  // ➤ Genders)" and schedules "80-100%" that vary between postings. They're removed
-  // ➤ before comparing, so the re-post doesn't dodge your decision.
-  // ➤ (2026-07-19, Sartorius case "(x w m)") the separator of the gender tag
-  // ➤ can also be a simple space, not only / | , .
-  // ➤ ENTITIES FIRST, or the key never matches the one rebuilt from disk. This
-  // ➤ key is built from the title as the BOARD sent it, while pipeline.md holds
-  // ➤ the title after sanitizeField decoded it — so "Automation &amp; Controls
-  // ➤ Engineer" produced two different keys and the barrier was dead for it.
-  // ➤ Nine of 1,016 real titles carry an entity, all of them his kind of role,
-  // ➤ and the effect is that a re-post under a new link comes back and a "no"
-  // ➤ on it never sticks.
-  // ➤ The normalisation itself lives in text.mjs (titleKey), shared with
-  // ➤ housekeep's fuzzyKey so the two ends can never drift apart again.
+  // ➤ German portals re-post the SAME role with gender tags "(m/w/d)"/"(All Genders)" — the
+  // ➤ separator can also be a plain space, "(x w m)" — and schedules "80-100%" that vary
+  // ➤ between postings. They're removed before comparing, so the re-post doesn't dodge your
+  // ➤ decision. ENTITIES FIRST, or the key never matches the one rebuilt from disk: this key
+  // ➤ is built from the title as the BOARD sent it, while pipeline.md holds the title after
+  // ➤ sanitizeField decoded it — "Automation &amp; Controls Engineer" would produce two
+  // ➤ different keys and the barrier would be dead for it (nine of 1,016 real titles carry
+  // ➤ an entity). The normalisation itself lives in text.mjs (titleKey), shared with
+  // ➤ housekeep's fuzzyKey so the two ends can never drift apart.
   const norm = s => titleKey(decodeFieldEntities(String(s)));
   const who = norm(company);
   if (NOT_AN_EMPLOYER.has(who)) return '';
   return `${who}::${norm(title)}`;
 }
 
-// ➤ Loads the company+title pairs that must BLOCK repeats.
-// ➤ Rule (2026-07-18, Engibex case): only the ones YOU decided block:
+// ➤ Loads the company+title pairs that must BLOCK repeats. Rule: only the ones YOU decided block:
 // ➤   · the ones still VISIBLE in your list (you already have them in front of you),
 // ➤   · the ones YOU removed (seen/no — they carry the "| visto" marker at the end),
 // ➤   · the ones in your applications record (applications.md),
 // ➤   · the ones you rejected with a reason (feedback.jsonl).
-// ➤ The ones THE BOT hid (dead link, old cleanups) no longer block:
-// ➤ if the company re-posts that offer with a new link, it comes back to your list.
-// ➤ (Before, it blocked EVERYTHING hidden, and Engibex's "Junior Project Engineer (Offshore)",
-// ➤ hidden by a cleanup, ate its reappearances.)
+// ➤ The ones THE BOT hid (dead link, old cleanups) do not block: if the company re-posts
+// ➤ that offer with a new link, it comes back to your list.
 // ➤ Decides, for ONE line of pipeline.md, whether its company+title pair must
 // ➤ block reappearances. Returns the key if it blocks, or "nothing" if not.
 // ➤   - [ ] ... (visible)            → blocks (you already have it in front of you)
@@ -1412,10 +1362,10 @@ export function admissionVerdict(job, gates) {
   // ➤ Also out if the blocked country is named in the TITLE, which is where
   // ➤ multi-location postings hide it ("... Programme - Qatar").
   if (locationFilter.blockHit(job.title)) return { ok: false, stage: 'LOCATION', reason: 'the title names a country outside your range' };
-  // ➤ Judged SEAT BY SEAT (audit 2026-08-08), like the location gate one line
-  // ➤ up and the Workday enrichment: fed the joined string, the toggle killed
-  // ➤ "Rotterdam, NL; Esbjerg, DK" whole with Denmark off, though the Dutch
-  // ➤ seat passed both gates on its own — one seat you can take is enough.
+  // ➤ Judged SEAT BY SEAT, like the location gate one line up and the Workday enrichment:
+  // ➤ fed the joined string, the toggle would kill "Rotterdam, NL; Esbjerg, DK" whole with
+  // ➤ Denmark off, though the Dutch seat passes both gates on its own — one seat you can
+  // ➤ take is enough.
   const seats = String(job.location || '').split(';').map(x => x.trim()).filter(Boolean);
   const countryOk = seats.length > 1
     ? seats.some(s => locationFilter(s) && country.fn(s))
@@ -1431,15 +1381,12 @@ export function admissionVerdict(job, gates) {
   return { ok: true };
 }
 
-// ➤ A CEILING ON WHAT ONE EMPLOYER CAN ADD IN ONE RUN (audit 2026-07-31).
-// ➤ Workday and Oracle already had one; the other boards took whatever the feed
-// ➤ said. Provoked with a feed answering 20,000 postings: all 20,000 went into
-// ➤ the pending list — a 2.2 MB file and, with Telegram on, about 450 messages
-// ➤ over nine minutes. The cap sits far above any real board, so it only ever
-// ➤ fires on a broken or hostile feed, and it SAYS SO rather than truncating in
-// ➤ silence.
-// ➤ Exported so it can be tested: written inline it was a rule no test could
-// ➤ reach, and it survived a mutation that removed it entirely.
+// ➤ A CEILING ON WHAT ONE EMPLOYER CAN ADD IN ONE RUN. Provoked with a feed answering
+// ➤ 20,000 postings: all 20,000 went into the pending list — a 2.2 MB file and, with
+// ➤ Telegram on, about 450 messages over nine minutes. The cap sits far above any real
+// ➤ board, so it only ever fires on a broken or hostile feed, and it SAYS SO rather than
+// ➤ truncating in silence. Exported so it can be tested: written inline it was a rule no
+// ➤ test could reach.
 export function capJobs(jobs, name, max = MAX_JOBS_PER_COMPANY, log = console.log) {
   const list = Array.isArray(jobs) ? jobs : [];
   if (list.length <= max) return list;
@@ -1453,11 +1400,11 @@ export function capJobs(jobs, name, max = MAX_JOBS_PER_COMPANY, log = console.lo
 // ➤ confusion (numbering by position failed because Telegram groups by country).
 function appendToPipeline(offers) {
   if (offers.length === 0) return;
-  // ➤ Under lock. The scan runs every two hours and takes minutes, but this
-  // ➤ part — read the file, add the offers, write it back — must not overlap
-  // ➤ with a "seen" from Telegram or with the cleanup. Whoever wrote second
-  // ➤ used to erase the other's work: measured, eight overlapping writers kept
-  // ➤ 200 lines out of 1600. Only these milliseconds are held, not the scan.
+  // ➤ Under lock. The scan runs every two hours and takes minutes, but this part — read the
+  // ➤ file, add the offers, write it back — must not overlap with a "seen" from Telegram or
+  // ➤ with the cleanup: whoever writes second erases the other's work (measured, eight
+  // ➤ overlapping writers kept 200 lines out of 1,600). Only these milliseconds are held,
+  // ➤ not the scan.
   return withFileLock(PIPELINE_PATH, () => appendToPipelineLocked(offers));
 }
 
@@ -1467,16 +1414,14 @@ function appendToPipelineLocked(offers) {
   // and used by visto/no. Positional numbering caused wrong-offer feedback —
   // the Telegram list is country-grouped, so positions never matched.
   let nextId = 0;
-  // ➤ Finds the highest number already used in the file to keep counting
-  // ➤ from it (a number is never repeated). It counts the # at end of line
-  // ➤ AND the # right before the "| visto" marker (audit 2026-07-18: the
-  // ➤ loose pattern could swallow a "#123" that came inside a title).
+  // ➤ Finds the highest number already used in the file to keep counting from it (a number
+  // ➤ is never repeated). It counts the # at end of line AND the # right before the "|
+  // ➤ visto" marker — a looser pattern could swallow a "#123" that came inside a title.
   for (const m of text.matchAll(/\|\s*#(\d+)\s*(?:\|\s*visto\s*)?$/gim)) nextId = Math.max(nextId, parseInt(m[1], 10));
-  // ➤ HIGH-WATER MARK (audit 2026-07-25). The count above is the largest id
-  // ➤ still PRESENT in the file, and housekeep DELETES lines — so when the
-  // ➤ highest-numbered offer died, the next new offer got that same number
-  // ➤ again, and two different offers ended up sharing one "#412". We also
-  // ➤ remember the highest id EVER handed out, so numbers only move forward.
+  // ➤ HIGH-WATER MARK. The count above is the largest id still PRESENT in the file, and
+  // ➤ housekeep DELETES lines — so when the highest-numbered offer dies, the next new offer
+  // ➤ would get that same number again and two different offers would share one "#412". We
+  // ➤ also remember the highest id EVER handed out, so numbers only move forward.
   nextId = Math.max(nextId, loadIdHighWater());
   // ➤ Where to insert: the pending heading, asked for in one place.
   const idx = pendingIndex(text);
@@ -1484,12 +1429,11 @@ function appendToPipelineLocked(offers) {
   const block = offers.map(o => {
     const loc = normalizeLocation(o.location);
     o.id = ++nextId;
-    // ➤ 2026-07-18 (approved improvement): if the years asked (y:) or the
-    // ➤ salary (s:) are known, they're saved in the line — the "list" command shows them.
-    // ➤ The #number is still the last field (the "seen" command requires it).
-    // ➤ y: only ever carries a NUMBER (audit 2026-07-25). multiYearScreen returns
-    // ➤ the string '3+', and "y:3+" is not a shape the list parser recognises, so
-    // ➤ that offer was displayed as if "3+" were its LOCATION.
+    // ➤ If the years asked (y:) or the salary (s:) are known, they're saved in the line — the
+    // ➤ "list" command shows them. The #number is still the last field (the "seen" command
+    // ➤ requires it). y: only ever carries a NUMBER: multiYearScreen returns the string '3+',
+    // ➤ and "y:3+" is not a shape the list parser recognises — it would display "3+" as the
+    // ➤ LOCATION.
     const yrs = Number.parseInt(o.years, 10);
     const extras = `${Number.isInteger(yrs) ? ` | y:${yrs}` : ''}${o.salary ? ` | s:${sanitizeField(o.salary)}` : ''}`;
     return `- [ ] ${o.url} | ${sanitizeField(o.company)} | ${sanitizeField(o.title)}${loc ? ` | ${sanitizeField(loc)}` : ''}${extras} | #${o.id}`;
@@ -1506,9 +1450,9 @@ function appendToPipelineLocked(offers) {
     const at = next === -1 ? text.length : next;
     text = text.slice(0, at) + '\n' + block + '\n' + text.slice(at);
   }
-  // ➤ TIDY (audit 2026-07-25): every scan used to leave one orphan blank line
-  // ➤ behind, and housekeep's deletions leave more — a live file had grown to
-  // ➤ 376 blank lines out of 486. Runs of blank lines collapse to one.
+  // ➤ TIDY: every scan would otherwise leave one orphan blank line behind, and housekeep's
+  // ➤ deletions leave more (a live file once grew to 376 blank lines out of 486). Runs of
+  // ➤ blank lines collapse to one.
   text = text.replace(/\n{3,}/g, '\n\n');
   writeFileAtomic(PIPELINE_PATH, text);
   // ➤ Remember the highest number handed out, so a later cleanup that deletes
@@ -1520,20 +1464,16 @@ function appendToPipelineLocked(offers) {
 // ➤ data/last-id.json simply holds the biggest #id ever assigned. It exists
 // ➤ because pipeline.md (where the ids live) has lines DELETED from it.
 const LAST_ID_PATH = join(ROOT, 'data', 'last-id.json');
-// ➤ The highest offer number ever handed out. Reading it is deliberately
-// ➤ paranoid, because getting it wrong gives two different jobs the same number:
-// ➤ answering "no 412" from an older message would then hit the wrong one, and
-// ➤ the rejection history would mix them up.
-// ➤ IT NO LONGER TRUSTS ONE FILE (audit 2026-07-31). If data/last-id.json is
-// ➤ lost or corrupt it used to fall back to zero, leaving the pipeline — a file
-// ➤ housekeep DELETES from — as the only source, so the counter walked backwards
-// ➤ over every number whose line had been removed. Provoked: deleting the
-// ➤ counter and the top lines handed #4 to a second, different job.
-// ➤ So it also reads every other place a number was ever written down. Those
-// ➤ files are append-only records, which makes them a floor the counter can
-// ➤ never fall below.
-// ➤ The paths are arguments so a test can prove this on files of its own, never
-// ➤ on yours.
+// ➤ The highest offer number ever handed out. Reading it is deliberately paranoid, because
+// ➤ getting it wrong gives two different jobs the same number: answering "no 412" from an
+// ➤ older message would then hit the wrong one, and the rejection history would mix them
+// ➤ up. IT DOES NOT TRUST ONE FILE: if data/last-id.json is lost or corrupt, the pipeline
+// ➤ — a file housekeep DELETES from — would be the only source and the counter would walk
+// ➤ backwards over every number whose line had been removed (provoked: deleting the
+// ➤ counter and the top lines handed #4 to a second, different job). So it also reads
+// ➤ every other place a number was ever written down. Those files are append-only records,
+// ➤ which makes them a floor the counter can never fall below. The paths are arguments so
+// ➤ a test can prove this on files of its own, never on yours.
 export function loadIdHighWater(counterPath = LAST_ID_PATH, recordPaths = [join(ROOT, 'data', 'applications.jsonl'), join(SCRIPT_DIR, 'feedback.jsonl')]) {
   let mark = 0;
   try {
@@ -1584,9 +1524,9 @@ function appendToScanHistory(offers, date) {
 // ➤ either the home server or the portals.
 async function parallel(tasks, limit) {
   let i = 0;
-  // ➤ ERROR ISOLATION 2026-07-25 (audit): a single throwing task used to abort
-  // ➤ its whole worker, so one bad link could cut a sweep short and make the
-  // ➤ remaining offers look like they simply were not there.
+  // ➤ ERROR ISOLATION: a single throwing task must not abort its whole worker, or one bad
+  // ➤ link could cut a sweep short and make the remaining offers look like they simply were
+  // ➤ not there.
   async function next() {
     while (i < tasks.length) {
       const task = tasks[i++];
@@ -1601,9 +1541,8 @@ async function parallel(tasks, limit) {
 // ➤ it passed). Groups by reason so it's readable, with a summary at the top. The
 // ➤ result goes to data/scan-explain.txt.
 function writeExplainReport(rows, found) {
-  // ➤ Order in which the reasons are shown (first the ones that reach you).
-  // ➤ COMPANY and DEFERRED were missing (audit 2026-07-25): their offers were
-  // ➤ written to the report but never counted in the summary at the top.
+  // ➤ Order in which the reasons are shown (first the ones that reach you). COMPANY and
+  // ➤ DEFERRED are counted in the summary too, not only written to the report.
   const order = ['✅ NEW', 'TITLE', 'COMPANY', 'LOCATION', 'COUNTRY', 'DUPLICATE', 'LANGUAGE', 'YEARS/DEGREE', 'DEFERRED', 'DEAD', 'NO LINK'];
   const rank = (s) => { const k = order.indexOf(s); return k === -1 ? 99 : k; };
   const byStage = {};
@@ -1705,20 +1644,17 @@ function printSummary(s) {
 }
 
 // ➤ ── SAY WHEN THE RUN DID NOTHING AT ALL ────────────────────────────────
-// ➤ (audit 2026-07-31) Argus's normal failure is to find nothing, which looks
-// ➤ exactly like a quiet week. Three different breakages produced a clean exit
-// ➤ and total silence: no network (every source failed), a config that parses
-// ➤ but selects no sources, and a config that lists sources none of which
-// ➤ answered. The scan wrote down the error count and NOTHING read it.
-// ➤ NOT "everything errored" — "nothing answered". A source that is switched
-// ➤ on but never reached raises no error at all: a missing Adzuna key is
-// ➤ reported as skipped, and LinkedIn's cadence and cooldown paths return in
-// ➤ silence. Requiring an error meant the quietest failure of all — the one
-// ➤ this alarm exists for — could not set it off.
-// ➤ A --company run is exempt: it deliberately scans one board with the
-// ➤ aggregators switched off, so "no aggregator answered" is the point of the
-// ➤ command, not a fault worth waking you for.
-// ➤ Pure and exported so the decision can be tested without a scan.
+// ➤ Argus's normal failure is to find nothing, which looks exactly like a quiet week.
+// ➤ Three different breakages produce a clean exit and total silence: no network (every
+// ➤ source failed), a config that parses but selects no sources, and a config that lists
+// ➤ sources none of which answered. NOT "everything errored" — "nothing answered": a
+// ➤ source that is switched on but never reached raises no error at all (a missing Adzuna
+// ➤ key is reported as skipped, and LinkedIn's cadence and cooldown paths return in
+// ➤ silence), so requiring an error would let the quietest failure of all — the one this
+// ➤ alarm exists for — pass. A --company run is exempt: it deliberately scans one board
+// ➤ with the aggregators switched off, so "no aggregator answered" is the point of the
+// ➤ command, not a fault worth waking you for. Pure and exported so the decision can be
+// ➤ tested without a scan.
 export function runVerdict(s) {
   const anySourceConfigured = s.targets > 0 || s.adzunaWanted || s.liEnabled;
   if (!anySourceConfigured) return 'nothing-to-scan';
@@ -1785,15 +1721,14 @@ async function main() {
     negative: titleNegativesWith(searchProfile.negative_titles || (config.title_filter || {}).negative, vetoes),
   });
   // ➤ ── WHERE THE OFFERS COME FROM ──────────────────────────────────────
-  // ➤ Until the 2026-07-25 audit these SOURCES were fixed in portals.yml, which
-  // ➤ made the engine filter correctly for anybody but always over a marine
-  // ➤ stream: a non-marine user got a perfect filter applied to offers that were
-  // ➤ never theirs, i.e. an empty list for ever. Now the search itself can come
-  // ➤ from config/profile.yml too. Everything below falls back to portals.yml,
-  // ➤ so a profile that does not define these keys behaves exactly as before.
-  // ➤ search.queries: the phrases to ASK the job boards for (plain words, e.g.
-  // ➤   ["financial accountant", "bookkeeping"]). They feed Adzuna, LinkedIn and
-  // ➤   the Workday search boxes at once.
+  // ➤ The SOURCES can come from config/profile.yml: fixed in portals.yml they made the
+  // ➤ engine filter correctly for anybody but always over a marine stream — a non-marine
+  // ➤ user got a perfect filter applied to offers that were never theirs, i.e. an empty list
+  // ➤ for ever. Everything below falls back to portals.yml, so a profile that does not
+  // ➤ define these keys behaves exactly the same.
+  // ➤ search.queries: the phrases to ASK the job boards for (plain words, e.g. ["financial
+  // ➤ accountant", "bookkeeping"]). They feed Adzuna, LinkedIn and the Workday search boxes
+  // ➤ at once.
   const profileQueries = Array.isArray(searchProfile.queries) ? searchProfile.queries.map(q => String(q).trim()).filter(Boolean) : null;
   // ➤ search.locations: { allow: [...], block: [...] } to replace the example
   // ➤   geography wholesale.
@@ -1808,12 +1743,10 @@ async function main() {
   const adzunaCfg = profileQueries
     ? { ...(config.adzuna || {}), queries: profileQueries.map(q => ({ what_or: q })) }
     : (config.adzuna || {});
-  // ➤ The COUNTRIES must follow the profile too (audit 2026-08-08). Only the
-  // ➤ queries did: an onboarded user's whole Adzuna budget went to the marine
-  // ➤ example's seven countries — whose results their own location filter then
-  // ➤ killed — while the countries they chose, whose adzuna codes the
-  // ➤ onboarding records for exactly this, were never queried. LinkedIn
-  // ➤ already followed the profile; Adzuna, the biggest source, did not.
+  // ➤ The COUNTRIES must follow the profile too, not only the queries: otherwise an
+  // ➤ onboarded user's whole Adzuna budget goes to the marine example's seven countries —
+  // ➤ whose results their own location filter then kills — while the countries they chose,
+  // ➤ whose adzuna codes the onboarding records for exactly this, are never queried.
   const profileAdzunaCountries = Array.isArray(searchProfile.countries)
     ? searchProfile.countries.filter(c => c && c.adzuna && c.name).map(c => ({ name: c.name, code: c.adzuna }))
     : [];
@@ -1833,9 +1766,9 @@ async function main() {
     .map(c => ({ ...c, _api: detectApi(c) }))
     .filter(c => c._api !== null);
 
-  // ➤ Counted against the SAME set targets was built from (audit 2026-07-25):
-  // ➤ with --company it compared against every enabled company, so it reported
-  // ➤ "28 skipped — no direct API" when the other 28 were simply not asked for.
+  // ➤ Counted against the SAME set targets was built from: with --company, comparing against
+  // ➤ every enabled company would report "28 skipped — no direct API" when the other 28 were
+  // ➤ simply not asked for.
   const considered = companies.filter(c => c.enabled !== false && (!only || c.name.toLowerCase().includes(only)));
   const noApi = considered.length - targets.length;
 
@@ -1857,10 +1790,9 @@ async function main() {
   // ➤ apart from `errors` so a fresh install does not read as a broken one.
   const skipped = [];
 
-  // ➤ --explain mode (2026-07-18): it records, offer by offer, WHY each
-  // ➤ one was discarded, so it can give you the complete "one line per
-  // ➤ offer" list (dumped to data/scan-explain.txt). It does NOT change the normal scan:
-  // ➤ without --explain, logDrop does nothing.
+  // ➤ --explain mode: it records, offer by offer, WHY each one was discarded, so it can give
+  // ➤ you the complete "one line per offer" list (dumped to data/scan-explain.txt). It does
+  // ➤ NOT change the normal scan: without --explain, logDrop does nothing.
   const explain = args.includes('--explain');
   const explainRows = [];
   const logDrop = (stage, reason, o, source) => {
@@ -1987,13 +1919,11 @@ async function main() {
           const json = await fetchJson(url);
           jobs = PARSERS[c._api.type](json, c.name);
         }
-        // ➤ A CEILING ON WHAT ONE EMPLOYER CAN ADD IN ONE RUN (audit 2026-07-31).
-        // ➤ Workday and Oracle already had one; Greenhouse, Lever and Ashby took
-        // ➤ whatever the feed said. Provoked with a feed answering 20,000
-        // ➤ postings: all 20,000 went into the pending list — a 2.2 MB file and,
-        // ➤ with Telegram on, about 450 messages over nine minutes. The cap sits
-        // ➤ far above any real board, so it only ever fires on a broken or hostile
-        // ➤ feed, and it SAYS SO rather than truncating in silence.
+        // ➤ A CEILING ON WHAT ONE EMPLOYER CAN ADD IN ONE RUN, for Greenhouse, Lever and Ashby as
+        // ➤ for Workday and Oracle: a feed answering 20,000 postings would put all 20,000 into the
+        // ➤ pending list — a 2.2 MB file and, with Telegram on, about 450 messages over nine
+        // ➤ minutes. The cap sits far above any real board, so it only ever fires on a broken or
+        // ➤ hostile feed, and it SAYS SO rather than truncating in silence.
         jobs = capJobs(jobs, c.name);
         sourcesOk++;
         if (jobs.length === 0) emptyBoards.push(c.name);
@@ -2015,9 +1945,9 @@ async function main() {
     if (adzunaWanted) {
       const creds = loadAdzunaCreds();
       if (!creds) {
-        // ➤ NOT an error: the Adzuna key is optional and the README says so, but
-        // ➤ this used to be listed under "Errors" on every scan of a fresh
-        // ➤ install — which reads as "your setup is broken" when nothing is.
+        // ➤ NOT an error: the Adzuna key is optional and the README says so; listing it under
+        // ➤ "Errors" on every scan of a fresh install reads as "your setup is broken" when nothing
+        // ➤ is.
         skipped.push('Adzuna (no key — see README, it is optional)');
       } else {
         const res = await collectAdzuna(creds, adzunaCfg, country.off);
@@ -2066,9 +1996,8 @@ async function main() {
           try {
             const j = await fetchJson(`https://${tenant}.${dc}.myworkdayjobs.com/wday/cxs/${tenant}/${site}${path}`);
             const info = j?.jobPostingInfo || {};
-            // ➤ The description travels in this same response; stashing it saves
-            // ➤ fetchOfferDescription re-downloading the identical URL minutes
-            // ➤ later (audit 2026-08-08 — every enriched offer paid it twice).
+            // ➤ The description travels in this same response; stashing it saves fetchOfferDescription
+            // ➤ re-downloading the identical URL minutes later.
             if (info.jobDescription) o._jd = stripHtml(info.jobDescription);
             const locs = [info.location, ...(info.additionalLocations || [])].filter(Boolean);
             if (!locs.length) return; // still unknown — keep as-is
@@ -2122,15 +2051,13 @@ async function main() {
 
   async function screenRequirements() {
     // ── Experience and degree screen ──────────────────────────────────
-    // ➤ The threshold comes from the profile ("5+ years → skip", "3-5
-    // ➤ borderline"), so anything above max_years is dropped and anything
-    // ➤ unknown is kept.
-    // ➤ Years-of-experience and degree step: the text of each accepted
-    // ➤ offer is downloaded and, if it clearly asks for more years than the user can
-    // ➤ offer, or requires a degree the user does not have, it's discarded. If it's unknown,
-    // ➤ the offer stays. With that same text the refined language rule
-    // ➤ is applied (2026-07-18): it doesn't matter which language the
-    // ➤ offer is WRITTEN in; it's only discarded if the body REQUIRES a language the user does not speak.
+    // ➤ The threshold comes from the profile ("5+ years → skip", "3-5 borderline"), so
+    // ➤ anything above max_years is dropped and anything unknown is kept. Years-of-experience
+    // ➤ and degree step: the text of each accepted offer is downloaded and, if it clearly asks
+    // ➤ for more years than the user can offer, or requires a degree the user does not have,
+    // ➤ it's discarded. If it's unknown, the offer stays. With that same text the refined
+    // ➤ language rule is applied: it doesn't matter which language the offer is WRITTEN in;
+    // ➤ it's only discarded if the body REQUIRES a language the user does not speak.
     const expCfg = config.experience_filter || {};
     if (expCfg.enabled !== false && newOffers.length > 0 && !args.includes('--no-expcheck')) {
       // ➤ Years cap comes from your profile (search.max_years); portals.yml or 4
@@ -2148,10 +2075,9 @@ async function main() {
         // ➤ can't prove them; 2 years of mooring they can).
         const verdict = experienceScreen(`${o.title || ''}. ${desc}`, o.title, maxYears);
         if (verdict) o.years = verdict.years;         // surfaced in the scan log
-        // ➤ OrcaFlex rule (2026-07-11): if the offer mentions OrcaFlex —
-        // ➤ HIS star tool, which barely anyone knows — it stays in the list
-        // ➤ even if it asks for more years than the cap. The language is still
-        // ➤ checked. The term list lives in the profile (search.priority_terms).
+        // ➤ OrcaFlex rule: if the offer mentions OrcaFlex — HIS star tool, which barely anyone
+        // ➤ knows — it stays in the list even if it asks for more years than the cap. The language
+        // ➤ is still checked. The term list lives in the profile (search.priority_terms).
         const priority = PRIORITY_KEEP.test(`${o.title || ''} ${desc}`);
         if (verdict && verdict.drop && !priority) {
           drops.add(i);
@@ -2160,26 +2086,22 @@ async function main() {
             : `asks for more experience than you have`;
           return;
         }
-        // ➤ DEGREE requirement in the body (2026-07-16): if the text requires
-        // ➤ a master's/degree in a field the user doesn't have (mechanical/electrical/
-        // ➤ electronics...) and mentions none of the user's fields, out. OrcaFlex
-        // ➤ exempts just like with the years.
+        // ➤ DEGREE requirement in the body: if the text requires a master's/degree in a field the
+        // ➤ user doesn't have (mechanical/electrical/electronics...) and mentions none of the
+        // ➤ user's fields, out. OrcaFlex exempts just like with the years.
         if (!priority && degreeScreen(desc, o.title)) { drops.add(i); o.degree = true; o._why = 'the body requires a degree you do not have (mechanical/electrical/civil engineering/etc.)'; return; }
-        // ➤ Refined language rule (2026-07-18): it does NOT matter which language
-        // ➤ the offer is written in — it's only discarded if the body REQUIRES a
-        // ➤ language you don't speak (and not as "valued/a plus"). For Adzuna the
-        // ➤ clean description region is used (or the API snippet);
-        // ➤ never the whole page, which carries menus in the country's language.
+        // ➤ Refined language rule: it does NOT matter which language the offer is written in —
+        // ➤ it's only discarded if the body REQUIRES a language you don't speak (and not as
+        // ➤ "valued/a plus"). For Adzuna the clean description region is used (or the API
+        // ➤ snippet); never the whole page, which carries menus in the country's language.
         if (langEnabled) {
           const pure = o.source === 'adzuna' ? (o._jd || stripHtml(o.description || '')) : desc;
           if (pure && bodyLanguageBlock(pure)) { langDrops.add(i); o._why = 'the body REQUIRES (mandatory) a language you do not speak'; }
         }
-        // ➤ DEFERRAL (the user gave the OK 2026-07-18, case #626/#627): if the
-        // ➤ detail page could NOT be read (429 exhausted), the offer isn't shown to you
-        // ➤ half-examined. It's left out WITHOUT recording it anywhere, and
-        // ➤ the next scan (2 h, fresh quota) re-finds it and examines it
-        // ➤ fully. OrcaFlex exception: if the snippet already names your star
-        // ➤ tool, it comes in anyway — it's not risked being lost.
+        // ➤ DEFERRAL: if the detail page could NOT be read (429 exhausted), the offer isn't shown
+        // ➤ to you half-examined. It's left out WITHOUT recording it anywhere, and the next scan
+        // ➤ (2 h, fresh quota) re-finds it and examines it fully. OrcaFlex exception: if the
+        // ➤ snippet already names your star tool, it comes in anyway — it's not risked being lost.
         if (o._bodyUnread && !priority) { deferred.add(i); o._why = 'detail page unreadable due to rate-limit — retried on the next scan'; }
       });
       await parallel(checks, 5);
@@ -2212,10 +2134,9 @@ async function main() {
       const candidates = newOffers.map((o, i) => ({ o, i })).filter(x => x.o.source === 'adzuna');
       const dead = new Set();
       const checks = candidates.map(({ o, i }) => async () => {
-        // ➤ The experience screen already downloaded this very page and left the
-        // ➤ verdict's evidence on the offer — judging from it avoids a second
-        // ➤ download of the whole batch (audit 2026-08-08). Only offers that
-        // ➤ arrived without evidence (screen skipped or errored) still fetch.
+        // ➤ The experience screen already downloaded this very page and left the verdict's
+        // ➤ evidence on the offer — judging from it avoids a second download of the whole batch.
+        // ➤ Only offers that arrived without evidence (screen skipped or errored) still fetch.
         const isDead = o._live
           ? deadFromEvidence(o._live.status, o._live.finalUrl, o._live.body)
           : await isLikelyDead(o.url);
@@ -2260,14 +2181,12 @@ async function main() {
       appendToPipeline(newOffers);
       appendToScanHistory(newOffers, date);
       if (!process.env.ARGUS_SKIP_LIST_REFRESH) {
-        // ➤ THE LIST WAITS FOR THE COUNCIL (the user, 2026-08-03). The alert used
-        // ➤ to go out the moment the offers landed, and the verdicts arrived by a
-        // ➤ silent replacement ~3 minutes later — so the ping always showed the
-        // ➤ newest offer with no [YES]/[NO] on it. With the Council on, the new
-        // ➤ offers are judged FIRST and the one alerted list already carries
-        // ➤ every verdict. Capped and best-effort: judges failing or timing out
-        // ➤ mean an untagged list, never a missing or a late one.
-        // ➤ (The interactive "search" path skips this block with the refresh.)
+        // ➤ THE LIST WAITS FOR THE COUNCIL. An alert sent the moment the offers land shows the
+        // ➤ newest offer with no [YES]/[NO] on it, the verdicts arriving by a silent replacement
+        // ➤ minutes later. With the Council on, the new offers are judged FIRST and the one
+        // ➤ alerted list already carries every verdict. Capped and best-effort: judges failing or
+        // ➤ timing out mean an untagged list, never a missing or a late one. (The interactive
+        // ➤ "search" path skips this block with the refresh.)
         if (config.council?.enabled === true) {
           const { execFile } = await import('child_process');
           await new Promise(resolve => {
@@ -2284,13 +2203,11 @@ async function main() {
         try {
           const { refreshList } = await import(new URL('./live-list.mjs', import.meta.url));
           const n = await refreshList({ alert: true });
-          // ➤ THREE DIFFERENT ANSWERS, not two (audit 2026-07-31). refreshList
-          // ➤ returns null when Telegram is not set up and false when the send
-          // ➤ FAILED, and both used to be written down as "not-configured": the
-          // ➤ summary a human reads said the bot was not set up when it was, while
-          // ➤ the new offers had already been written to the pending list and to
-          // ➤ the anti-repeat history — so they could never be offered again, and
-          // ➤ you were never told about them once.
+          // ➤ THREE DIFFERENT ANSWERS, not two. refreshList returns null when Telegram is not set up
+          // ➤ and false when the send FAILED; writing both down as "not-configured" would make the
+          // ➤ summary say the bot was not set up when it was, while the new offers had already been
+          // ➤ written to the pending list and to the anti-repeat history — so they could never be
+          // ➤ offered again, and you were never told about them once.
           telegram = n === null ? 'not-configured' : n === false ? 'SEND FAILED' : 'sent';
         } catch (e) {
           telegram = 'error';

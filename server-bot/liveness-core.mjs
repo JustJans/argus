@@ -51,11 +51,10 @@ export function classifyLiveness({ status = 0, finalUrl = '', bodyText = '', app
     return { result: 'expired', reason: `HTTP ${status}` };
   }
 
-  // ➤ NO EVIDENCE = NOT DEAD (audit 2026-07-25). 404/410 are the only codes that
-  // ➤ MEAN "gone". Anything we simply could not read (network failure = 0, a
-  // ➤ server error, a 403 block, a rate limit) says nothing about the vacancy,
-  // ➤ and the "insufficient content" rule further down would otherwise call it
-  // ➤ expired and delete a live offer for good. Workday's 403 is handled
+  // ➤ NO EVIDENCE = NOT DEAD. 404/410 are the only codes that MEAN "gone". Anything we
+  // ➤ simply could not read (network failure = 0, a server error, a 403 block, a rate limit)
+  // ➤ says nothing about the vacancy, and the "insufficient content" rule further down would
+  // ➤ otherwise call it expired and delete a live offer for good. Workday's 403 is handled
   // ➤ separately by housekeep, which knows that portal answers 403 when withdrawn.
   if (status === 0 || status >= 400) {
     return { result: 'uncertain', reason: `could not read the page (HTTP ${status})` };

@@ -31,13 +31,11 @@ const OUT_PATH = join(ROOT, 'data', 'application-status.json');
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 
-// ➤ HOW FAR BACK TO READ: to the day of your OLDEST recorded application, and
-// ➤ not one day further. An email that arrived before you applied cannot be an
-// ➤ answer to it, so reading it would only produce noise to throw away — the
-// ➤ first version read 120 days and spent most of its effort on 36 messages
-// ➤ belonging to applications made before there was anywhere to record them.
-// ➤ It also means the bot reads as little of your mailbox as the job allows,
-// ➤ which is the right default for something with a standing key to it.
+// ➤ HOW FAR BACK TO READ: to the day of your OLDEST recorded application, and not one day
+// ➤ further. An email that arrived before you applied cannot be an answer to it, so
+// ➤ reading it would only produce noise to throw away. It also means the bot reads as
+// ➤ little of your mailbox as the job allows, which is the right default for something
+// ➤ with a standing key to it.
 export function windowFrom(applications, { pad = 1 } = {}) {
   const stamps = applications.map(a => new Date(a.ts)).filter(d => !isNaN(d));
   if (!stamps.length) return null;
@@ -77,14 +75,11 @@ function loadApplications() {
     .map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
 }
 
-// ➤ How many messages the mail run will look at in total. Gmail hands back at
-// ➤ most 500 per page and listMessageIds now walks the pages, so this number is
-// ➤ a real ceiling rather than a page size (audit 2026-07-31). It used to be
-// ➤ both, and that quietly cut the scan short at the first page: the window
-// ➤ starts at your oldest application and only ever grows, Gmail answers
-// ➤ newest-first, so it was the OLDEST messages that fell off the end — the
-// ➤ applications they answered sat on "no reply" for ever, however many
-// ➤ rejections or interview invitations had actually arrived.
+// ➤ How many messages the mail run will look at in total. Gmail hands back at most 500 per
+// ➤ page and listMessageIds walks the pages, so this number is a real ceiling rather than
+// ➤ a page size: the window starts at your oldest application and only ever grows, Gmail
+// ➤ answers newest-first, so a ceiling that cut at the first page would drop the OLDEST
+// ➤ messages — the applications they answered sitting on "no reply" for ever.
 const PAGE = 2000;
 
 async function main() {
@@ -104,13 +99,11 @@ async function main() {
   console.log(`Reading ${ids.length} messages since ${gmailDate(since)}, the day of your oldest`);
   console.log('recorded application, skipping anything you sent yourself.');
   console.log('Read and dropped: what is kept is the kind of message and its date.');
-  // ➤ SAY SO WHEN THE CEILING BINDS (audit 2026-08-08). Gmail answers
-  // ➤ newest-first and the window only grows, so hitting the cap silently
-  // ➤ drops the OLDEST messages — the replies to the oldest applications —
-  // ➤ and, because this status is rebuilt from scratch each run, rejections
-  // ➤ and interviews already reported would quietly regress to "no reply".
-  // ➤ That is the same failure the 2026-07-31 note above says was fixed, back
-  // ➤ at a higher number; at least it must never again happen in silence.
+  // ➤ SAY SO WHEN THE CEILING BINDS. Gmail answers newest-first and the window only grows,
+  // ➤ so hitting the cap silently drops the OLDEST messages — the replies to the oldest
+  // ➤ applications — and, because this status is rebuilt from scratch each run, rejections
+  // ➤ and interviews already reported would quietly regress to "no reply". It must never
+  // ➤ happen in silence.
   if (ids.length >= PAGE) {
     console.error(`WARNING: the mailbox has more than ${PAGE} messages in the window — the oldest`);
     console.error('were NOT read, and their applications may wrongly show as "no reply".');
@@ -162,12 +155,10 @@ async function main() {
     unlinked: {
       ambiguous: ties.length,
       unrelated: orphans.length,
-      // ➤ WHAT the tie was about (audit 2026-08-01). Only the count used to
-      // ➤ survive, so the report could say "1 email fit more than one
-      // ➤ application" and nothing else — not the employer, not whether it was
-      // ➤ a refusal or an invitation, not which applications were tangled. That
-      // ➤ is not something anybody can act on, and the rule that produces ties
-      // ➤ promises you can. Ids and kind only: no subject, no sender, no text.
+      // ➤ WHAT the tie was about, not only the count: "1 email fit more than one application"
+      // ➤ with no employer, no kind (refusal or invitation) and no application numbers is not
+      // ➤ something anybody can act on, and the rule that produces ties promises you can. Ids
+      // ➤ and kind only: no subject, no sender, no text.
       cases: ties.map(t => ({
         kind: t.message?.kind || 'unknown',
         ids: (t.candidates || []).map(c => c.application?.id).filter(id => id != null),
@@ -190,9 +181,9 @@ async function main() {
   console.log(`  rejected:       ${summary.rejected}`);
   console.log(`  acknowledged:   ${summary.acknowledged}`);
   console.log(`  no reply:       ${summary.noreply}`);
-  // ➤ GHOSTED HAS TO BE ON THIS LIST. It was missing, so the lines added up only
-  // ➤ while no application had yet passed the 60-day mark — and the first one to
-  // ➤ pass it would have gone missing from the summary without a word.
+  // ➤ GHOSTED HAS TO BE ON THIS LIST, or the lines add up only while no application has yet
+  // ➤ passed the 60-day mark — and the first one to pass it goes missing from the summary
+  // ➤ without a word.
   console.log(`  ghosted:        ${summary.ghosted}`);
   console.log(`  ambiguous, for you to settle: ${ties.length}`);
   // ➤ And the arithmetic is checked rather than assumed: a state added in

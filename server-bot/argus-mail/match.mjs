@@ -52,9 +52,9 @@ export function compactName(s) {
 // ➤ "Jan De Nul" meet in the middle.
 const compactAll = s => fold(s).replace(/[^a-z0-9]+/g, '');
 
-// ➤ A WHOLE WORD, never a fragment of one. "Van Oord" reduces to the token
-// ➤ "oord", and a Dutch rejection from a different company contained the word
-// ➤ "beoordeling" — so Van Oord scored as if it had been named. The boundary
+// ➤ A WHOLE WORD, never a fragment of one: "Van Oord" reduces to the token "oord", and a
+// ➤ Dutch rejection from a different company containing "beoordeling" must not score as if
+// ➤ Van Oord had been named. The boundary
 // ➤ is written with \p{L} rather than \b because JavaScript's \b only knows
 // ➤ ASCII and would break on the first accent.
 function hasWord(haystack, word) {
@@ -196,17 +196,15 @@ export function linkOutcomes(messages, applications, { margin = 1 } = {}) {
       .sort((x, y) => (y.identity - x.identity) || (y.score - x.score));
 
     if (!ranked.length) { orphans.push(m); continue; }
-    // ➤ IDENTITY ALONE DECIDES WHICH VACANCY (audit 2026-07-31). There used to
-    // ➤ be a third route to "clear": identity level and a better total. But the
-    // ➤ only ingredients of the total that are not identity are the date bonus
-    // ➤ and the city — so when you had two applications at the SAME employer and
-    // ➤ an email that named nothing but the company, the one you applied to most
-    // ➤ recently won on its date bonus, and a rejection was filed against a
-    // ➤ vacancy that had not rejected you. That flatly contradicts what this file
-    // ➤ says twice over: timing corroborates an identity, it never outranks one.
-    // ➤ Level identity is now a TIE, which is the honest answer — the email is
-    // ➤ shown to you and you say which one it was. A gap costs you a question;
-    // ➤ a wrong link costs you the truth.
+    // ➤ IDENTITY ALONE DECIDES WHICH VACANCY. A third route to "clear" — identity level plus a
+    // ➤ better total — would let the date bonus and the city decide, the only ingredients of
+    // ➤ the total that are not identity: with two applications at the SAME employer and an
+    // ➤ email that names nothing but the company, the one applied to most recently would win
+    // ➤ on its date bonus, and a rejection be filed against a vacancy that had not rejected
+    // ➤ you. That flatly contradicts what this file says twice over: timing corroborates an
+    // ➤ identity, it never outranks one. Level identity is a TIE, which is the honest answer —
+    // ➤ the email is shown to you and you say which one it was. A gap costs you a question; a
+    // ➤ wrong link costs you the truth.
     const clear = ranked.length === 1
       || (ranked[0].identity - ranked[1].identity) >= margin;
     if (!clear) {
@@ -215,14 +213,13 @@ export function linkOutcomes(messages, applications, { margin = 1 } = {}) {
       // ➤ happened to differ, so the bot would announce a tie and then name only
       // ➤ one side of it — which reads exactly like a decision it did not make.
       const tied = ranked.filter(r => r.identity === ranked[0].identity);
-      // ➤ A BOUNCE IS THE ONE THING THAT LINKS TO ALL OF THEM. Every other kind
-      // ➤ of message is about ONE vacancy, so guessing between two would put a
-      // ➤ rejection on the wrong job. A bounce is not about a vacancy at all —
-      // ➤ it says mail to that ADDRESS did not get through, which is equally
-      // ➤ true of every application sent there. Real case: two applications to
-      // ➤ the same employer on the same day, one failure notice. Reported as an
-      // ➤ unresolved tie, it told you nothing; the one thing you could act on
-      // ➤ was the thing that stayed silent.
+      // ➤ A BOUNCE IS THE ONE THING THAT LINKS TO ALL OF THEM. Every other kind of message is
+      // ➤ about ONE vacancy, so guessing between two would put a rejection on the wrong job. A
+      // ➤ bounce is not about a vacancy at all — it says mail to that ADDRESS did not get
+      // ➤ through, which is equally true of every application sent there. Real case: two
+      // ➤ applications to the same employer on the same day, one failure notice — reported as an
+      // ➤ unresolved tie it told you nothing, and the one thing you could act on was the thing
+      // ➤ that stayed silent.
       if (m.kind === 'bounced') {
         for (const t of tied) links.push({ message: m, application: t.application, score: t.score, why: [...t.why, 'bounce-hits-every-application-there'] });
         continue;

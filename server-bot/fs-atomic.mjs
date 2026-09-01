@@ -5,11 +5,10 @@
 import { writeFileSync, renameSync, mkdirSync, rmdirSync, statSync, unlinkSync, readFileSync } from 'fs';
 import { randomBytes } from 'crypto';
 
-// ➤ Keeps a cron log from growing for ever (audit 2026-08-08): the Linux/mac
-// ➤ schedule appends listener.log and scan.log on every run and nothing ever
-// ➤ rotated them. Called by the writer itself at startup — the shell keeps the
-// ➤ file open with O_APPEND, so a truncation here never corrupts its writes,
-// ➤ they simply continue at the new end. Over the cap, the newest tail is kept.
+// ➤ Keeps a cron log from growing for ever: the Linux/mac schedule appends listener.log
+// ➤ and scan.log on every run. Called by the writer itself at startup — the shell keeps
+// ➤ the file open with O_APPEND, so a truncation here never corrupts its writes; they
+// ➤ continue at the new end. Over the cap, the newest tail is kept.
 export function trimLog(path, maxBytes = 5 * 1024 * 1024, keepBytes = 1024 * 1024) {
   try {
     if (statSync(path).size <= maxBytes) return;
@@ -18,11 +17,9 @@ export function trimLog(path, maxBytes = 5 * 1024 * 1024, keepBytes = 1024 * 102
   } catch { /* no log yet, or unreadable — nothing to trim */ }
 }
 
-// ➤ The scratch name to write to before renaming. UNIQUE per write (audit
-// ➤ 2026-07-25): with a fixed ".tmp" the 07:30 housekeep and a seen.mjs fired
-// ➤ from Telegram shared one scratch file and could rename a mixture of both
-// ➤ into place. It sits NEXT TO the target on purpose — a rename is only
-// ➤ atomic within one filesystem, so a temp file in /tmp would silently
+// ➤ The scratch name to write to before renaming. UNIQUE per write, so two jobs writing
+// ➤ the same target never share a scratch file. It sits NEXT TO the target on purpose — a
+// ➤ rename is only atomic within one filesystem, so a temp file in /tmp would silently
 // ➤ degrade into a copy on a machine where /tmp is its own mount.
 export function tempNameFor(path) {
   return `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
@@ -39,50 +36,32 @@ export function writeFileAtomic(path, data, encoding = 'utf-8', io = { writeFile
     io.writeFileSync(tmp, data, encoding);
     io.renameSync(tmp, path);
   } catch (err) {
-    // ➤ SWEEP UP THE SCRATCH FILE WHEN THE WRITE FAILS (audit 2026-07-31). Your
-    // ➤ real file is safe whatever happens — that is the whole point of writing
-    // ➤ aside first — but until now a failed write abandoned its scratch file,
-    // ➤ and nothing anywhere in the project ever deleted one. Provoked in
-    // ➤ testing: three kills between the write and the rename left three orphans
-    // ➤ sitting in the data folder; a full disk left one behind per attempt. So
-    // ➤ the litter piled up hardest exactly when the disk was already full.
-    // ➤ The error is re-thrown untouched: tidying up must not hide the failure
-    // ➤ from the caller.
+    // ➤ SWEEP UP THE SCRATCH FILE WHEN THE WRITE FAILS. The real file is safe whatever happens
+    // ➤ — that is the point of writing aside first — but an abandoned scratch file is litter
+    // ➤ that piles up hardest exactly when the disk is already full. The error is re-thrown
+    // ➤ untouched: tidying up must not hide the failure from the caller.
     try { (io.unlinkSync || unlinkSync)(tmp); } catch { /* never got created, or already gone */ }
     throw err;
   }
 }
 
 // ➤ ── READ, DECIDE, WRITE — WITHOUT LOSING SOMEBODY ELSE'S WORK ───────────
-// ➤ The atomic write above stops a reader ever seeing half a file. It does
-// ➤ NOT stop this: two jobs read the same list, each adds its own change, and
-// ➤ the second one to write erases the first. Measured on the real writer,
-// ➤ eight writers going at once kept 200 of 1600 lines.
-// ➤
-// ➤ THAT IS NOT THEORETICAL HERE. Several scheduled jobs share one pending
-// ➤ list: the scanner appends every two hours, housekeep deletes twice a day,
-// ➤ the Telegram listener rewrites it every time you mark an offer — every
-// ➤ minute, so it can land in the middle of either. Their cron locks are all
-// ➤ DIFFERENT, which only stops a job overlapping itself.
-// ➤
-// ➤ A DIRECTORY IS THE LOCK. mkdir either creates it or fails, in one step,
-// ➤ on every filesystem — no flag, no library, and nothing left running. It is
-// ➤ held for the milliseconds of the read-and-write, never for the minutes a
-// ➤ job spends on HTTP.
-// ➤ IT ALWAYS PROCEEDS RATHER THAN GIVING UP: after the timeout it assumes the
-// ➤ holder died and takes the lock. Refusing instead would mean silently
-// ➤ dropping an offer or ignoring a decision, and a race that loses one line is
-// ➤ a smaller harm than a job that quietly does nothing.
-// ➤ THE LIMIT OF THAT CHOICE, stated plainly: clearing an abandoned lock can
-// ➤ itself race, so two jobs could both get in — but only once a lock has sat
-// ➤ untouched for five seconds, which means a job was already killed mid-write.
-// ➤ A real hold lasts milliseconds, so in normal running it cannot arise.
-// ➤ A real pause inside synchronous code. This used to be a spin loop, which
-// ➤ burns a whole core: harmless for the milliseconds of normal contention, but
-// ➤ a permanent failure (a read-only data folder, a full disk) meant five
-// ➤ seconds at 100% CPU on EVERY write, from every job, for as long as the
-// ➤ machine stayed broken. Atomics.wait sleeps without a callback, so the four
-// ➤ callers stay synchronous.
+// ➤ The atomic write above stops a reader ever seeing half a file. It does NOT stop this:
+// ➤ two jobs read the same list, each adds its own change, and the second one to write
+// ➤ erases the first (eight writers at once kept 200 of 1,600 lines). That is real here:
+// ➤ the scanner, housekeep and the Telegram listener all share one pending list, and their
+// ➤ cron locks only stop a job overlapping itself.
+// ➤ A DIRECTORY IS THE LOCK: mkdir either creates it or fails, in one step, on every
+// ➤ filesystem — no flag, no library, nothing left running — and it is held for the
+// ➤ milliseconds of the read-and-write, never for the minutes a job spends on HTTP. IT
+// ➤ ALWAYS PROCEEDS RATHER THAN GIVING UP: after the timeout it assumes the holder died
+// ➤ and takes the lock; refusing would mean silently dropping an offer or ignoring a
+// ➤ decision, and a race that loses one line is a smaller harm than a job that quietly
+// ➤ does nothing. THE LIMIT OF THAT CHOICE: clearing an abandoned lock can itself race, so
+// ➤ two jobs could both get in — but only once a lock has sat untouched past the stale
+// ➤ age, which means a job was already killed mid-write.
+// ➤ A real pause inside synchronous code: Atomics.wait sleeps without a callback and
+// ➤ without burning a core, so the callers stay synchronous.
 const SLEEP_BUF = new Int32Array(new SharedArrayBuffer(4));
 function sleepSync(ms) { Atomics.wait(SLEEP_BUF, 0, 0, ms); }
 

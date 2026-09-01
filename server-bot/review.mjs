@@ -1,19 +1,18 @@
 #!/usr/bin/env node
 
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ WHAT IT IS: the "review" mode — the pending offers one CARD at a time,
-// ➤ with buttons instead of typed commands (owner-approved 2026-08-22 after
-// ➤ a mockup; the 2026-07-18 veto on buttons stays for the LIST, where a
-// ➤ keyboard under 25 offers cannot say which button belongs to which line).
-// ➤ ONE message is the card; every tap edits it in place, so the chat stays
-// ➤ clean. Decisions run the SAME actions as the typed commands — same
-// ➤ records, same honesty checks — injected by the listener; the card itself
-// ➤ is the confirmation, so no extra message lands in the chat.
-// ➤ EVERY DECISION IS REVERSIBLE, in three layers: the decided card keeps an
-// ➤ Undo button; older decisions are reachable by navigating back to their
-// ➤ card; and "undo N" works typed, any time, card or no card. Undo restores
-// ➤ the pending line AND removes the record the decision wrote (feedback or
-// ➤ application), so a slip of the finger cannot poison the learning data.
+// ➤ WHAT IT IS: the "review" mode — the pending offers one CARD at a time, with buttons
+// ➤ instead of typed commands (the veto on buttons stays for the LIST, where a keyboard
+// ➤ under 25 offers cannot say which button belongs to which line). ONE message is the
+// ➤ card; every tap edits it in place, so the chat stays clean. Decisions run the SAME
+// ➤ actions as the typed commands — same records, same honesty checks — injected by the
+// ➤ listener; the card itself is the confirmation, so no extra message lands in the chat.
+// ➤
+// ➤ EVERY DECISION IS REVERSIBLE, in three layers: the decided card keeps an Undo button;
+// ➤ older decisions are reachable by navigating back to their card; and "undo N" works
+// ➤ typed, any time, card or no card. Undo restores the pending line AND removes the
+// ➤ record the decision wrote (feedback or application), so a slip of the finger cannot
+// ➤ poison the learning data.
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 import { readFileSync } from 'fs';
@@ -41,9 +40,8 @@ function loadJson(path, fallback) {
   try { return JSON.parse(readFileSync(path, 'utf-8')); } catch { return fallback; }
 }
 
-// ➤ What the card SAYS about each decision: one word. Icons were tried on
-// ➤ buttons and states (2026-08-22) and the owner pulled them the same day —
-// ➤ plain labels only, and bare arrows.
+// ➤ What the card SAYS about each decision: one word. Plain labels only, and bare arrows —
+// ➤ no icons on buttons or states (owner's choice).
 const KIND_LABEL = { seen: 'Seen', no: 'Discarded', applied: 'Applied' };
 
 // ➤ The card's keyboard. A decided offer offers only Undo and the arrows; a
@@ -67,13 +65,11 @@ export function reviewKeyboard(state) {
   return rows;
 }
 
-// ➤ The card's text: two lines for a pending offer, a struck title and one
-// ➤ word for a decided one. Everything shown comes from a job portal or from
-// ➤ the pipeline, so it is escaped — a title with "<" must not kill the card.
-// ➤ The Council's word rides the title line exactly as it does on the list
-// ➤ ([YES]/[MYB]/[NO], field find 2026-08-25: review shipped without it) —
-// ➤ and only on the PENDING card: a decided one is a receipt, the advice
-// ➤ already did its job.
+// ➤ The card's text: two lines for a pending offer, a struck title and one word for a
+// ➤ decided one. Everything shown comes from a job portal or from the pipeline, so it is
+// ➤ escaped — a title with "<" must not kill the card. The Council's word rides the title
+// ➤ line exactly as it does on the list ([YES]/[MYB]/[NO]/[?]) — and only on the PENDING
+// ➤ card: a decided one is a receipt, the advice already did its job.
 export function reviewCardText(state) {
   const o = state.offers[state.idx];
   const d = state.decisions[o.id];

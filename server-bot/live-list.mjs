@@ -80,10 +80,9 @@ export function saveSeenIds(ids, path = SEEN_PATH) {
 // ➤   number → it worked, and this is how many offers are pending.
 // ➤ It never throws: if something fails, it logs it but doesn't take down its
 // ➤ caller (scanner or listener).
-// ➤ `deps` exists so the ORDER below can be tested. It is the whole point of
-// ➤ this function and it cannot be checked from the outside: any test that only
-// ➤ looks at the final state passes even if the delete happens first, which is
-// ➤ precisely the bug fixed on 2026-07-25.
+// ➤ `deps` exists so the ORDER below can be tested: it is the whole point of this function
+// ➤ and cannot be checked from the outside — a test that only looks at the final state
+// ➤ passes even if the delete happens first.
 export async function refreshList({ alert = false, markSeen = false, deps } = {}) {
   const d = deps || {
     telegramConfigured, pendingOffers, notifyNewOffers,
@@ -92,11 +91,9 @@ export async function refreshList({ alert = false, markSeen = false, deps } = {}
   };
   if (!d.telegramConfigured()) return null;
   try {
-    // ➤ ORDER FIXED 2026-07-25 (audit): the previous list used to be deleted
-    // ➤ FIRST. If the resend then failed (a 429 beyond the retry, a timeout),
-    // ➤ you were left with NO list at all and a half-sent one orphaned in the
-    // ➤ chat. Now we SEND first and delete the old one only once the new one is
-    // ➤ safely posted: the worst case is two lists for a moment, never zero.
+    // ➤ SEND FIRST, delete the old list only once the new one is safely posted: if the resend
+    // ➤ fails (a 429 beyond the retry, a timeout), the worst case is two lists for a moment,
+    // ➤ never zero.
     const oldIds = d.loadListIds();
     const offers = d.pendingOffers();
 
@@ -112,9 +109,8 @@ export async function refreshList({ alert = false, markSeen = false, deps } = {}
     //    notice so there is always a reference list at the bottom of the chat.
     let ids;
     if (offers.length) {
-      // ➤ paged (2026-08-19): the whole list is ONE message showing a page,
-      // ➤ with Prev/Next buttons editing it in place — a 60-offer list no
-      // ➤ longer arrives as three stacked messages.
+      // ➤ paged: the whole list is ONE message showing a page, with Prev/Next buttons editing it
+      // ➤ in place — a 60-offer list does not arrive as three stacked messages.
       ids = await d.notifyNewOffers(offers, { headerLabel: 'pending', silent: !alert, newIds, paged: true });
       if (!Array.isArray(ids)) ids = [];
     } else {
@@ -126,15 +122,12 @@ export async function refreshList({ alert = false, markSeen = false, deps } = {}
     //    remove the old list. If the send above failed, ids is empty and the old
     //    list stays put rather than leaving your chat with nothing at all.
     if (ids.length) {
-      // ➤ RECONCILED UNDER LOCK (audit 2026-08-08). Scanner, housekeep and
-      // ➤ listener are separate processes and both used to work from the ids
-      // ➤ loaded before their sends: whoever saved second erased the other's
-      // ➤ freshly-sent list from the state without deleting it — a stale list
-      // ➤ of possibly-dead offers orphaned in the chat for ever, the exact
-      // ➤ artifact this module exists to remove. The lock covers only the
-      // ➤ read-and-save milliseconds (never the sends); whatever the state
-      // ➤ named at that instant joins the delete pile, so the loser's list is
-      // ➤ swept instead of stranded.
+      // ➤ RECONCILED UNDER LOCK. Scanner, housekeep and listener are separate processes; if each
+      // ➤ worked from the ids loaded before its send, whoever saved second would erase the
+      // ➤ other's freshly-sent list from the state without deleting it — a stale list orphaned
+      // ➤ in the chat for ever, the exact artifact this module exists to remove. The lock covers
+      // ➤ only the read-and-save milliseconds (never the sends); whatever the state named at
+      // ➤ that instant joins the delete pile, so the loser's list is swept instead of stranded.
       let toDelete = oldIds;
       withFileLock(STATE_PATH, () => {
         const current = d.loadListIds();
@@ -144,14 +137,11 @@ export async function refreshList({ alert = false, markSeen = false, deps } = {}
       for (const id of toDelete) await d.deleteTelegramMessage(id);
     } else {
       console.log(`[${new Date().toISOString()}] live-list: the new list could not be sent; the previous one is kept.`);
-      // ➤ FIX (audit 2026-07-31): SAY OUT LOUD THAT IT FAILED. This used to hand
-      // ➤ back the offer count anyway, so the caller had no way to tell "the list
-      // ➤ is on your phone" from "nothing was sent". The scan would then report
-      // ➤ that Telegram was NOT SET UP, while those offers had already been
-      // ➤ written into the pending file and into the anti-repeat history — so
-      // ➤ they were never offered again, and you were never told about them once.
-      // ➤ AND THE [NEW] TAGS SURVIVE: marking them seen recorded offers as shown
-      // ➤ when the list never left the server, so the next one read as old news.
+      // ➤ SAY OUT LOUD THAT IT FAILED: the caller must be able to tell "the list is on your
+      // ➤ phone" from "nothing was sent", because by now the offers are already in the pending
+      // ➤ file and in the anti-repeat history — silence here would mean they are never offered
+      // ➤ again and you were never told once. AND THE [NEW] TAGS SURVIVE: nothing is marked seen
+      // ➤ when the list never left the server.
       return false;
     }
     if (markSeen) d.saveSeenIds(pendingIds);

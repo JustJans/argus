@@ -54,14 +54,12 @@ export function usableLabels(labels, { maxWords = 4 } = {}) {
   return out.sort((a, b) => a.length - b.length);
 }
 
-// ➤ From a bag of terms to the occupations ESCO says they name. Occupations
-// ➤ are searched by NAME, per term — deliberately NOT ESCO's skill→occupation
-// ➤ graph (measured live 2026-08-23): that graph exists for surprising jumps,
-// ➤ and on a mixed CV it crowned branch managers, bingo managers and
-// ➤ headmasters. A name search speaks the CV's own vocabulary: "accounting"
-// ➤ finds accountants, "sales negotiation" finds sales people — each term its
-// ➤ own profession, so an accountant-and-salesman CV surfaces BOTH,
-// ➤ separately. `deps.esco` is injectable so tests run without the network.
+// ➤ From a bag of terms to the occupations ESCO says they name. Occupations are searched
+// ➤ by NAME, per term — deliberately not ESCO's skill→occupation graph, which exists for
+// ➤ surprising jumps and on a mixed CV crowned branch managers and headmasters. A name
+// ➤ search speaks the CV's own vocabulary: "accounting" finds accountants, "sales
+// ➤ negotiation" finds sales people — so an accountant-and-salesman CV surfaces both.
+// ➤ `deps.esco` is injectable so tests run without the network.
 export async function occupationsForTerms(terms, { top = 8, perTerm = 2, langs = ['en'], deps = {} } = {}) {
   const d = { esco, ...deps };
   const picked = new Map();

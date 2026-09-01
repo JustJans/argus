@@ -48,16 +48,12 @@ function loadJson(path, fallback) {
 }
 
 // ── Claude on the server ────────────────────────────────────────────────
-// ➤ The launcher, the path lookup and the "why did it fail" classification
-// ➤ all live in claude-cli.mjs now, shared with the Council (they used to be
-// ➤ two separate copies that drifted apart).
+// ➤ The launcher, the path lookup and the failure classification live in claude-cli.mjs,
+// ➤ shared with the Council.
 
-// ➤ Launches Claude on the server (automated mode, no window) with the job
-// ➤ of writing the letter, authenticating with the stored token.
-// ➤ Now delegates to the single shared launcher (server-bot/claude-cli.mjs),
-// ➤ which ALSO catches the case where claude complains on its NORMAL output
-// ➤ (the spend-limit warning) instead of on the error channel — that used to be
-// ➤ taken for a valid letter and ended up printed inside the PDF.
+// ➤ Launches Claude on the server (automated mode, no window) with the job of writing the
+// ➤ letter, authenticating with the stored token, through the shared launcher — which also
+// ➤ treats a complaint printed on normal output (the spend-limit warning) as a failure.
 function runClaude(prompt) {
   return runClaudeCli(prompt, {
     tokenPath: join(SCRIPT_DIR, 'claude-token.json'),
@@ -224,14 +220,10 @@ export function letterHtml(offer, letter) {
   </body></html>`;
 }
 
-// ➤ Turns the HTML page into an A4 PDF using Playwright's Chromium.
-// ➤ IT INSTALLS THE BROWSER IF IT IS NOT THERE (2026-08-06). Playwright ships
-// ➤ as a library and downloads its browser separately, so `npm install` alone
-// ➤ leaves a hole that only shows up at the first `cover N` — and it reopens
-// ➤ on its own whenever npm updates playwright to a version whose browser
-// ➤ build is not the one on disk (that is exactly what happened here: an
-// ➤ unrelated install bumped 1.58→1.62 and every letter would have failed).
-// ➤ One attempt, then the error stands: a second failure is a real problem.
+// ➤ Turns the HTML page into an A4 PDF using Playwright's Chromium, installing the browser
+// ➤ first if it is missing: Playwright ships as a library and downloads its browser
+// ➤ separately, so `npm install` alone leaves a hole that only shows at the first `cover
+// ➤ N`, and an npm update can reopen it. One attempt, then the error stands.
 async function renderPdf(html, outPath) {
   const { chromium } = await import('playwright');
   const launch = () => chromium.launch({ headless: true });
@@ -258,13 +250,10 @@ async function renderPdf(html, outPath) {
   }
 }
 
-// ➤ The file name, ALWAYS in the requested format (2026-07-18):
-// ➤ CoverLetter_Surname_Firstname_Company. The "Surname_Firstname" comes from
-// ➤ letter_name ("Jane Doe" → surname_firstname) and the company is appended in
-// ➤ PascalCase, without accents or symbols ("Jan De Nul Group" → JanDeNulGroup).
-// ➤ It ENDS at the company on purpose: the file name is what a recruiter sees
-// ➤ attached to the mail, and an internal offer number there reads like a
-// ➤ reference you forgot to remove.
+// ➤ The file name, always CoverLetter_Surname_Firstname_Company: "Surname_Firstname" from
+// ➤ letter_name, the company in PascalCase without accents or symbols ("Jan De Nul Group"
+// ➤ → JanDeNulGroup). It ends at the company on purpose — a recruiter sees this name, and
+// ➤ an internal offer number there reads like a reference you forgot to remove.
 export function coverFileBase(company) {
   const who = loadContact().name.trim().split(/\s+/);
   const nameBit = who.length >= 2 ? `${who[who.length - 1]}_${who.slice(0, -1).join('_')}` : (who[0] || 'Candidate');
@@ -273,10 +262,9 @@ export function coverFileBase(company) {
   return `CoverLetter_${nameBit}_${comp}`;
 }
 
-// ➤ WHO OWNS WHICH FILE NAME. The offer number used to be glued to the name to
-// ➤ stop two open roles at the SAME employer from overwriting each other (audit
-// ➤ 2026-07-25). This little file does the same job without putting it in the
-// ➤ name: { "730": "CoverLetter_Doe_Jane_JanDeNulGroup" }.
+// ➤ WHO OWNS WHICH FILE NAME. Two open roles at the same employer must not overwrite each
+// ➤ other's letter; this little index keeps the offer number out of the name: { "730":
+// ➤ "CoverLetter_Doe_Jane_JanDeNulGroup" }.
 const LETTER_INDEX_PATH = join(ROOT, 'data', 'cover-letters.json');
 
 // ➤ Decides the name to actually use. Pure — give it the index, get the answer.
@@ -308,10 +296,8 @@ export async function makeCoverLetter(offer) {
   const res = await runClaude(buildCoverPrompt(offer, body));
   if (!res.ok) return { ok: false, error: claudeErrorMessage(res.kind, res.out) };
 
-  // ➤ If the portal gave us no text, the letter was written from the title and
-  // ➤ the company alone. It is still usable, but you must know before sending
-  // ➤ it (audit 2026-07-25: 3 of 14 live offers came back with an empty body
-  // ➤ and nothing said so).
+  // ➤ If the portal gave us no text, the letter was written from the title and the company
+  // ➤ alone. It is still usable, but you must know before sending it.
   const thin = !String(body || '').trim();
 
   // ➤ Step 3: parse the letter and build the PDF.
@@ -319,14 +305,11 @@ export async function makeCoverLetter(offer) {
   if (!letter.paras.length) return { ok: false, error: 'Claude did not return readable letter text' };
   const dir = join(ROOT, 'output', 'cover-letters');
   mkdirSync(dir, { recursive: true });
-  // ➤ Ask the index which name belongs to this offer, then write the answer
-  // ➤ back so the next letter knows the name is taken.
-  // ➤ UNDER LOCK (audit 2026-08-08): each `cover N` is its own detached
-  // ➤ process, so two overlapping covers for the same company could both load
-  // ➤ the index before either wrote — resolving the SAME file base (one PDF
-  // ➤ silently overwriting the other, the very collision the index exists to
-  // ➤ prevent) and losing the loser's entry to last-writer-wins. The lock
-  // ➤ covers the load-resolve-write milliseconds, not the letter writing.
+  // ➤ Ask the index which name belongs to this offer, then write the answer back so the next
+  // ➤ letter knows the name is taken. UNDER LOCK: each `cover N` is its own detached
+  // ➤ process, and two overlapping covers for the same company could otherwise resolve the
+  // ➤ same file base and overwrite each other. The lock covers the load-resolve-write
+  // ➤ milliseconds, not the letter writing.
   let base;
   try { mkdirSync(dirname(LETTER_INDEX_PATH), { recursive: true }); } catch { /* exists */ }
   withFileLock(LETTER_INDEX_PATH, () => {
@@ -356,13 +339,11 @@ export async function makeCoverLetter(offer) {
 }
 
 // ── Run on its own, for the "cover N" command ───────────────────────────
-// ➤ WHY THIS EXISTS AS A PROGRAM AND NOT JUST A FUNCTION. Claude takes minutes
-// ➤ to write a letter, and the listener used to wait for it. The listener runs
-// ➤ once a minute under a lock, so while it waited NOTHING else worked: a
-// ➤ "seen", a "list", a "no" — all of them queued behind a PDF. Now the
-// ➤ listener starts this and lets go; this finishes the job and reports here
-// ➤ itself. Kept pure of the listener so it can also be run by hand:
-// ➤   node server-bot/cover-letter.mjs --offer 412
+// ➤ WHY THIS EXISTS AS A PROGRAM AND NOT JUST A FUNCTION. Claude takes minutes to write a
+// ➤ letter, and the listener runs once a minute under a lock: while it waited, nothing
+// ➤ else worked. So the listener starts this and lets go; this finishes the job and
+// ➤ reports back itself. Kept pure of the listener so it can also be run by hand: node
+// ➤ server-bot/cover-letter.mjs --offer 412
 export async function coverToTelegram(id, deps = {}) {
   const { pendingOffers, sendTelegram, sendTelegramDocument } = deps;
   const offer = pendingOffers().find(o => o.id === id);
@@ -375,12 +356,8 @@ export async function coverToTelegram(id, deps = {}) {
     await sendTelegram(`Couldn't generate the cover letter for #${id}: ${res.error}`);
     return false;
   }
-  // ➤ Warn if the portal gave no text: the letter is then written from the title
-  // ➤ and company alone, so it will be generic. Better you know before sending.
-  // ➤ AND THE WARNING IS NOW ACTUALLY SAID (audit 2026-08-08): `thin` was
-  // ➤ computed, returned, and read by nobody — this comment promised a warning
-  // ➤ the caption never carried, and the 3-empty-letters-of-14 incident that
-  // ➤ motivated it was still happening in silence.
+  // ➤ Warn if the portal gave no text: the letter is then written from the title and company
+  // ➤ alone, so it will be generic. Better you know before sending.
   const caption = `Cover letter #${id}: ${offer.title} — ${offer.company}`
     + (res.thin ? '\nWarning: the portal gave no offer text, so this letter was written from the title and company alone — read it before sending.' : '');
   if (!await sendTelegramDocument(res.pdfPath, caption)) {

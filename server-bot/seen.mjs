@@ -20,10 +20,10 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(SCRIPT_DIR);
 const PIPELINE_PATH = join(ROOT, 'data', 'pipeline.md');
 
-// ➤ These are the FIXED offer numbers (#412 as shown on Telegram), never a
-// ➤ position in the list, so the wrong one can't be marked. De-duplicated
-// ➤ (audit 2026-07-25): "seen 701 701" appended "| visto" twice and broke the
-// ➤ "#id at end of line" shape the id counter and the parsers rely on.
+// ➤ These are the FIXED offer numbers (#412 as shown on Telegram), never a position in the
+// ➤ list, so the wrong one can't be marked. De-duplicated: "seen 701 701" must not append
+// ➤ "| visto" twice, which would break the "#id at end of line" shape the id counter and
+// ➤ the parsers rely on.
 export function parseIds(argv) {
   return [...new Set(argv.map(s => Number(String(s).replace(/^#/, ''))).filter(n => Number.isInteger(n) && n > 0))];
 }
@@ -65,11 +65,10 @@ export function markSeenInLines(lines, nums) {
   return { lines: out, marked, missing, hadPending: byId.size > 0 };
 }
 
-// ➤ The exact inverse of the marking above, for the "undo" command and the
-// ➤ review card's Undo button (2026-08-22): "- [x] ... | visto" back to
-// ➤ "- [ ] ...". ONLY lines carrying the "| visto" tag — that tag means the
-// ➤ hiding was YOUR decision; a line the cleanup hid on its own (dead link)
-// ➤ has no tag and is not brought back by an undo.
+// ➤ The exact inverse of the marking above, for the "undo" command and the review card's
+// ➤ Undo button: "- [x] ... | visto" back to "- [ ] ...". ONLY lines carrying the "|
+// ➤ visto" tag — that tag means the hiding was YOUR decision; a line the cleanup hid on
+// ➤ its own (dead link) has no tag and is not brought back by an undo.
 export function restorePendingInLines(lines, n) {
   const out = [...lines];
   for (let i = 0; i < out.length; i++) {
@@ -94,11 +93,10 @@ if (process.argv[1] && /(^|[\\/])seen\.mjs$/.test(process.argv[1])) {
     console.error('pipeline.md not found');
     process.exit(1);
   }
-  // ➤ Read, mark and write INSIDE the lock. This runs from Telegram, so it can
-  // ➤ fire at any second — including while the scanner is appending or
-  // ➤ housekeep is deleting. Without the lock, whichever wrote last wiped the
-  // ➤ other's work; with it, a "seen" can no longer be swallowed by a scan that
-  // ➤ started a moment earlier.
+  // ➤ Read, mark and write INSIDE the lock. This runs from Telegram, so it can fire at any
+  // ➤ second — including while the scanner is appending or housekeep is deleting. Without
+  // ➤ the lock, whichever wrote last would wipe the other's work; with it, a "seen" cannot
+  // ➤ be swallowed by a scan that started a moment earlier.
   const res = withFileLock(PIPELINE_PATH, () => {
     const text = readFileSync(PIPELINE_PATH, 'utf-8');
     const r = markSeenInLines(text.split('\n'), nums);

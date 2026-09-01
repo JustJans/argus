@@ -120,11 +120,10 @@ confidence = how clear the balance is (high in clear-cut cases, ~0.5 in the 2.5-
 // ➤ set, otherwise the marine defaults above (so nothing changes for the user).
 const _JP = searchProfile.judge_prompts || {};
 
-// ➤ THE PROFILE, IN THE JUDGE'S OWN WORDS (audit 2026-07-25). The default prompts
-// ➤ below carry a marine example, so after a complete /start a non-marine user
-// ➤ still got judges reasoning about mooring and STCW. This block is appended to
-// ➤ every prompt and states, from config/profile.yml, what THIS candidate is —
-// ➤ which overrides any example the prompt text may contain.
+// ➤ THE PROFILE, IN THE JUDGE'S OWN WORDS. The default prompts below carry a marine
+// ➤ example, so without this a non-marine user would get judges reasoning about mooring
+// ➤ and STCW. This block is appended to every prompt and states, from config/profile.yml,
+// ➤ what THIS candidate is — which overrides any example the prompt text may contain.
 function profileBriefing() {
   const s = searchProfile || {};
   // ➤ The config lists are REGEX fragments ("marin[eo]", "\briser"). A judge is
@@ -150,9 +149,9 @@ function profileBriefing() {
   if (degOut) lines.push(`- Degrees the candidate does NOT have (a hard requirement for one is a barrier): ${degOut}.`);
   const langs = list(s.languages);
   if (langs) lines.push(`- Languages the candidate works in: ${langs}. A different language REQUIRED by the body is a barrier.`);
-  // ➤ The study level was missing from this briefing, and it cost a verdict: a
-  // ➤ judge QUOTED a hard Master's requirement and still voted show, because no
-  // ➤ line here said the candidate does not hold one.
+  // ➤ The study level belongs in this briefing: without it a judge QUOTED a hard Master's
+  // ➤ requirement and still voted show, because no line said the candidate does not hold
+  // ➤ one.
   if (s.highest_degree) lines.push(`- Highest degree held: ${s.highest_degree}. An offer that FIRMLY requires a higher one (a Master's with no Bachelor accepted, a PhD) is a barrier.`);
   const countries = list(s.countries);
   if (countries) lines.push(`- Places that work: ${countries}${s.home_city ? ` (home city: ${s.home_city})` : ''}.`);
@@ -197,8 +196,8 @@ export function parseVerdict(text) {
   if (m) {
     try {
       const j = JSON.parse(m[0]);
-      // ➤ "verdict" added 2026-07-25 (audit): a judge answering with that key
-      // ➤ had its perfectly readable vote thrown away.
+      // ➤ "verdict" is accepted as the vote key too: a judge answering with it must not have its
+      // ➤ perfectly readable vote thrown away.
       const voteRaw = j.vote ?? j.voto ?? j.decision ?? j.veredicto ?? j.verdict;
       const vote = normVote(voteRaw);
       const reason = String(j.reason ?? j.razon ?? j['razón'] ?? '').trim();
@@ -208,13 +207,10 @@ export function parseVerdict(text) {
       return { vote: null, reason: reason || src.trim().slice(0, 300), confidence: 0 };
     } catch { /* Broken JSON: try plan B */ }
   }
-  // ➤ 2nd attempt (plan B): there was no usable JSON. Scan for the vote word
-  // ➤ directly in the text and use the whole text as the reason.
-  // ➤ FIXED 2026-07-25 (audit): this used to scan the WHOLE text for the vote
-  // ➤ word, so a judge that QUOTES the offer — exactly what we ask it to do —
-  // ➤ flipped its own verdict: quoting produces unescaped quotes (invalid JSON)
-  // ➤ and the loose word "show" inside a HIDE reason won. Now we read the vote
-  // ➤ KEY even out of broken JSON, and if BOTH words appear with no key we
+  // ➤ 2nd attempt (plan B): there was no usable JSON. A judge that QUOTES the offer —
+  // ➤ exactly what we ask it to do — produces unescaped quotes (invalid JSON), and scanning
+  // ➤ the WHOLE text for a vote word would let a loose "show" inside a HIDE reason win. So
+  // ➤ we read the vote KEY even out of broken JSON, and if BOTH words appear with no key we
   // ➤ admit we cannot tell instead of guessing.
   const keyed = src.match(/["']?(?:vote|voto|decision|veredicto|verdict)["']?\s*:\s*["']?\s*([a-zá-ú]+)/i);
   let vote = keyed ? normVote(keyed[1]) : null;

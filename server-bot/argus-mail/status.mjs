@@ -81,15 +81,13 @@ export function buildStatus(applications, links, { today = new Date() } = {}) {
     const daysWaiting = isNaN(applied) ? null : Math.floor((now - applied) / 86_400_000);
 
     let state;
-    // ➤ IT NEVER ARRIVED, so nothing else that happened to it matters. First
-    // ➤ because it is not a verdict on you but the reason there is none — and
-    // ➤ the only one of these states you can still do something about.
-    // ➤ UNLESS SOMETHING CAME BACK (audit 2026-08-08): match.mjs deliberately
-    // ➤ fans an ambiguous bounce out to every application at the same
-    // ➤ employer, so a bounce sitting next to a receipt, a rejection or an
-    // ➤ interview is proof the bounce belonged to ANOTHER application there —
-    // ➤ not that this one never arrived. The old rule buried an interview
-    // ➤ under "Never arrived", the loss this module calls its most expensive.
+    // ➤ IT NEVER ARRIVED, so nothing else that happened to it matters. First because it is not
+    // ➤ a verdict on you but the reason there is none — and the only one of these states you
+    // ➤ can still do something about. UNLESS SOMETHING CAME BACK: match.mjs deliberately fans
+    // ➤ an ambiguous bounce out to every application at the same employer, so a bounce sitting
+    // ➤ next to a receipt, a rejection or an interview is proof the bounce belonged to ANOTHER
+    // ➤ application there — not that this one never arrived. Burying an interview under "Never
+    // ➤ arrived" is the loss this module calls its most expensive.
     const replied = kinds.some(k => k === 'acknowledged' || k === 'interview' || k === 'rejected');
     if (kinds.includes('bounced') && !replied) state = 'bounced';
     else if (kinds.includes('rejected')) state = 'rejected';

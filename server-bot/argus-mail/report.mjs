@@ -2,15 +2,13 @@
 // ➤ ═══════════════════════════════════════════════════════════════════════
 // ➤ WHAT IT IS: the "status" command's text.
 // ➤
-// ➤ NOTHING IS CUT SHORT. An earlier version clipped company and job titles
-// ➤ with an ellipsis to keep every row on one line, which produced things like
-// ➤ "Production Automation Sys…" — less information than the full name and it
-// ➤ looks broken. Long rows wrap on a phone, and that is fine.
+// ➤ NOTHING IS CUT SHORT. Clipping company and job titles with an ellipsis to keep every
+// ➤ row on one line produces things like "Production Automation Sys…" — less information
+// ➤ than the full name, and it looks broken. Long rows wrap on a phone, and that is fine.
 // ➤
-// ➤ THE ORDER IS HOW FAR EACH ONE GOT, least first: no answer, receipt,
-// ➤ rejection, interview. EVERY CIRCLE HAS ITS WORD NEXT TO IT — the count
-// ➤ line used to be five colours and five numbers and meant nothing unless you
-// ➤ already knew the code.
+// ➤ THE ORDER IS HOW FAR EACH ONE GOT, least first: no answer, receipt, rejection,
+// ➤ interview. EVERY CIRCLE HAS ITS WORD NEXT TO IT — five colours and five numbers mean
+// ➤ nothing unless you already know the code.
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 // ➤ Escaped because company and job titles come from job boards and really do
@@ -70,14 +68,13 @@ export function formatStatus(status) {
   const out = [];
 
   out.push(`<b>Applications — ${apps.length}</b>`);
-  // ➤ NOTHING MAY FALL BETWEEN THE STATES (audit 2026-07-31). The states this
-  // ➤ report knows about are the ones listed above; an application in any other
-  // ➤ state appeared in no section AND in no count, while the header line right
-  // ➤ here still added it to the total — so the numbers quietly contradicted
-  // ➤ each other and one of your applications was nowhere on the screen. It is
-  // ➤ an easy state to reach: rename a state in one file and forget the other.
-  // ➤ A report that admits it is confused is better than one that hides an
-  // ➤ application, so it now says so out loud, with the unknown names.
+  // ➤ NOTHING MAY FALL BETWEEN THE STATES. The states this report knows about are the ones
+  // ➤ listed above; an application in any other state would appear in no section AND in no
+  // ➤ count while the header line right here still added it to the total — numbers that
+  // ➤ quietly contradict each other, and one of your applications nowhere on the screen. It
+  // ➤ is an easy state to reach: rename a state in one file and forget the other. A report
+  // ➤ that admits it is confused is better than one that hides an application, so it says so
+  // ➤ out loud, with the unknown names.
   const KNOWN = new Set(STATES.flatMap(s => s.keys));
   const stray = apps.filter(a => !KNOWN.has(a.state));
   if (stray.length) out.push(`⚠️ ${stray.length} application(s) in an unknown state: ${[...new Set(stray.map(a => a.state))].join(', ')}`);
@@ -113,12 +110,11 @@ export function formatStatus(status) {
   if (status.unlinked?.ambiguous) {
     out.push('');
     out.push(`<i>${status.unlinked.ambiguous} email(s) fit more than one application and were left unassigned.</i>`);
-    // ➤ NAME THEM (audit 2026-08-01). A bare count is not something you can
-    // ➤ act on: it does not say which applications are tangled, nor whether
-    // ➤ the message was a refusal or an invitation — and an invitation left
-    // ➤ unassigned is the most expensive thing this whole module handles.
-    // ➤ With the numbers in front of you, "no N" settles a refusal and you
-    // ➤ know to go and read the mail yourself when it is an invitation.
+    // ➤ NAME THEM. A bare count is not something you can act on: it does not say which
+    // ➤ applications are tangled, nor whether the message was a refusal or an invitation — and
+    // ➤ an invitation left unassigned is the most expensive thing this whole module handles.
+    // ➤ With the numbers in front of you, "no N" settles a refusal and you know to go and read
+    // ➤ the mail yourself when it is an invitation.
     const cases = status.unlinked.cases || [];
     for (const t of cases.slice(0, 5)) {
       const label = { interview: 'an interview', rejected: 'a refusal', acknowledged: 'a receipt', bounced: 'a bounce' }[t.kind] || 'a message';

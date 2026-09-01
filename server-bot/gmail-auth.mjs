@@ -1,21 +1,20 @@
 #!/usr/bin/env node
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ WHAT IT IS: the ONE-TIME authorisation for the Gmail reader. You run it,
-// ➤ a browser opens, you approve, and it writes gmail-token.json. After that
-// ➤ the bot renews itself and this file is never needed again.
-// ➤ RUN IT ON A MACHINE WITH A BROWSER — your laptop, not the headless
-// ➤ server. Google removed the old copy-the-code flow, so the reply has to
-// ➤ come back to a little server this script opens on 127.0.0.1. Copy
-// ➤ gmail-token.json to the server afterwards.
+// ➤ WHAT IT IS: the ONE-TIME authorisation for the Gmail reader. You run it, a browser
+// ➤ opens, you approve, and it writes gmail-token.json. After that the bot renews itself
+// ➤ and this file is never needed again.
 // ➤
-// ➤ IT DOES NEED THE CLIENT SECRET, despite what the documentation says.
-// ➤ Google's own page marks client_secret "Optional" for installed apps and
-// ➤ states that they "cannot keep secrets" — so this was first written without
-// ➤ one. Their token endpoint then answers "client_secret is missing". The
-// ➤ documentation and the server disagree; the server wins. PKCE is still used
-// ➤ (it is what protects the code in transit), the secret is simply required
-// ➤ alongside it.
+// ➤ RUN IT ON A MACHINE WITH A BROWSER — your laptop, not the headless server: the reply
+// ➤ comes back to a little server this script opens on 127.0.0.1. Copy gmail-token.json to
+// ➤ the server afterwards.
+// ➤
+// ➤ IT DOES NEED THE CLIENT SECRET, despite what the documentation says: Google marks
+// ➤ client_secret "Optional" for installed apps, yet its token endpoint answers
+// ➤ "client_secret is missing" without it. The server wins. PKCE is still used (it
+// ➤ protects the code in transit); the secret is required alongside it.
+// ➤
 // ➤ WHAT IT ASKS FOR: gmail.readonly, and nothing else.
+// ➤
 // ➤ RUN: node server-bot/gmail-auth.mjs
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
@@ -57,15 +56,11 @@ export function buildAuthUrl({ clientId, redirectUri, challenge }) {
   return `${AUTH_ENDPOINT}?${p}`;
 }
 
-// ➤ THIS SCRIPT DOES NOT OPEN A BROWSER, ON PURPOSE.
-// ➤ It used to try, and an OAuth URL turns out to be an awkward thing to hand
-// ➤ to an operating system: `cmd /c start` reads the "&" between parameters as
-// ➤ "end of command" and delivered only the first one, and rundll32 mangled it
-// ➤ a different way and opened a mailto: link. Both failures looked like a bug
-// ➤ in the URL, and the URL was correct every time.
-// ➤ You run this once, ever. Printing the address and letting you click it is
-// ➤ one second of your life and removes a whole class of platform bug from the
-// ➤ one step where a confusing error is most expensive.
+// ➤ THIS SCRIPT DOES NOT OPEN A BROWSER, ON PURPOSE. An OAuth URL is an awkward thing to
+// ➤ hand to an operating system (`cmd /c start` cuts it at the first "&", rundll32 mangles
+// ➤ it another way), and every such failure looks like a bug in the URL. You run this
+// ➤ once, ever: printing the address and letting you click it costs one second and removes
+// ➤ a whole class of platform bug from the step where a confusing error is most expensive.
 
 async function main() {
   let oauth;
@@ -100,14 +95,12 @@ async function main() {
       const got = u.searchParams.get('code');
       const err = u.searchParams.get('error');
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      // ➤ Settle only once the reply has actually gone out, and close the
-      // ➤ server from here rather than from a finally(). Tearing the loop down
-      // ➤ while a response is still in flight is what produced a libuv
-      // ➤ assertion on Windows instead of a readable error.
-      // ➤ The error text comes from the request's own query string, so it is
-      // ➤ escaped before it goes back inside HTML (CodeQL round, 2026-08-24).
-      // ➤ The window is a loopback server alive for seconds, but an escape
-      // ➤ costs one line and the alternative is echoing attacker-shaped text.
+      // ➤ Settle only once the reply has actually gone out, and close the server from here
+      // ➤ rather than from a finally(): tearing the loop down while a response is still in
+      // ➤ flight produces a libuv assertion on Windows instead of a readable error. The error
+      // ➤ text comes from the request's own query string, so it is escaped before it goes back
+      // ➤ inside HTML — the window is a loopback server alive for seconds, but an escape costs
+      // ➤ one line and the alternative is echoing attacker-shaped text.
       const escHtml = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
       res.end(got
         ? '<h2>Argus is authorised.</h2><p>You can close this tab and go back to the terminal.</p>'

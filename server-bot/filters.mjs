@@ -46,12 +46,10 @@ export function boundaryRegex(term, optionalPlural) {
   // ➤ the pattern is accent-free and only ever meets accent-free text.
   const esc = norm(raw).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const lead = (!suffixMode && /^\w/.test(raw)) ? '\\b' : '';
-  // ➤ Optionally allows the plural and the German female forms
-  // ➤ (Technikerin, Projektmanagerinnen) without opening the door to other words.
-  // ➤ "-es" added 2026-07-13: the Spanish plural in -ores ("Soldadores")
-  // ➤ dodged the negative "Soldador" (#566). "-en" is the German and Dutch
-  // ➤ plural (Bacheloranden #753, and Senioren, Professoren, Directeuren
-  // ➤ would all have dodged their negatives the same way).
+  // ➤ Optionally allows the plural and the German female forms (Technikerin,
+  // ➤ Projektmanagerinnen) without opening the door to other words: "-es" for the Spanish
+  // ➤ plural in -ores (Soldadores), "-en" for the German and Dutch plural (Bacheloranden,
+  // ➤ Senioren, Directeuren).
   const trail = /\w$/.test(raw) ? (optionalPlural ? '(?:s|es|en|in|innen)?\\b' : '\\b') : '';
   return new RegExp(lead + esc + trail, 'i');
 }
@@ -60,10 +58,9 @@ export function boundaryRegex(term, optionalPlural) {
 // ➤ Acronyms are searched as whole words to avoid false positives.
 const ACRONYM = /^[A-Z0-9.&-]{2,6}$/; // GIS, PLC, SCADA, FPSO, ROV...
 
-// ➤ COMPANY blocklist (portals.yml → company_filter.blocked): no
-// ➤ offer from those companies gets in, whatever its title (the user
-// ➤ 2026-07-18: Amazon). Whole word, case-insensitive. Returns
-// ➤ true if the company PASSES; .explain() says which term blocked it (--explain).
+// ➤ COMPANY blocklist (portals.yml → company_filter.blocked): no offer from those
+// ➤ companies gets in, whatever its title. Whole word, case-insensitive. Returns true if
+// ➤ the company PASSES; .explain() says which term blocked it (--explain).
 export function buildCompanyFilter(cf) {
   const vetoes = (cf?.blocked || []).map(t => ({ label: String(t), re: boundaryRegex(String(t), false) }));
   const fn = (company) => !vetoes.some(v => v.re.test(norm(company)));
@@ -92,26 +89,22 @@ export function buildTitleFilter(tf) {
   const negatives = (tf?.negative || []).map(t => {
     if (t && typeof t === 'object' && t.term) {
       const re = boundaryRegex(t.term, true);
-      // ➤ WORD-aware rescue (audit 2026-07-25): the unless words were plain
-      // ➤ substrings, so "Windows Automation Consultant" was rescued because
-      // ➤ "Windows" contains "wind". Each one is matched with its own boundary.
+      // ➤ WORD-aware rescue: each unless word is matched with its own boundary, so "Windows"
+      // ➤ does not rescue as "wind".
       const unlessRe = (t.unless || []).map(u => boundaryRegex(String(u), true));
       return { label: t.term, test: (s) => re.test(s) && !unlessRe.some(u => u.test(s)) };
     }
     const re = boundaryRegex(t, true);
     return { label: String(t), test: (s) => re.test(s) };
   });
-  // ➤ A PLACE IS NOT A FIELD (field cases 2026-08-26). Boards glue the region
-  // ➤ into the title — "Chirurgien orthopédiste - Seine-Maritime (76)", a
-  // ➤ nanny "à MARINES" — and a positive like "Maritime" or "Marine" then
-  // ➤ fires on the geography. Before the positives are checked, every segment
-  // ➤ of the offer's own location that appears verbatim in the title is
-  // ➤ masked out, so the field words have to be in the JOB part of the title.
-  // ➤ Only whole location segments, five letters or more: a title that merely
-  // ➤ shares a word with its city ("Offshore Engineer" in "Offshore Base,
-  // ➤ Aberdeen") loses nothing, because "offshore base" is not in the title.
-  // ➤ Negatives still read the whole title: a blocked word inside a place
-  // ➤ name still blocks, which is the conservative direction.
+  // ➤ A PLACE IS NOT A FIELD. Boards glue the region into the title — "Chirurgien
+  // ➤ orthopédiste - Seine-Maritime (76)", a nanny "à MARINES" — and a positive like
+  // ➤ "Maritime" or "Marine" then fires on the geography. Before the positives are checked,
+  // ➤ every segment of the offer's own location that appears verbatim in the title is masked
+  // ➤ out, so the field words have to be in the JOB part. Only whole location segments of
+  // ➤ five letters or more: "Offshore Engineer" in "Offshore Base, Aberdeen" loses nothing.
+  // ➤ Negatives still read the whole title — a blocked word inside a place name still
+  // ➤ blocks, the conservative direction.
   const placeSegments = location => String(location || '').split(/[,;|]/)
     .map(s => norm(s).trim()).filter(s => s.length >= 5);
   const withoutPlaces = (lower, location) => {
@@ -152,10 +145,8 @@ export function buildTitleFilter(tf) {
 
 // ➤ Builds the function that detects blocked locations in a text.
 function buildBlockMatcher(blockTerms) {
-  // ➤ FIXED 2026-07-25 (audit): every term is matched as a WHOLE WORD, not as a
-  // ➤ loose substring. Before, only ALL-CAPS acronyms got that treatment, so
-  // ➤ "Peru" blocked Perugia (Italy) and "Oman" blocked Romans-sur-Isère
-  // ➤ (France). Whole-word still catches what it should: "Saudi" → "Saudi Arabia".
+  // ➤ Every term is matched as a WHOLE WORD, not a loose substring: "Peru" must not block
+  // ➤ Perugia nor "Oman" Romans-sur-Isère, while "Saudi" still catches "Saudi Arabia".
   const matchers = (blockTerms || []).map(term => {
     const re = boundaryRegex(term, false);
     return (s) => re.test(s);

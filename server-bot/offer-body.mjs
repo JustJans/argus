@@ -6,15 +6,14 @@
 import { stripHtml, extractAdzunaJd } from './requirements.mjs';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36';
-// ➤ Depending on the link's portal, it requests the offer text via the
-// ➤ right route (Workday and Oracle have their own "data gateway"; LinkedIn
-// ➤ has a public version; Adzuna is read from its details page). If nothing
-// ➤ matches, it downloads the page as-is and strips the HTML.
-// ➤ Returns { text, status }: the text, and the HTTP status of the request
-// ➤ that decided it — 0 when no answer came at all (timeout, DNS, refused).
-// ➤ The status matters to the Council (2026-09-01): Adzuna answers a burst
-// ➤ with 429 and CloudFront with 403, and an empty text that means "come back
-// ➤ later" must not be judged like a page that has nothing to say.
+// ➤ Depending on the link's portal, it requests the offer text via the right route
+// ➤ (Workday and Oracle have their own "data gateway"; LinkedIn has a public version;
+// ➤ Adzuna is read from its details page). If nothing matches, it downloads the page as-is
+// ➤ and strips the HTML. Returns { text, status }: the text, and the HTTP status of the
+// ➤ request that decided it — 0 when no answer came at all (timeout, DNS, refused). The
+// ➤ status matters to the Council: Adzuna answers a burst with 429 and CloudFront with
+// ➤ 403, and an empty text that means "come back later" must not be judged like a page
+// ➤ that has nothing to say.
 export async function fetchOfferPage(url) {
   const get = (u, opts = {}) => fetch(u, { headers: { 'User-Agent': UA, ...(opts.json ? { Accept: 'application/json' } : {}) }, redirect: 'follow', signal: AbortSignal.timeout(15_000) });
   const page = (r, text) => ({ text: text || '', status: r.status });
@@ -52,8 +51,6 @@ export async function fetchOfferPage(url) {
 }
 
 // ➤ Just the text, for readers that do not care why it may be empty.
-// ➤ (Exported 2026-07-18; used by the amnesty, deleted that same day at the
-// ➤ user's request — the export stays in case another module needs it.)
 export async function fetchOfferBody(url) {
   return (await fetchOfferPage(url)).text;
 }

@@ -53,15 +53,12 @@ const CV_PATH = join(ROOT, 'cv.md');
 const COVER_EXAMPLE_PATH = join(ROOT, 'config', 'cover-example.md');
 
 // ── Catalogs for the button questions ────────────────────────────────────
-// ➤ Countries offered as buttons. Each carries the display label and (when it
-// ➤ exists) the Adzuna domain code, so the written profile is complete.
-// ➤ aliases = the country's NATIVE spellings, emitted into locations.allow
-// ➤ (audit 2026-08-08). The allow gate is a plain substring test with no
-// ➤ translation, and offers arrive written in their own language —
-// ➤ "München, Bayern, Deutschland" contains no "Germany", so for onboarded
-// ➤ users nearly every native-spelled location died at the gate in silence
-// ➤ (the FR/DE-blocked-for-days incident portals.yml already documents).
-// ➤ Full names only: the substring match makes short codes ("ES") unsafe.
+// ➤ Countries offered as buttons. Each carries the display label and (when it exists) the
+// ➤ Adzuna domain code, so the written profile is complete. aliases = the country's NATIVE
+// ➤ spellings, emitted into locations.allow: the allow gate is a plain substring test with
+// ➤ no translation, and offers arrive written in their own language — "München, Bayern,
+// ➤ Deutschland" contains no "Germany". Full names only: the substring match makes short
+// ➤ codes ("ES") unsafe.
 const COUNTRY_CATALOG = [
   { name: 'Spain', label: 'SPAIN', adzuna: 'es', aliases: ['España'] },
   { name: 'France', label: 'FRANCE', adzuna: 'fr' },
@@ -88,10 +85,10 @@ const LANG_BLOCK = {
   it: ['italian', 'italiano', 'italien'],
   pt: ['portuguese', 'portugu[êe]s'],
 };
-// ➤ Degrees offered as buttons → the regex fragment written to degrees_excluded.
-// ➤ Each value carries the native spellings too (#798, 2026-08-05): "mécanique"
-// ➤ ends in -que, "électrique"/"Elektrotechnik" open with é/elek, and the
-// ➤ German and Dutch names for whole majors were simply absent from the stems.
+// ➤ Degrees offered as buttons → the regex fragment written to degrees_excluded. Each
+// ➤ value carries the native spellings too: "mécanique" ends in -que,
+// ➤ "électrique"/"Elektrotechnik" open with é/elek, and the German and Dutch names for
+// ➤ whole majors have their own stems.
 const DEGREE_CATALOG = [
   { label: 'Mechanical', value: 'mechanical|m[eé]c[áa]ni[ckq]|maschinenbau|werktuigbouw' },
   { label: 'Electrical', value: '[eé]l[eé][ck]tr[io]|electr[óo]nic' },
@@ -151,16 +148,13 @@ const QUESTIONS = [
 ];
 const Q_BY_KEY = Object.fromEntries(QUESTIONS.map((q, i) => [q.key, { ...q, index: i }]));
 
-// ➤ What the CV itself can tell the setup — no LLM anywhere, the same
-// ➤ rule-based route the open-source resume parsers use, with the buttons as
-// ➤ the human confirmation that absorbs any imprecision (2026-08-23, after a
-// ➤ field test ran an accountant's CV into marine-flavoured questions).
-// ➤ Degrees: the catalog's values are ALREADY multilingual regexes (the same
-// ➤ stems the offer filter matches), so the CV is tested against the very
-// ➤ definition of each family — one source of truth. A family the CV shows is
-// ➤ NOT pre-ticked as excluded; everything else is. Over-detection merely
-// ➤ leaves one more tap to the user, and under-detection one tap the other
-// ➤ way: a default, never a decision.
+// ➤ What the CV itself can tell the setup — no LLM anywhere, the same rule-based route the
+// ➤ open-source resume parsers use, with the buttons as the human confirmation that
+// ➤ absorbs any imprecision. Degrees: the catalog's values are ALREADY multilingual
+// ➤ regexes (the same stems the offer filter matches), so the CV is tested against the
+// ➤ very definition of each family — one source of truth. A family the CV shows is NOT
+// ➤ pre-ticked as excluded; everything else is. Over-detection merely leaves one more tap
+// ➤ to the user, and under-detection one tap the other way: a default, never a decision.
 export function cvDegreesHeld(cvText, catalog = DEGREE_CATALOG) {
   const t = String(cvText || '');
   return catalog
@@ -200,8 +194,8 @@ function unglueDisplayText(line) {
   flush();
   return out.join(' ').trim();
 }
-// ➤ Institutions and companies wear name-shaped clothes too (field case
-// ➤ 2026-08-23: "Universidad Argentina del Comercio" won the shape test).
+// ➤ Institutions and companies wear name-shaped clothes too ("Universidad Argentina del
+// ➤ Comercio" passes the shape test).
 const NAME_ORG_WORDS = /(universi|instituto|institut|college|escuela|school|academ|colegio|fundaci|foundation|\bS\.?L\.?\b|\bS\.?A\.?\b|GmbH|B\.?V\.?\b|Ltd|Inc\b|Corp\b)/i;
 const foldLetters = s => fold(s).replace(/[^a-z]/g, '');
 
@@ -265,11 +259,10 @@ export function cvFullName(cvText) {
   return bestScore >= 1 ? tidyNameCase(best) : '';
 }
 
-// ➤ The contact block, straight off the CV (field case 2026-08-23: the bot
-// ➤ asked for an email the document had just printed). Email is a regex;
-// ➤ a phone needs nine digits or a +/( opening, so the year range
-// ➤ "2014 – 2018" — eight digits with a dash — can never pass for one; the
-// ➤ city is the early "Place, Country" line: comma-separated capitalised
+// ➤ The contact block, straight off the CV, so the setup never asks for an email the
+// ➤ document has just printed. Email is a regex; a phone needs nine digits or a +/(
+// ➤ opening, so the year range "2014 – 2018" — eight digits with a dash — can never pass
+// ➤ for one; the city is the early "Place, Country" line: comma-separated capitalised
 // ➤ words with no digits and no trade/org words. Any piece can be missing.
 export function cvContact(cvText) {
   const text = String(cvText || '');
@@ -378,13 +371,12 @@ const ISCO_TO_AREA = {
   23: ['education'],
 };
 
-// ➤ The full CV reading (2026-08-23): skills stay local; the skills are then
-// ➤ matched to ESCO occupations, whose labels become ROLE suggestions and
-// ➤ whose ISCO areas pick which DEGREE families the question should even ask
-// ➤ about. Every area the CV shows contributes — a person who was accountant
-// ➤ AND salesman gets both, because either could be the job they actually
-// ➤ want. No network, or ESCO knowing none of the terms, degrades to the
-// ➤ offline suggestions — never an error, never a guess.
+// ➤ The full CV reading: skills stay local; the skills are then matched to ESCO
+// ➤ occupations, whose labels become ROLE suggestions and whose ISCO areas pick which
+// ➤ DEGREE families the question should even ask about. Every area the CV shows
+// ➤ contributes — a person who was accountant AND salesman gets both, because either could
+// ➤ be the job they actually want. No network, or ESCO knowing none of the terms, degrades
+// ➤ to the offline suggestions — never an error, never a guess.
 export async function cvProfileSuggestions(cvText, deps = {}) {
   const out = { ...cvSuggestions(cvText), roles: [], degreeOptions: [] };
   let occs = [];
@@ -395,9 +387,8 @@ export async function cvProfileSuggestions(cvText, deps = {}) {
     // ➤ A hard 20s ceiling for the WHOLE stage: the setup must never feel hung.
     occs = (await Promise.race([lookup, new Promise(r => setTimeout(r, deps.deadlineMs || 20_000, null))])) || [];
   } catch { occs = []; }
-  // ➤ Breadth first (measured live 2026-08-23): one label from EVERY
-  // ➤ occupation before any second one — the first profession's synonyms were
-  // ➤ eating all eight slots and the CV's OTHER trade never appeared. The
+  // ➤ Breadth first: one label from EVERY occupation before any second one, or the first
+  // ➤ profession's synonyms eat all eight slots and the CV's OTHER trade never appears. The
   // ➤ singular/plural fold keeps bookkeeper/bookkeepers twins out.
   const roles = [];
   const seenRole = new Set();
@@ -504,18 +495,16 @@ async function askCurrent(s) {
   // ➤ waiting for text your normal commands stop working — whatever you type is
   // ➤ taken as the answer — so the way out has to be written where you're looking.
   let prompt = (q.kind === 'single' || q.kind === 'multi') ? q.prompt : `${q.prompt}\n\n(or type "cancel" to stop)`;
-  // ➤ CV-informed defaults (2026-08-23): the degrees list arrives pre-ticked —
-  // ➤ excluded — for every family the CV shows no sign of, and the fields
-  // ➤ question carries the CV's own skills as a one-tap suggestion. Defaults,
-  // ➤ never decisions: the user confirms every tick.
+  // ➤ CV-informed defaults: the degrees list arrives pre-ticked — excluded — for every
+  // ➤ family the CV shows no sign of, and the fields question carries the CV's own skills as
+  // ➤ a one-tap suggestion. Defaults, never decisions: the user confirms every tick.
   const qq = optionsFor(q, s);
   if (q.key === 'degrees_excluded' && s.suggest && s.answers[q.key] == null) {
     const held = new Set(s.suggest.degreesHeld || []);
     s.answers[q.key] = qq.options.map(o => o.value).filter(v => !held.has(v));
-    // ➤ The options RIDE WITH the answers (audit 2026-08-23): a later settings
-    // ➤ edit rebuilds its state from the saved answers alone, and without this
-    // ➤ the keyboard fell back to the shipped catalog — wrong ticks, and the
-    // ➤ CV-picked families unreachable for ever after.
+    // ➤ The options RIDE WITH the answers: a later settings edit rebuilds its state from the
+    // ➤ saved answers alone, and without this the keyboard would fall back to the shipped
+    // ➤ catalog — wrong ticks, and the CV-picked families unreachable for ever after.
     if (s.suggest.degreeOptions?.length) s.answers.degree_options = s.suggest.degreeOptions;
     prompt += s.suggest.degreeOptions?.length
       ? "\n\nThese families come from your CV's own professional area, pre-ticked where it shows no such degree. Adjust if needed, then Done."
@@ -534,18 +523,17 @@ async function askCurrent(s) {
     saveState(s);
     return;
   }
-  // ➤ SEND FIRST, persist AFTER (audit 2026-08-08). The state used to be saved
-  // ➤ before the prompt went out, so one failed Telegram send left the file
-  // ➤ pointing at a question nobody ever saw — and the next thing the user
-  // ➤ typed was silently recorded as its answer. Failing before the save just
-  // ➤ re-asks the same question, which is harmless.
+  // ➤ SEND FIRST, persist AFTER: a state saved before the prompt goes out would, on one
+  // ➤ failed Telegram send, point at a question nobody ever saw — and the next thing the
+  // ➤ user typed would be recorded as its answer. Failing before the save just re-asks the
+  // ➤ same question, which is harmless.
   if (q.kind === 'single' || q.kind === 'multi') {
     const msgId = await sendTelegramButtons(prompt, buttonRows(qq, s.answers[q.key]));
     s.msgId = msgId;
     saveState(s);
   } else if (q.kind === 'skip-text') {
-    // ➤ The optional question carries its way out as a button (owner,
-    // ➤ 2026-08-23). Typing "skip" still works; typed text still answers.
+    // ➤ The optional question carries its way out as a button. Typing "skip" still works;
+    // ➤ typed text still answers.
     const msgId = await sendTelegramButtons(prompt, [[{ label: 'Skip', data: 'skip' }]]);
     s.msgId = msgId;
     saveState(s);
@@ -557,18 +545,14 @@ async function askCurrent(s) {
 }
 
 // ── Public entry points ─────────────────────────────────────────────────
-// ➤ `/start` → begin the full setup from question 0.
-// ➤ IT ASKS FIRST IF YOU ALREADY HAVE A PROFILE (audit 2026-07-31). Question 0
-// ➤ is "paste your CV", and the listener hands any text you type to the setup
-// ➤ BEFORE it looks for a command — so with the setup already running, typing
-// ➤ "list" wrote the word "list" over your entire CV. There was no confirmation,
-// ➤ nothing to cancel with, and cv.md is the only copy: it is what your cover
-// ➤ letters are built from. `settings` already refuses to run without a profile;
-// ➤ this is the same guard pointing the other way.
-// ➤ Is there a CV worth protecting? The shipped file is a placeholder, so its
-// ➤ presence alone means nothing — a real one is longer and does not say so.
-// ➤ (Ported from the personal copy 2026-08-23: its own test suite caught this
-// ➤ guard missing during a merge, which is how the public copy learnt of it.)
+// ➤ `/start` → begin the full setup from question 0. IT ASKS FIRST IF YOU ALREADY HAVE A
+// ➤ PROFILE. Question 0 is "paste your CV", and the listener hands any text you type to
+// ➤ the setup BEFORE it looks for a command — so with the setup already running, typing
+// ➤ "list" would write the word "list" over your entire CV, with no confirmation, nothing
+// ➤ to cancel with, and cv.md the only copy: it is what your cover letters are built from.
+// ➤ `settings` already refuses to run without a profile; this is the same guard pointing
+// ➤ the other way. Is there a CV worth protecting? The shipped file is a placeholder, so
+// ➤ its presence alone means nothing — a real one is longer and does not say so.
 function hasRealCv() {
   try {
     const t = readFileSync(CV_PATH, 'utf-8');
@@ -610,9 +594,7 @@ export async function startSettings() {
     return;
   }
   const rows = [];
-  // ➤ Every question, the CV included: replacing it is the whole point of being
-  // ➤ able to edit one field. (This was written as a filter that filtered
-  // ➤ nothing, which reads like a rule and is not one.)
+  // ➤ Every question, the CV included: replacing it is the whole point of being able to edit one field.
   const editable = QUESTIONS;
   for (let i = 0; i < editable.length; i += 2) {
     rows.push(editable.slice(i, i + 2).map(q => ({ label: labelFor(q.key), data: `edit:${q.key}` })));
@@ -628,11 +610,10 @@ function labelFor(key) {
   }[key] || key;
 }
 
-// ➤ Reads the contact answer by the SHAPE of each piece, not its position
-// ➤ (field test 2026-08-23): the email is the part with an @, the phone the
-// ➤ part that is digits, and whatever remains is the city — in any order, any
-// ➤ of them alone. The old positional read put "Barcelona, mail@x" city-first
-// ➤ into the email slot and fed the search a phone number as the home city.
+// ➤ Reads the contact answer by the SHAPE of each piece, not its position: the email is
+// ➤ the part with an @, the phone the part that is digits, and whatever remains is the
+// ➤ city — in any order, any of them alone. A positional read would put "Barcelona,
+// ➤ mail@x" city-first into the email slot.
 export function parseContact(text) {
   const out = { email: '', phone: '', city: '' };
   const leftovers = [];
@@ -671,10 +652,10 @@ async function applyContactAnswer(s, value) {
   s.answers.contact_parts = parts;
   s.answers.contact = [parts.email, parts.phone, parts.city].filter(Boolean).join(', ');
   const missing = ['email', 'phone', 'city'].filter(k => !parts[k]);
-  // ➤ Say ONCE what was understood and what is absent — the old flow took
-  // ➤ "just an email" and marched on in silence, and the city it lost is
-  // ➤ what the cover letters and the home-city search group run on. One
-  // ➤ round, never a nag: the second answer (or Skip) always moves on.
+  // ➤ Say ONCE what was understood and what is absent — "just an email" must not march on in
+  // ➤ silence, because the city it would lose is what the cover letters and the home-city
+  // ➤ search group run on. One round, never a nag: the second answer (or Skip) always moves
+  // ➤ on.
   if (missing.length && !s.contactPending) {
     const got = ['email', 'phone', 'city'].filter(k => parts[k]);
     const msgId = await sendTelegramButtons(
@@ -746,10 +727,9 @@ export async function pdfText(buf) {
   }
 }
 
-// ➤ Handles a DOCUMENT while the setup waits for the CV: users send the PDF
-// ➤ they already have, not pasted text (field test 2026-08-06). Only the CV
-// ➤ question consumes files; anywhere else the document is left unanswered
-// ➤ and the question on screen still applies. Returns true if consumed.
+// ➤ Handles a DOCUMENT while the setup waits for the CV: users send the PDF they already
+// ➤ have, not pasted text. Only the CV question consumes files; anywhere else the document
+// ➤ is left unanswered and the question on screen still applies. Returns true if consumed.
 export async function handleOnboardingDocument(doc) {
   const s = loadState();
   if (!s || !s.active) return false;
@@ -810,12 +790,10 @@ export async function handleOnboardingCallback(data, cbId, messageId = null) {
   }
   if (!s || !s.active) { await answerCallback(cbId); return false; }
   const q = s.mode === 'edit' ? Q_BY_KEY[s.editKey] : QUESTIONS[s.step];
-  // ➤ BOUND TO ITS MESSAGE (field test 2026-08-23), like the list pages and
-  // ➤ the review card already are: a tap on an already-closed question used to
-  // ➤ land on the CURRENT one — same o:N data, same button positions — so
-  // ➤ re-ticking the finished degrees list ticked France and Germany on the
-  // ➤ countries list. A tap whose message is not the live question only gets
-  // ➤ a toast.
+  // ➤ BOUND TO ITS MESSAGE, like the list pages and the review card: a tap on an
+  // ➤ already-closed question must not land on the CURRENT one (same o:N data, same button
+  // ➤ positions — re-ticking a finished degrees list would tick countries). A tap whose
+  // ➤ message is not the live question only gets a toast.
   if (s.msgId != null && messageId != null && messageId !== s.msgId) {
     await answerCallback(cbId, 'That question is already closed — the active one is below.');
     return true;
@@ -873,8 +851,8 @@ export async function handleOnboardingCallback(data, cbId, messageId = null) {
     s.answers[q.key] = [...cur];
     saveState(s);
     await answerCallback(cbId);
-    // ➤ Keyboard-only edit (2026-08-23): editMessageText resent the whole
-    // ➤ prompt on every tick and was most of why ticking felt slow.
+    // ➤ Keyboard-only edit: editMessageText resends the whole prompt on every tick and was
+    // ➤ most of why ticking felt slow.
     if (s.msgId) await editTelegramMarkup(s.msgId, buttonRows(qq, s.answers[q.key]));
   }
   return true;
@@ -899,8 +877,8 @@ async function advance(s) {
   }
   s.step += 1;
   if (s.step >= QUESTIONS.length) return finish(s);
-  // ➤ No saveState here (audit 2026-08-08): askCurrent persists AFTER the
-  // ➤ prompt is delivered — saving the advanced step first was the bug.
+  // ➤ No saveState here: askCurrent persists AFTER the prompt is delivered — saving the
+  // ➤ advanced step first would record a question nobody saw.
   await askCurrent(s);
 }
 
@@ -931,9 +909,9 @@ function quote(s) {
   // ➤ SINGLE quotes: unlike double quotes, YAML does NOT process backslash
   // ➤ escapes inside them, so "deutsch\w*" survives verbatim. A literal single
   // ➤ quote inside is doubled ('').
-  // ➤ NOTE: newlines (\n, \r) are in the trigger set too — a value pasted across
-  // ➤ two lines used to be written unquoted, which broke the whole YAML file and
-  // ➤ silently reverted every filter to the built-in defaults.
+  // ➤ NOTE: newlines are in the trigger set too — a value pasted across two lines and
+  // ➤ written unquoted breaks the whole YAML file and silently reverts every filter to the
+  // ➤ built-in defaults.
   const str = String(s);
   return /[:#{}\[\],&*!|>'"%@`\\\n\r]/.test(str) ? `'${str.replace(/'/g, "''")}'` : str;
 }
@@ -951,36 +929,32 @@ function reEscape(s) {
 }
 
 export function buildProfileYaml(a) {
-  // ➤ Contact, structured first (2026-08-23): the onboarding now stores what
-  // ➤ each piece IS, so nothing here depends on the order the user typed.
-  // ➤ The positional split stays as the fallback for answers saved before —
-  // ➤ every settings edit regenerates this file from the old record.
+  // ➤ Contact, structured first: the onboarding stores what each piece IS, so nothing here
+  // ➤ depends on the order the user typed. The positional split stays as the fallback for
+  // ➤ answers saved before — every settings edit regenerates this file from the old record.
   const legacyContact = splitList(a.contact);
   const cp = a.contact_parts || null;
   const cEmail = cp ? cp.email : (legacyContact[0] || '');
   const cPhone = cp ? cp.phone : (legacyContact[1] || '');
   const cCity = cp ? cp.city : legacyContact.slice(2).join(', ');
-  // ➤ AN EMPTY LIST OF ROLES SWITCHES THE TITLE FILTER OFF (audit 2026-07-31).
-  // ➤ An answer that is only spaces or only commas comes out as [], and the
-  // ➤ title filter reads an empty positive list as "no keyword required" — so
-  // ➤ every job title in the world passes and the only thing left between you
-  // ➤ and the entire market is the deal-breaker list. That is the opposite of
-  // ➤ what a blank answer means. So when there is nothing usable the key is
-  // ➤ left out of the file altogether and the rules already in force stay.
+  // ➤ AN EMPTY LIST OF ROLES SWITCHES THE TITLE FILTER OFF. An answer that is only spaces or
+  // ➤ only commas comes out as [], and the title filter reads an empty positive list as "no
+  // ➤ keyword required" — so every job title in the world passes and the only thing left
+  // ➤ between you and the entire market is the deal-breaker list. That is the opposite of
+  // ➤ what a blank answer means. So when there is nothing usable the key is left out of the
+  // ➤ file altogether and the rules already in force stay.
   const roles = splitList(a.roles);
-  // ➤ WHAT TO SEARCH FOR, WHEN THE ROLES ANSWER GAVE US NOTHING USABLE
-  // ➤ (audit 2026-08-01). A punctuation-only answer reduces to an empty list,
-  // ➤ and neither obvious option is right: writing [] tells the scanner no
-  // ➤ keyword is required, so every title in the world passes; leaving the key
-  // ➤ out makes it fall back to portals.yml, whose list is the shipped MARINE
-  // ➤ example — so an accountant's bot would ask the boards for accounting jobs
-  // ➤ and then reject every one of them for having "no keyword from your
-  // ➤ field", for ever, without a word.
-  // ➤ The fields answered two questions later ARE the user's own, so they are
-  // ➤ what the filter falls back to. A worse filter than a proper list of
-  // ➤ titles, but about the right line of work, which is the part that matters.
-  // ➤ Fields become regexes downstream, so each typed word is escaped to match
-  // ➤ literally (roles do NOT need it — scan.mjs escapes title terms itself).
+  // ➤ WHAT TO SEARCH FOR, WHEN THE ROLES ANSWER GAVE US NOTHING USABLE. A punctuation-only
+  // ➤ answer reduces to an empty list, and neither obvious option is right: writing [] tells
+  // ➤ the scanner no keyword is required, so every title in the world passes; leaving the
+  // ➤ key out makes it fall back to portals.yml, whose list is the shipped MARINE example —
+  // ➤ so an accountant's bot would ask the boards for accounting jobs and then reject every
+  // ➤ one of them for having "no keyword from your field", for ever, without a word. The
+  // ➤ fields answered two questions later ARE the user's own, so they are what the filter
+  // ➤ falls back to. A worse filter than a proper list of titles, but about the right line
+  // ➤ of work, which is the part that matters. Fields become regexes downstream, so each
+  // ➤ typed word is escaped to match literally (roles do NOT need it — scan.mjs escapes
+  // ➤ title terms itself).
   const fields = splitList(a.fields).map(reEscape);
   const titleTerms = roles.length ? roles : splitList(a.fields);
   const langs = a.languages || [];
@@ -1004,9 +978,8 @@ export function buildProfileYaml(a) {
   // ➤ working are the same entry to the filter, and writing both put the word in
   // ➤ the file twice.
   const allowLocations = [...new Map([
-    // ➤ Name AND native spellings (audit 2026-08-08): the allow gate compares
-    // ➤ substrings with no translation, and offers name their country the way
-    // ➤ the posting's own language does.
+    // ➤ Name AND native spellings: the allow gate compares substrings with no translation, and
+    // ➤ offers name their country the way the posting's own language does.
     ...countries.flatMap(c => [c.name, ...(c.aliases || [])]),
     ...(homeCity ? [homeCity] : []),
     ...((a.countries || []).includes('Remote') ? ['remote'] : []),

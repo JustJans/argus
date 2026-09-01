@@ -51,9 +51,8 @@ const LOG_PATH = join(ROOT, 'data', 'council-log.txt');   // ➤ the READABLE lo
 // ➤ if not (dropped ones come with no URL), company+title. Used to tell whether
 // ➤ an offer ALREADY went through the Council.
 export function offerKey(o) {
-  // ➤ Same Adzuna normalisation as scan/housekeep (audit 2026-07-25): this third
-  // ➤ copy never received it, so the SAME offer arriving once as /land/ad/ and
-  // ➤ once as /details/ counted as two and was judged (and paid for) twice.
+  // ➤ Same Adzuna normalisation as scan/housekeep, or the SAME offer arriving once as
+  // ➤ /land/ad/ and once as /details/ counts as two and is judged (and paid for) twice.
   const u = String(o.url || '').split('?')[0].replace(/\/$/, '')
     .replace(/^(https?:\/\/[^/]*adzuna\.[a-z.]+)\/land\/ad\/(\d+)$/, '$1/details/$2');
   if (u) return u;
@@ -87,8 +86,8 @@ export function formatCouncilEntry(rec) {
   const v = rec.verdicts || {};
   const g = v.good || {}, b = v.bad || {}, u = v.ugly || {};
   const vote = j => `${j.vote ?? 'n/a'}/${Number(j.confidence ?? 0).toFixed(2)}`;
-  // ➤ FULL reason: only whitespace/newlines are collapsed so it fits on
-  // ➤ one line. It is NOT truncated (it used to be cut at 220 and split sentences).
+  // ➤ FULL reason: only whitespace/newlines are collapsed so it fits on one line. It is NOT
+  // ➤ truncated — a cut splits sentences.
   const reason = s => String(s || '').replace(/\s+/g, ' ').trim();
   const id = rec.id != null ? `#${rec.id} · ` : '';
   // ➤ A blind record has no votes to print: say what the page gave instead.
@@ -129,23 +128,16 @@ export function readCouncilConfig() {
   }
 }
 
-// ➤ WHAT THE JUDGES ARE GIVEN, and whether it is worth asking them (2026-08-26).
-// ➤ A careers page can answer with a cookie wall and a menu and not one word
-// ➤ of the advert. Fed that, two of the three judges — forbidden to hide
-// ➤ without quoting a barrier — defaulted to show, and the verdict was pinned
-// ➤ to YES by construction: a [YES] that meant "we could not read it" and
-// ➤ looked exactly like one that meant "this fits". Case #1005, an offer whose
-// ➤ stated degree none of them ever saw.
-// ➤   'judge' — a body worth reading, or no URL at all (the dropped samples
-// ➤             are judged by title on purpose; that is their design).
-// ➤   'retry' — the board would not answer this time: no reply at all (0),
-// ➤             a rate limit (429), a block (403) or a server error. Not a
-// ➤             verdict, not journalled; the next run asks again. Measured
-// ➤             2026-09-01: Adzuna serves 3-6k characters of offer when asked
-// ➤             one page every 6 s, and 429/403 when asked in a burst.
-// ➤   'blind' — the board answered, but with fewer than minChars of readable
-// ➤             text (a cookie wall, a page that is gone). Journalled as
-// ➤             blind, shown as [?], no judge asked.
+// ➤ WHAT THE JUDGES ARE GIVEN, and whether it is worth asking them. A careers page can
+// ➤ answer with a cookie wall and a menu and not one word of the advert. Fed that, two of
+// ➤ the three judges — forbidden to hide without quoting a barrier — default to show, and
+// ➤ the verdict is pinned to YES by construction: a [YES] that means "we could not read
+// ➤ it", looking exactly like one that means "this fits".
+// ➤   'judge' — a readable body, or no URL at all (dropped samples are judged by title).
+// ➤   'retry' — no reply, 429, 403 or 5xx: the board said later. Not journalled, asked again.
+// ➤   'blind' — fewer than minChars of readable text: journalled as blind, [?], no judge asked.
+// ➤ Measured on the server: Adzuna serves 3-6k characters of offer when asked one page
+// ➤ every 6 s, and 429/403 when asked in a burst.
 export const MIN_BODY_CHARS = 300;
 // ➤ Two fetches to the same board never come closer than this.
 export const PACE_MS = 8_000;
@@ -161,17 +153,15 @@ export function hostOf(url) {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
 }
 
-// ➤ Reads a SAMPLE of DROPPED offers from data/scan-explain.txt. It only
-// ➤ keeps the ones the filter killed by title/language/years (the interesting
-// ➤ false negatives) and returns only the first `limit`. NOTE: that
-// ➤ file does NOT carry the URL, so these offers are judged BY title ONLY
-// ➤ (empty body). Line format:
+// ➤ Reads a SAMPLE of DROPPED offers from data/scan-explain.txt. It only keeps the ones
+// ➤ the filter killed by title/language/years (the interesting false negatives) and
+// ➤ returns only the first `limit`. NOTE: that file does NOT carry the URL, so these
+// ➤ offers are judged BY title ONLY (empty body). Line format:
 // ➤   [REASON] explanation — Title | Company | Location (source)
-// ➤ `judgedKeys` makes the limit count only offers NOT yet judged (audit
-// ➤ 2026-08-08): scan-explain.txt is rewritten each scan with a deterministic
-// ➤ sort and dropped offers persist for weeks, so the first N lines were the
-// ➤ SAME already-judged offers every run — filterUnjudged then deleted them
-// ➤ all, and the false-negative monitoring this sample exists for starved.
+// ➤ `judgedKeys` makes the limit count only offers NOT yet judged: scan-explain.txt is
+// ➤ rewritten each scan with a deterministic sort and dropped offers persist for weeks, so
+// ➤ without it the first N lines would be the SAME already-judged offers every run and the
+// ➤ false-negative monitoring this sample exists for would starve.
 export function sampleDropped(text, limit, judgedKeys = new Set()) {
   if (!limit || limit <= 0) return [];
   const wanted = new Set(['TITLE', 'LANGUAGE', 'YEARS/DEGREE']);
@@ -249,13 +239,11 @@ async function main() {
   // ➤ --limit N (optional, for manual testing): cap on offers to judge.
   const args = process.argv.slice(2);
   const li = args.indexOf('--limit');
-  // ➤ A FLAG WITH NO NUMBER MUST NOT MEAN "NO LIMIT" (audit 2026-07-31).
-  // ➤ parseInt of a missing or non-numeric value gives NaN, Number.isFinite(NaN)
-  // ➤ is false, and the cap below was then skipped altogether — so typing
-  // ➤ "--limit" with nothing after it, or with a word instead of a number,
-  // ➤ quietly judged the WHOLE queue and spent the AI calls to match. This flag
-  // ➤ is the documented way to try a small run by hand, so getting it wrong has
-  // ➤ to stop with a message rather than run wild.
+  // ➤ A FLAG WITH NO NUMBER MUST NOT MEAN "NO LIMIT": parseInt of a missing or non-numeric
+  // ➤ value gives NaN, Number.isFinite(NaN) is false, and skipping the cap would judge the
+  // ➤ WHOLE queue and spend the AI calls to match. This flag is the documented way to try a
+  // ➤ small run by hand, so getting it wrong has to stop with a message rather than run
+  // ➤ wild.
   let limit = Infinity;
   if (li !== -1) {
     limit = parseInt(args[li + 1], 10);
@@ -329,16 +317,13 @@ async function main() {
       console.log(`  [·] ${rec.title} — ${rec.company}: ${host} answered HTTP ${rec.httpStatus}; its other offers wait for the next run.`);
       continue;
     }
-    // ➤ If ANY judge could not speak (Claude out of credit, not authenticated,
-    // ➤ down), this is NOT a verdict: we do not journal it. Journalling it
-    // ➤ would mark the offer as "already judged" and it would never be looked
-    // ➤ at again — which is exactly what happened on 2026-07-24.
-    // ➤ ANY, not ALL (audit 2026-08-08): the judges run one after another for
-    // ➤ minutes, so a spend limit reached MID-OFFER left one real vote and two
-    // ➤ failures — and the old all-failed check waved that through: a 1-vote
-    // ➤ "tie" journalled as final, never retried, against the exact contract
-    // ➤ engine.mjs states for failed:true. Skipping means the next run
-    // ➤ retries; we stop the batch because the rest would fail the same.
+    // ➤ If ANY judge could not speak (Claude out of credit, not authenticated, down), this is
+    // ➤ NOT a verdict: we do not journal it. Journalling it would mark the offer as "already
+    // ➤ judged" and it would never be looked at again. ANY, not ALL: the judges run one after
+    // ➤ another for minutes, so a spend limit reached MID-OFFER leaves one real vote and two
+    // ➤ failures — a 1-vote "tie" must not be journalled as final, against the exact contract
+    // ➤ engine.mjs states for failed:true. Skipping means the next run retries; we stop the
+    // ➤ batch because the rest would fail the same.
     const votes = Object.values(rec.verdicts || {});
     if (votes.some(v => v && v.failed)) {
       failed++;
@@ -346,10 +331,9 @@ async function main() {
       console.log(`  [!] ${rec.title} — ${rec.company}: a judge could not answer (${why}). NOT journalled; it will be retried.`);
       break;
     }
-    // ➤ It APPENDS to BOTH logs; it never overwrites anything.
-    // ➤ Under the journal's lock (audit 2026-08-08): reconcile.mjs rewrites
-    // ➤ the whole file under it, and an append landing between its read and
-    // ➤ its write was erased — the offer re-judged later, three paid AI calls
+    // ➤ It APPENDS to BOTH logs; it never overwrites anything. Under the journal's lock:
+    // ➤ reconcile.mjs rewrites the whole file under it, and an append landing between its read
+    // ➤ and its write would be erased — the offer re-judged later, three paid AI calls
     // ➤ repeated. Held for the one appendFileSync, nothing more.
     withFileLock(JOURNAL_PATH, () => appendFileSync(JOURNAL_PATH, JSON.stringify(rec) + '\n'));   // ➤ for the machine
     appendFileSync(LOG_PATH, formatCouncilEntry(rec));          // ➤ readable by you
