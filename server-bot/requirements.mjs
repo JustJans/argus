@@ -34,24 +34,31 @@ const _SEARCH = loadSearchProfile();
 // ➤ Exposed so other modules (scan.mjs, notify.mjs) read the SAME profile from
 // ➤ one place instead of each re-loading config/profile.yml.
 export const searchProfile = _SEARCH;
-// ➤ Config list -> one case-insensitive regex. Each fragment compiles on its
-// ➤ OWN and is dropped if it fails: a term can be free text typed in /start
-// ➤ ("C++"), and one invalid term used to kill the scanner on import.
+// ➤ Config list -> one case-insensitive regex. A term may be a pattern (what
+// ➤ the onboarding writes: "m[eé]c[áa]ni[ckq]") or plain text typed by hand
+// ➤ ("C++", "Node.js"). Whatever does not compile as a pattern is taken as
+// ➤ plain text — escaped, and said so on stderr — instead of dropped: "C++"
+// ➤ used to vanish in silence, and the profile it was meant to guard had a hole.
 // ➤ An EMPTY list means "filter OFF" (NEVER_MATCH); a MISSING key means "not
 // ➤ configured" and only then do the marine defaults apply — before the
 // ➤ 2026-07-25 audit both fell back, so emptying a list restored the defaults.
 const NEVER_MATCH = /(?!)/;
+const escapeRegex = s => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+export function profileTerm(item) {
+  const term = String(item ?? '').trim();
+  if (!term) return null;
+  try { new RegExp(term); return { source: term, literal: false }; }
+  catch { return { source: escapeRegex(term), literal: true }; }
+}
 function profileRegex(list, fallback) {
   if (Array.isArray(list) && list.length === 0) return NEVER_MATCH;
   if (!Array.isArray(list) || !list.length) return fallback;
-  const valid = [];
-  for (const item of list) {
-    const frag = String(item);
-    try { new RegExp(frag); valid.push(frag); }        // keep only what compiles
-    catch { /* skip an invalid fragment rather than crash the import */ }
+  const terms = list.map(profileTerm).filter(Boolean);
+  for (const t of terms) {
+    if (t.literal) console.warn(`[profile] "${String(t.source).replace(/\\(.)/g, '$1')}" is not a valid pattern; taken as plain text.`);
   }
-  if (!valid.length) return fallback;
-  try { return new RegExp(valid.join('|'), 'i'); }
+  if (!terms.length) return fallback;
+  try { return new RegExp(terms.map(t => t.source).join('|'), 'i'); }
   catch { return fallback; }
 }
 

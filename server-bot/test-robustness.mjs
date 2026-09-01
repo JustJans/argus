@@ -14,7 +14,7 @@ import { parseVerdict } from './argus-council/judges.mjs';
 import { parseLetter, coverFileBase, resolveCoverBase } from './cover-letter.mjs';
 import { writeFileAtomic, tempNameFor, withFileLock } from './fs-atomic.mjs';
 import { classifyLiveness } from './liveness-core.mjs';
-import { stripHtml } from './requirements.mjs';
+import { stripHtml, profileTerm } from './requirements.mjs';
 import { looksLikeAnOutage } from './housekeep.mjs';
 import { seenReply } from './telegram-listener.mjs';
 import { buildCountryFilter, norm, buildTitleFilter, buildCompanyFilter, buildLocationFilter, parseGreenhouse, parseAshby, parseLever, greenhouseUrlWithContent, loadIdHighWater, capJobs, MAX_JOBS_PER_COMPANY } from './scan.mjs';
@@ -1458,6 +1458,21 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(runVerdict({ ...base, targets: 3, sourcesOk: 1 }), null, 'alarm: one board answering is a quiet week, not a fault');
   eq(runVerdict({ ...base, targets: 3, found: 12 }), null, 'alarm: offers found means something answered');
   eq(runVerdict({ ...base, targets: 3, only: 'fugro' }), null, 'alarm: a --company run is exempt — the aggregators were switched off on purpose');
+}
+
+// ── 21) Profile terms: a pattern stays a pattern, plain text stays plain text ──
+// ➤ "C++" does not compile as a regex; it used to be dropped in silence and the
+// ➤ list it belonged to had a hole. Now it is escaped and matched literally.
+{
+  eq(profileTerm('m[eé]c[áa]ni[ckq]'), { source: 'm[eé]c[áa]ni[ckq]', literal: false }, 'profile: a valid pattern is kept as written');
+  eq(profileTerm('C++'), { source: 'C\\+\\+', literal: true }, 'profile: an invalid pattern becomes escaped plain text');
+  eq(profileTerm('   '), null, 'profile: blanks are no term at all');
+  eq(profileTerm(null), null, 'profile: null is no term at all');
+  const cpp = new RegExp(profileTerm('C++').source, 'i');
+  ok(cpp.test('knows C++ and PLC'), 'profile: the plain text matches itself');
+  ok(!cpp.test('c plus plus'), 'profile: and nothing else');
+  eq(profileTerm('Node.js (v18+)').literal, false, 'profile: text that happens to compile is left alone (dot, group, plus are all valid)');
+  eq(profileTerm('(unclosed').literal, true, 'profile: an unclosed group is plain text too');
 }
 
 if (fail) { console.log(`\n${fail}/${pass + fail} robustness tests FAILED.`); process.exit(1); }
