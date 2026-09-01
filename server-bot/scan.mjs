@@ -1632,6 +1632,129 @@ function writeExplainReport(rows, found) {
 // ➤ fill in locations → filter language → filter years of experience →
 // ➤ remove dead links → save and notify via Telegram → summary.
 
+
+// ➤ ── THE RUN'S ACCOUNTING, IN ONE PLACE ────────────────────────────────
+// ➤ main() hands these the numbers it kept and nothing here reaches back into
+// ➤ the run. That is what makes the alarm testable: it decides from a summary,
+// ➤ not from the scan's own locals.
+
+// ➤ A "snapshot" of the scan in last-scan.json (when it ran, how many offers,
+// ➤ how many failures...). It serves to monitor that the server scanner is
+// ➤ working properly.
+function writeStateSnapshot(s) {
+  writeFileSync(STATE_PATH, JSON.stringify({
+    last_scan: new Date().toISOString(),
+    companies_scanned: s.targets,
+    jobs_found: s.found,
+    new_offers: s.newOffers.length,
+    countries_off: s.countriesOff,
+    adzuna_calls: s.adzunaCalls,
+    adzuna_failed: s.adzunaFailed,
+    rate_limited: s.adzunaRateLimited,
+    lang_filtered: s.fLang,
+    exp_filtered: s.fExp,
+    degree_filtered: s.fDeg,
+    linkedin_calls: s.liCalls,
+    linkedin_status: s.liStatus,
+    dropped_dead: s.prunedDead,
+    no_link: s.fNoLink,
+    telegram: s.telegram,
+    errors: s.errors.length,
+  }, null, 2));
+}
+
+// ➤ Final summary on screen: how many offers were found, how many fell at each
+// ➤ filter and how many new ones were added.
+function printSummary(s) {
+  console.log(`\n${'━'.repeat(45)}`);
+  console.log(`Portal Scan (extended) — ${s.date}`);
+  console.log(`${'━'.repeat(45)}`);
+  console.log(`Companies scanned:     ${s.targets}${s.sourcesOk < s.targets ? ` (${s.sourcesOk} answered)` : ''}`);
+  if (s.emptyBoards.length) console.log(`  boards that answered with zero postings: ${s.emptyBoards.join(', ')}`);
+  console.log(`Total jobs found:      ${s.found}`);
+  console.log(`Filtered by title:     ${s.fTitle}`);
+  console.log(`Filtered by company:   ${s.fCompany} (blocklist)`);
+  console.log(`Filtered by location:  ${s.fLoc}`);
+  console.log(`Filtered by country:   ${s.fCountry} (toggled OFF)`);
+  // ➤ Printed only when it happens: on a healthy run it is zero, and a line of
+  // ➤ zeros every two hours is how a number stops being read.
+  if (s.fNoLink) console.log(`Dropped, no usable link: ${s.fNoLink}  <-- a board may have changed its link field`);
+  console.log(`Duplicates:            ${s.dupes}`);
+  if (s.adzunaWanted) {
+    console.log(`Adzuna API calls:      ${s.adzunaCalls} ok, ${s.adzunaFailed} failed${s.adzunaRateLimited ? ' (RATE LIMITED)' : ''}`);
+  }
+  console.log(`Filtered by language:  ${s.fLang} (title not in EN/ES/CA)`);
+  console.log(`Filtered by exp. years:${s.fExp} (require > threshold)`);
+  console.log(`Filtered by degree:    ${s.fDeg} (requires one you lack)`);
+  if (s.fDeferred) console.log(`Deferred (body unread): ${s.fDeferred} — retried on the next scan`);
+  if (s.liEnabled) console.log(`LinkedIn:              ${s.liCalls} calls (${s.liStatus})`);
+  console.log(`Dropped (dead):        ${s.prunedDead}`);
+  console.log(`Telegram:              ${s.telegram}`);
+  console.log(`New offers added:      ${s.newOffers.length}`);
+
+  if (s.skipped.length) {
+    console.log(`\nNot used (optional, nothing is wrong):`);
+    for (const x of s.skipped) console.log(`  · ${x}`);
+  }
+  if (s.errors.length) {
+    console.log(`\nErrors (${s.errors.length}):`);
+    for (const e of s.errors) console.log(`  ✗ ${e.company}: ${e.error}`);
+  }
+}
+
+// ➤ ── SAY WHEN THE RUN DID NOTHING AT ALL ────────────────────────────────
+// ➤ (audit 2026-07-31) Argus's normal failure is to find nothing, which looks
+// ➤ exactly like a quiet week. Three different breakages produced a clean exit
+// ➤ and total silence: no network (every source failed), a config that parses
+// ➤ but selects no sources, and a config that lists sources none of which
+// ➤ answered. The scan wrote down the error count and NOTHING read it.
+// ➤ NOT "everything errored" — "nothing answered". A source that is switched
+// ➤ on but never reached raises no error at all: a missing Adzuna key is
+// ➤ reported as skipped, and LinkedIn's cadence and cooldown paths return in
+// ➤ silence. Requiring an error meant the quietest failure of all — the one
+// ➤ this alarm exists for — could not set it off.
+// ➤ A --company run is exempt: it deliberately scans one board with the
+// ➤ aggregators switched off, so "no aggregator answered" is the point of the
+// ➤ command, not a fault worth waking you for.
+// ➤ Pure and exported so the decision can be tested without a scan.
+export function runVerdict(s) {
+  const anySourceConfigured = s.targets > 0 || s.adzunaWanted || s.liEnabled;
+  if (!anySourceConfigured) return 'nothing-to-scan';
+  const everythingFailed = !s.only && s.sourcesOk === 0 && s.adzunaCalls === 0 && s.liCalls === 0 && s.found === 0;
+  return everythingFailed ? 'everything-failed' : null;
+}
+
+async function alarmIfNothingRan(s) {
+  const verdict = runVerdict(s);
+  if (verdict === 'nothing-to-scan') {
+    console.log('\n! NOTHING WAS SEARCHED. No employer, no aggregator and no LinkedIn are switched on —');
+    console.log('  portals.yml and config/profile.yml between them select no sources at all.');
+    console.log('  This run did nothing, and so will every run until that is changed.');
+  } else if (verdict === 'everything-failed') {
+    console.log(`\n! EVERY SOURCE FAILED — not one of them answered (${s.errors.length} error(s)).`);
+    console.log('  That is a network or configuration problem, not a quiet week: no offer could');
+    console.log('  have been found today whatever was published.');
+  }
+  // ➤ And say it where you would actually see it, not only in a log file nobody
+  // ➤ opens. Once per run, and never on a dry run.
+  if (verdict && !s.dryRun && !process.env.ARGUS_SKIP_LIST_REFRESH) {
+    try {
+      const { sendTelegram } = await import(new URL('./notify.mjs', import.meta.url));
+      await sendTelegram(verdict === 'nothing-to-scan'
+        ? 'Argus searched nothing this run: no employer, aggregator or LinkedIn is switched on. Nothing will arrive until that is fixed.'
+        : `Argus could not reach a single source this run (${s.errors.length} error(s)). That is a network or configuration problem, not a quiet week.`);
+    } catch { /* if Telegram is down too, the log above is what is left */ }
+  }
+}
+
+// ➤ Same cleaning as the pipeline line, so the log reads like the offer does on
+// ➤ Telegram ("R&amp;D" was showing up raw here).
+function printNewOffers(offers) {
+  if (!offers.length) return;
+  console.log('\nNew offers:');
+  for (const o of offers) console.log(`  + ${sanitizeField(o.company)} | ${sanitizeField(o.title)} | ${sanitizeField(normalizeLocation(o.location)) || 'N/A'}${o.years != null ? ` | ${o.years}yr req` : ''}`);
+}
+
 async function main() {
   // ➤ The cron log this run appends to must not grow for ever (Linux/mac; the
   // ➤ file does not exist on Windows, where output is discarded).
@@ -1778,8 +1901,9 @@ async function main() {
     newOffers.push({ ...job, source });
   }
 
-  // ➤ Prepares one task per company: each queries its portal with the
-  // ➤ right recipe and passes its offers through the entry gate.
+  // ➤ ── WHAT THE PHASES SHARE ─────────────────────────────────────────────
+  // ➤ Every counter the summary reads is declared here, once, so each phase
+  // ➤ below can be read on its own: it fills these in, it never invents them.
   // ➤ How many sources answered at all. Used at the end to tell "a quiet week"
   // ➤ from "nothing could be reached", which look identical otherwise.
   let sourcesOk = 0;
@@ -1789,75 +1913,10 @@ async function main() {
   // ➤ brand (0), and one legitimate quiet board. The line is one glance to tell
   // ➤ which of those you have.
   const emptyBoards = [];
-  const tasks = targets.map(c => async () => {
-    try {
-      let jobs;
-      // ➤ A board that stops halfway is recorded like any other failure, so the
-      // ➤ summary can never read as a quiet day when 41 of 42 pages went unread.
-      const partial = (err, got) => errors.push({
-        company: c.name,
-        error: `only part of the board was read (${got} offers before it stopped): ${err?.message || 'unknown'}`,
-      });
-      if (c._api.type === 'workday') {
-        jobs = await collectWorkday(c._api, c.name, workdayTerms, partial);
-      } else if (c._api.type === 'oracle') {
-        jobs = await collectOracle(c._api, c.name, partial);
-      } else if (c._api.type === 'sitemap') {
-        jobs = await collectSitemap(c._api, c.name, titleFilter);
-      } else {
-        // ➤ Greenhouse withholds the advert text unless asked; see above.
-        const url = c._api.type === 'greenhouse' ? greenhouseUrlWithContent(c._api.url) : c._api.url;
-        const json = await fetchJson(url);
-        jobs = PARSERS[c._api.type](json, c.name);
-      }
-      // ➤ A CEILING ON WHAT ONE EMPLOYER CAN ADD IN ONE RUN (audit 2026-07-31).
-      // ➤ Workday and Oracle already had one; Greenhouse, Lever and Ashby took
-      // ➤ whatever the feed said. Provoked with a feed answering 20,000
-      // ➤ postings: all 20,000 went into the pending list — a 2.2 MB file and,
-      // ➤ with Telegram on, about 450 messages over nine minutes. The cap sits
-      // ➤ far above any real board, so it only ever fires on a broken or hostile
-      // ➤ feed, and it SAYS SO rather than truncating in silence.
-      jobs = capJobs(jobs, c.name);
-      sourcesOk++;
-      if (jobs.length === 0) emptyBoards.push(c.name);
-      found += jobs.length;
-      for (const job of jobs) admit(job, `${c._api.type}-api`);
-    } catch (err) {
-      errors.push({ company: c.name, error: err.message });
-    }
-  });
-
-  // ➤ Runs all the company tasks, 8 at a time at most.
-  await parallel(tasks, CONCURRENCY);
-
-  // ── Adzuna aggregator (skipped when --company targets an ATS) ─────
-  // ➤ Adzuna step: only if it's enabled in the configuration and skipping it
-  // ➤ wasn't requested. Without access keys, the error is recorded and it continues.
   let adzunaCalls = 0, adzunaFailed = 0, adzunaRateLimited = false;
   const adzunaWanted = adzunaCfg.enabled
     && !args.includes('--no-adzuna')
     && (!only || 'adzuna'.includes(only));
-  if (adzunaWanted) {
-    const creds = loadAdzunaCreds();
-    if (!creds) {
-      // ➤ NOT an error: the Adzuna key is optional and the README says so, but
-      // ➤ this used to be listed under "Errors" on every scan of a fresh
-      // ➤ install — which reads as "your setup is broken" when nothing is.
-      skipped.push('Adzuna (no key — see README, it is optional)');
-    } else {
-      const res = await collectAdzuna(creds, adzunaCfg, country.off);
-      adzunaCalls = res.calls;
-      adzunaFailed = res.failed;
-      adzunaRateLimited = res.rateLimited;
-      for (const f of res.failures) errors.push({ company: 'Adzuna', error: f });
-      found += res.offers.length;
-      for (const job of res.offers) admit(job, 'adzuna');
-    }
-  }
-
-  // ── LinkedIn jobs-guest (optional, low volume, self-throttled) ─────
-  // ➤ LinkedIn step: just as optional, and it also self-throttles
-  // ➤ (hourly cadence and rests, as explained above).
   let liCalls = 0, liStatus = 'off';
   // ➤ If the profile carries its own queries, LinkedIn is asked for each of them
   // ➤ in each configured country, instead of the fixed example pairs.
@@ -1869,373 +1928,378 @@ async function main() {
           .map(loc => ({ keywords: q, location: loc }))),
     }
     : (config.linkedin || {});
-  if (liCfg.enabled && !args.includes('--no-linkedin') && (!only || 'linkedin'.includes(only))) {
-    const res = await collectLinkedIn(liCfg);
-    liCalls = res.calls;
-    liStatus = res.status;
-    found += res.offers.length;
-    for (const job of res.offers) admit(job, 'linkedin');
+  let fLang = 0;
+  const langCfg = config.title_language_filter || {};
+  const langEnabled = langCfg.enabled !== false && !args.includes('--no-langcheck');
+  let fExp = 0, fDeg = 0, fDeferred = 0;
+  let prunedDead = 0;
+  let telegram = dryRun ? 'dry-run' : 'nothing to send';
+
+  // ➤ ── THE RUN, PHASE BY PHASE ──────────────────────────────────────────
+  // ➤ Each phase is a named function further down; this is the whole scan
+  // ➤ in the order it happens.
+  await collectFromCompanies();
+  await collectFromAdzuna();
+  await collectFromLinkedIn();
+  await enrichWorkdayLocations();
+  await screenTitleLanguage();
+  await screenRequirements();
+  await dropDeadLinks();
+  dumpExplainReport();
+  await persistAndNotify();
+
+  const summary = {
+    date, dryRun, only, targets: targets.length, sourcesOk, emptyBoards, found,
+    fTitle, fCompany, fLoc, fCountry, fNoLink, dupes,
+    adzunaWanted, adzunaCalls, adzunaFailed, adzunaRateLimited,
+    fLang, fExp, fDeg, fDeferred, liEnabled: !!liCfg.enabled, liCalls, liStatus,
+    prunedDead, telegram, newOffers, errors, skipped, countriesOff: country.off,
+  };
+  if (!dryRun) writeStateSnapshot(summary);
+  printSummary(summary);
+  await alarmIfNothingRan(summary);
+  printNewOffers(newOffers);
+
+  // ➤ ── THE PHASES ──────────────────────────────────────────────────────
+  async function collectFromCompanies() {
+    // ➤ Prepares one task per company: each queries its portal with the
+    // ➤ right recipe and passes its offers through the entry gate.
+    const tasks = targets.map(c => async () => {
+      try {
+        let jobs;
+        // ➤ A board that stops halfway is recorded like any other failure, so the
+        // ➤ summary can never read as a quiet day when 41 of 42 pages went unread.
+        const partial = (err, got) => errors.push({
+          company: c.name,
+          error: `only part of the board was read (${got} offers before it stopped): ${err?.message || 'unknown'}`,
+        });
+        if (c._api.type === 'workday') {
+          jobs = await collectWorkday(c._api, c.name, workdayTerms, partial);
+        } else if (c._api.type === 'oracle') {
+          jobs = await collectOracle(c._api, c.name, partial);
+        } else if (c._api.type === 'sitemap') {
+          jobs = await collectSitemap(c._api, c.name, titleFilter);
+        } else {
+          // ➤ Greenhouse withholds the advert text unless asked; see above.
+          const url = c._api.type === 'greenhouse' ? greenhouseUrlWithContent(c._api.url) : c._api.url;
+          const json = await fetchJson(url);
+          jobs = PARSERS[c._api.type](json, c.name);
+        }
+        // ➤ A CEILING ON WHAT ONE EMPLOYER CAN ADD IN ONE RUN (audit 2026-07-31).
+        // ➤ Workday and Oracle already had one; Greenhouse, Lever and Ashby took
+        // ➤ whatever the feed said. Provoked with a feed answering 20,000
+        // ➤ postings: all 20,000 went into the pending list — a 2.2 MB file and,
+        // ➤ with Telegram on, about 450 messages over nine minutes. The cap sits
+        // ➤ far above any real board, so it only ever fires on a broken or hostile
+        // ➤ feed, and it SAYS SO rather than truncating in silence.
+        jobs = capJobs(jobs, c.name);
+        sourcesOk++;
+        if (jobs.length === 0) emptyBoards.push(c.name);
+        found += jobs.length;
+        for (const job of jobs) admit(job, `${c._api.type}-api`);
+      } catch (err) {
+        errors.push({ company: c.name, error: err.message });
+      }
+    });
+
+    // ➤ Runs all the company tasks, 8 at a time at most.
+    await parallel(tasks, CONCURRENCY);
   }
 
-  // ── Workday multi-location enrichment ──────────────────────────────
-  // ➤ "Fill in locations" step: the Workday offers that said
-  // ➤ "N Locations" came in with no location. Now, just for those few,
-  // ➤ the detail is requested to learn the real locations and the country
-  // ➤ rules are re-applied.
-  {
-    const targetsByName = new Map(targets.map(t => [t.name, t]));
-    const wdPending = newOffers
-      .map((o, i) => ({ o, i }))
-      .filter(x => x.o.source === 'workday-api' && !x.o.location);
-    if (wdPending.length) {
+  async function collectFromAdzuna() {
+    // ── Adzuna aggregator (skipped when --company targets an ATS) ─────
+    // ➤ Adzuna step: only if it's enabled in the configuration and skipping it
+    // ➤ wasn't requested. Without access keys, the error is recorded and it continues.
+    if (adzunaWanted) {
+      const creds = loadAdzunaCreds();
+      if (!creds) {
+        // ➤ NOT an error: the Adzuna key is optional and the README says so, but
+        // ➤ this used to be listed under "Errors" on every scan of a fresh
+        // ➤ install — which reads as "your setup is broken" when nothing is.
+        skipped.push('Adzuna (no key — see README, it is optional)');
+      } else {
+        const res = await collectAdzuna(creds, adzunaCfg, country.off);
+        adzunaCalls = res.calls;
+        adzunaFailed = res.failed;
+        adzunaRateLimited = res.rateLimited;
+        for (const f of res.failures) errors.push({ company: 'Adzuna', error: f });
+        found += res.offers.length;
+        for (const job of res.offers) admit(job, 'adzuna');
+      }
+    }
+  }
+
+  async function collectFromLinkedIn() {
+    // ── LinkedIn jobs-guest (optional, low volume, self-throttled) ─────
+    // ➤ LinkedIn step: just as optional, and it also self-throttles
+    // ➤ (hourly cadence and rests, as explained above).
+    if (liCfg.enabled && !args.includes('--no-linkedin') && (!only || 'linkedin'.includes(only))) {
+      const res = await collectLinkedIn(liCfg);
+      liCalls = res.calls;
+      liStatus = res.status;
+      found += res.offers.length;
+      for (const job of res.offers) admit(job, 'linkedin');
+    }
+  }
+
+  async function enrichWorkdayLocations() {
+    // ── Workday multi-location enrichment ──────────────────────────────
+    // ➤ "Fill in locations" step: the Workday offers that said
+    // ➤ "N Locations" came in with no location. Now, just for those few,
+    // ➤ the detail is requested to learn the real locations and the country
+    // ➤ rules are re-applied.
+    {
+      const targetsByName = new Map(targets.map(t => [t.name, t]));
+      const wdPending = newOffers
+        .map((o, i) => ({ o, i }))
+        .filter(x => x.o.source === 'workday-api' && !x.o.location);
+      if (wdPending.length) {
+        const drops = new Set();
+        const checks = wdPending.map(({ o, i }) => async () => {
+          const t = targetsByName.get(o.company);
+          if (!t?._api?.meta) return;
+          const { tenant, dc, site } = t._api.meta;
+          const path = o.url.split(`/en-US/${site}`)[1];
+          if (!path) return;
+          try {
+            const j = await fetchJson(`https://${tenant}.${dc}.myworkdayjobs.com/wday/cxs/${tenant}/${site}${path}`);
+            const info = j?.jobPostingInfo || {};
+            // ➤ The description travels in this same response; stashing it saves
+            // ➤ fetchOfferDescription re-downloading the identical URL minutes
+            // ➤ later (audit 2026-08-08 — every enriched offer paid it twice).
+            if (info.jobDescription) o._jd = stripHtml(info.jobDescription);
+            const locs = [info.location, ...(info.additionalLocations || [])].filter(Boolean);
+            if (!locs.length) return; // still unknown — keep as-is
+            // ➤ Generous rule: as long as ONE of the locations is allowed,
+            // ➤ the offer stays (and that one is shown). It's only discarded if
+            // ➤ ALL are blocked.
+            const passing = locs.filter(l => locationFilter(l) && country.fn(l));
+            if (passing.length === 0) { drops.add(i); o._why = `all its locations are outside your range (${locs.join(', ')})`; return; }
+            o.location = passing.join('; ');
+          } catch { /* keep on failure */ }
+        });
+        await parallel(checks, 5);
+        // ➤ Removes from the list the ones that turned out to be in blocked countries.
+        if (explain) for (const i of drops) logDrop('LOCATION', newOffers[i]._why || 'location outside your range', newOffers[i]);
+        if (drops.size) {
+          const kept = newOffers.filter((_, i) => !drops.has(i));
+          fLoc += newOffers.length - kept.length;
+          newOffers.length = 0;
+          newOffers.push(...kept);
+        }
+      }
+    }
+  }
+
+  async function screenTitleLanguage() {
+    // ── Language screen ───────────────────────────────────────────────
+    // ➤ TITLE language step: out with the offers whose title is in a
+    // ➤ language the user doesn't speak, or that already demand a language in the title.
+    // ➤ Allowed title languages come from your profile (search.languages); the
+    // ➤ portals.yml value or EN/ES/CA are only fallbacks.
+    const langAllow = new Set((searchProfile.languages || langCfg.allow || ['en', 'es', 'ca']).map(s => String(s).toLowerCase()));
+    if (langEnabled && newOffers.length > 0) {
       const drops = new Set();
-      const checks = wdPending.map(({ o, i }) => async () => {
-        const t = targetsByName.get(o.company);
-        if (!t?._api?.meta) return;
-        const { tenant, dc, site } = t._api.meta;
-        const path = o.url.split(`/en-US/${site}`)[1];
-        if (!path) return;
-        try {
-          const j = await fetchJson(`https://${tenant}.${dc}.myworkdayjobs.com/wday/cxs/${tenant}/${site}${path}`);
-          const info = j?.jobPostingInfo || {};
-          // ➤ The description travels in this same response; stashing it saves
-          // ➤ fetchOfferDescription re-downloading the identical URL minutes
-          // ➤ later (audit 2026-08-08 — every enriched offer paid it twice).
-          if (info.jobDescription) o._jd = stripHtml(info.jobDescription);
-          const locs = [info.location, ...(info.additionalLocations || [])].filter(Boolean);
-          if (!locs.length) return; // still unknown — keep as-is
-          // ➤ Generous rule: as long as ONE of the locations is allowed,
-          // ➤ the offer stays (and that one is shown). It's only discarded if
-          // ➤ ALL are blocked.
-          const passing = locs.filter(l => locationFilter(l) && country.fn(l));
-          if (passing.length === 0) { drops.add(i); o._why = `all its locations are outside your range (${locs.join(', ')})`; return; }
-          o.location = passing.join('; ');
-        } catch { /* keep on failure */ }
+      const checks = newOffers.map((o, i) => async () => {
+        // ➤ Garbled titles first: deterministic, and saves the network lookup.
+        if (titleEncodingBroken(o.title)) { drops.add(i); o._why = 'the title arrived garbled from the portal (broken encoding)'; return; }
+        if (titleDemandsForeignLanguage(o.title)) { drops.add(i); o._why = 'the title requires a language you do not speak'; return; }
+        const lang = await detectTitleLang(o.title);
+        if (lang && !langAllow.has(lang)) { drops.add(i); o._why = `the title is in ${lang}, a language you do not work in`; }
       });
       await parallel(checks, 5);
-      // ➤ Removes from the list the ones that turned out to be in blocked countries.
-      if (explain) for (const i of drops) logDrop('LOCATION', newOffers[i]._why || 'location outside your range', newOffers[i]);
+      if (explain) for (const i of drops) logDrop('LANGUAGE', newOffers[i]._why || 'title language not allowed', newOffers[i]);
       if (drops.size) {
         const kept = newOffers.filter((_, i) => !drops.has(i));
-        fLoc += newOffers.length - kept.length;
+        fLang = newOffers.length - kept.length;
         newOffers.length = 0;
         newOffers.push(...kept);
       }
     }
   }
 
-  // ── Language screen ───────────────────────────────────────────────
-  // ➤ TITLE language step: out with the offers whose title is in a
-  // ➤ language the user doesn't speak, or that already demand a language in the title.
-  let fLang = 0;
-  const langCfg = config.title_language_filter || {};
-  // ➤ Allowed title languages come from your profile (search.languages); the
-  // ➤ portals.yml value or EN/ES/CA are only fallbacks.
-  const langAllow = new Set((searchProfile.languages || langCfg.allow || ['en', 'es', 'ca']).map(s => String(s).toLowerCase()));
-  const langEnabled = langCfg.enabled !== false && !args.includes('--no-langcheck');
-  if (langEnabled && newOffers.length > 0) {
-    const drops = new Set();
-    const checks = newOffers.map((o, i) => async () => {
-      // ➤ Garbled titles first: deterministic, and saves the network lookup.
-      if (titleEncodingBroken(o.title)) { drops.add(i); o._why = 'the title arrived garbled from the portal (broken encoding)'; return; }
-      if (titleDemandsForeignLanguage(o.title)) { drops.add(i); o._why = 'the title requires a language you do not speak'; return; }
-      const lang = await detectTitleLang(o.title);
-      if (lang && !langAllow.has(lang)) { drops.add(i); o._why = `the title is in ${lang}, a language you do not work in`; }
-    });
-    await parallel(checks, 5);
-    if (explain) for (const i of drops) logDrop('LANGUAGE', newOffers[i]._why || 'title language not allowed', newOffers[i]);
-    if (drops.size) {
-      const kept = newOffers.filter((_, i) => !drops.has(i));
-      fLang = newOffers.length - kept.length;
-      newOffers.length = 0;
-      newOffers.push(...kept);
+  async function screenRequirements() {
+    // ── Experience and degree screen ──────────────────────────────────
+    // ➤ The threshold comes from the profile ("5+ years → skip", "3-5
+    // ➤ borderline"), so anything above max_years is dropped and anything
+    // ➤ unknown is kept.
+    // ➤ Years-of-experience and degree step: the text of each accepted
+    // ➤ offer is downloaded and, if it clearly asks for more years than the user can
+    // ➤ offer, or requires a degree the user does not have, it's discarded. If it's unknown,
+    // ➤ the offer stays. With that same text the refined language rule
+    // ➤ is applied (2026-07-18): it doesn't matter which language the
+    // ➤ offer is WRITTEN in; it's only discarded if the body REQUIRES a language the user does not speak.
+    const expCfg = config.experience_filter || {};
+    if (expCfg.enabled !== false && newOffers.length > 0 && !args.includes('--no-expcheck')) {
+      // ➤ Years cap comes from your profile (search.max_years); portals.yml or 4
+      // ➤ are only fallbacks.
+      const maxYears = Number.isFinite(searchProfile.max_years) ? searchProfile.max_years
+        : (Number.isFinite(expCfg.max_years) ? expCfg.max_years : 4);
+      const targetsByName = new Map(targets.map(t => [t.name, t]));
+      const drops = new Set();
+      const langDrops = new Set();
+      const deferred = new Set();
+      const checks = newOffers.map((o, i) => async () => {
+        const desc = await fetchOfferDescription(o, targetsByName);
+        // ➤ Experience verdict: it looks at how many years they ask for AND in what field
+        // ➤ (2 years "in a similar role" of PLC discard just like 5 — the user
+        // ➤ can't prove them; 2 years of mooring they can).
+        const verdict = experienceScreen(`${o.title || ''}. ${desc}`, o.title, maxYears);
+        if (verdict) o.years = verdict.years;         // surfaced in the scan log
+        // ➤ OrcaFlex rule (2026-07-11): if the offer mentions OrcaFlex —
+        // ➤ HIS star tool, which barely anyone knows — it stays in the list
+        // ➤ even if it asks for more years than the cap. The language is still
+        // ➤ checked. The term list lives in the profile (search.priority_terms).
+        const priority = PRIORITY_KEEP.test(`${o.title || ''} ${desc}`);
+        if (verdict && verdict.drop && !priority) {
+          drops.add(i);
+          o._why = verdict.why === 'over-threshold' ? `asks for ${verdict.years} years of experience (your cap is ${maxYears})`
+            : verdict.why === 'field-mismatch' ? `asks for ${verdict.years} year(s) of experience in a field that isn't yours`
+            : `asks for more experience than you have`;
+          return;
+        }
+        // ➤ DEGREE requirement in the body (2026-07-16): if the text requires
+        // ➤ a master's/degree in a field the user doesn't have (mechanical/electrical/
+        // ➤ electronics...) and mentions none of the user's fields, out. OrcaFlex
+        // ➤ exempts just like with the years.
+        if (!priority && degreeScreen(desc, o.title)) { drops.add(i); o.degree = true; o._why = 'the body requires a degree you do not have (mechanical/electrical/civil engineering/etc.)'; return; }
+        // ➤ Refined language rule (2026-07-18): it does NOT matter which language
+        // ➤ the offer is written in — it's only discarded if the body REQUIRES a
+        // ➤ language you don't speak (and not as "valued/a plus"). For Adzuna the
+        // ➤ clean description region is used (or the API snippet);
+        // ➤ never the whole page, which carries menus in the country's language.
+        if (langEnabled) {
+          const pure = o.source === 'adzuna' ? (o._jd || stripHtml(o.description || '')) : desc;
+          if (pure && bodyLanguageBlock(pure)) { langDrops.add(i); o._why = 'the body REQUIRES (mandatory) a language you do not speak'; }
+        }
+        // ➤ DEFERRAL (the user gave the OK 2026-07-18, case #626/#627): if the
+        // ➤ detail page could NOT be read (429 exhausted), the offer isn't shown to you
+        // ➤ half-examined. It's left out WITHOUT recording it anywhere, and
+        // ➤ the next scan (2 h, fresh quota) re-finds it and examines it
+        // ➤ fully. OrcaFlex exception: if the snippet already names your star
+        // ➤ tool, it comes in anyway — it's not risked being lost.
+        if (o._bodyUnread && !priority) { deferred.add(i); o._why = 'detail page unreadable due to rate-limit — retried on the next scan'; }
+      });
+      await parallel(checks, 5);
+      const allDrops = new Set([...drops, ...langDrops, ...deferred]);
+      // ➤ --explain: records the exact reason for each body-based discard.
+      if (explain) {
+        for (const i of drops) logDrop('YEARS/DEGREE', newOffers[i]._why || 'body requirements you do not meet', newOffers[i]);
+        for (const i of langDrops) logDrop('LANGUAGE', newOffers[i]._why || 'the body requires a language you do not speak', newOffers[i]);
+        for (const i of deferred) logDrop('DEFERRED', newOffers[i]._why, newOffers[i]);
+      }
+      if (allDrops.size) {
+        const kept = newOffers.filter((_, i) => !allDrops.has(i));
+        // ➤ Years and degree are different verdicts and were reported as one:
+        // ➤ a drop for a degree the owner lacks was printed under "exp. years".
+        fExp = [...drops].filter(i => !newOffers[i].degree).length;
+        fDeg = [...drops].filter(i => newOffers[i].degree).length;
+        fLang += langDrops.size;
+        fDeferred = deferred.size;
+        newOffers.length = 0;
+        newOffers.push(...kept);
+      }
     }
   }
 
-  // ── Experience and degree screen ──────────────────────────────────
-  // ➤ The threshold comes from the profile ("5+ years → skip", "3-5
-  // ➤ borderline"), so anything above max_years is dropped and anything
-  // ➤ unknown is kept.
-  // ➤ Years-of-experience and degree step: the text of each accepted
-  // ➤ offer is downloaded and, if it clearly asks for more years than the user can
-  // ➤ offer, or requires a degree the user does not have, it's discarded. If it's unknown,
-  // ➤ the offer stays. With that same text the refined language rule
-  // ➤ is applied (2026-07-18): it doesn't matter which language the
-  // ➤ offer is WRITTEN in; it's only discarded if the body REQUIRES a language the user does not speak.
-  let fExp = 0, fDeg = 0, fDeferred = 0;
-  const expCfg = config.experience_filter || {};
-  if (expCfg.enabled !== false && newOffers.length > 0 && !args.includes('--no-expcheck')) {
-    // ➤ Years cap comes from your profile (search.max_years); portals.yml or 4
-    // ➤ are only fallbacks.
-    const maxYears = Number.isFinite(searchProfile.max_years) ? searchProfile.max_years
-      : (Number.isFinite(expCfg.max_years) ? expCfg.max_years : 4);
-    const targetsByName = new Map(targets.map(t => [t.name, t]));
-    const drops = new Set();
-    const langDrops = new Set();
-    const deferred = new Set();
-    const checks = newOffers.map((o, i) => async () => {
-      const desc = await fetchOfferDescription(o, targetsByName);
-      // ➤ Experience verdict: it looks at how many years they ask for AND in what field
-      // ➤ (2 years "in a similar role" of PLC discard just like 5 — the user
-      // ➤ can't prove them; 2 years of mooring they can).
-      const verdict = experienceScreen(`${o.title || ''}. ${desc}`, o.title, maxYears);
-      if (verdict) o.years = verdict.years;         // surfaced in the scan log
-      // ➤ OrcaFlex rule (2026-07-11): if the offer mentions OrcaFlex —
-      // ➤ HIS star tool, which barely anyone knows — it stays in the list
-      // ➤ even if it asks for more years than the cap. The language is still
-      // ➤ checked. The term list lives in the profile (search.priority_terms).
-      const priority = PRIORITY_KEEP.test(`${o.title || ''} ${desc}`);
-      if (verdict && verdict.drop && !priority) {
-        drops.add(i);
-        o._why = verdict.why === 'over-threshold' ? `asks for ${verdict.years} years of experience (your cap is ${maxYears})`
-          : verdict.why === 'field-mismatch' ? `asks for ${verdict.years} year(s) of experience in a field that isn't yours`
-          : `asks for more experience than you have`;
-        return;
+  async function dropDeadLinks() {
+    // ── Liveness: drop clearly-dead Adzuna links before they reach the user ─
+    // ➤ Last filter: check that the Adzuna links are still alive,
+    // ➤ so the user doesn't get offers already withdrawn.
+    if (newOffers.length > 0 && !args.includes('--no-liveness')) {
+      const candidates = newOffers.map((o, i) => ({ o, i })).filter(x => x.o.source === 'adzuna');
+      const dead = new Set();
+      const checks = candidates.map(({ o, i }) => async () => {
+        // ➤ The experience screen already downloaded this very page and left the
+        // ➤ verdict's evidence on the offer — judging from it avoids a second
+        // ➤ download of the whole batch (audit 2026-08-08). Only offers that
+        // ➤ arrived without evidence (screen skipped or errored) still fetch.
+        const isDead = o._live
+          ? deadFromEvidence(o._live.status, o._live.finalUrl, o._live.body)
+          : await isLikelyDead(o.url);
+        if (isDead) { dead.add(i); o._why = 'the link no longer works (offer withdrawn or expired)'; }
+        delete o._live;   // evidence served its purpose — keep it off the pipeline file
+      });
+      await parallel(checks, LIVENESS_CONCURRENCY);
+      if (explain) for (const i of dead) logDrop('DEAD', newOffers[i]._why || 'link down', newOffers[i]);
+      if (dead.size) {
+        const alive = newOffers.filter((_, i) => !dead.has(i));
+        prunedDead = newOffers.length - alive.length;
+        newOffers.length = 0;
+        newOffers.push(...alive);
       }
-      // ➤ DEGREE requirement in the body (2026-07-16): if the text requires
-      // ➤ a master's/degree in a field the user doesn't have (mechanical/electrical/
-      // ➤ electronics...) and mentions none of the user's fields, out. OrcaFlex
-      // ➤ exempts just like with the years.
-      if (!priority && degreeScreen(desc, o.title)) { drops.add(i); o.degree = true; o._why = 'the body requires a degree you do not have (mechanical/electrical/civil engineering/etc.)'; return; }
-      // ➤ Refined language rule (2026-07-18): it does NOT matter which language
-      // ➤ the offer is written in — it's only discarded if the body REQUIRES a
-      // ➤ language you don't speak (and not as "valued/a plus"). For Adzuna the
-      // ➤ clean description region is used (or the API snippet);
-      // ➤ never the whole page, which carries menus in the country's language.
-      if (langEnabled) {
-        const pure = o.source === 'adzuna' ? (o._jd || stripHtml(o.description || '')) : desc;
-        if (pure && bodyLanguageBlock(pure)) { langDrops.add(i); o._why = 'the body REQUIRES (mandatory) a language you do not speak'; }
-      }
-      // ➤ DEFERRAL (the user gave the OK 2026-07-18, case #626/#627): if the
-      // ➤ detail page could NOT be read (429 exhausted), the offer isn't shown to you
-      // ➤ half-examined. It's left out WITHOUT recording it anywhere, and
-      // ➤ the next scan (2 h, fresh quota) re-finds it and examines it
-      // ➤ fully. OrcaFlex exception: if the snippet already names your star
-      // ➤ tool, it comes in anyway — it's not risked being lost.
-      if (o._bodyUnread && !priority) { deferred.add(i); o._why = 'detail page unreadable due to rate-limit — retried on the next scan'; }
-    });
-    await parallel(checks, 5);
-    const allDrops = new Set([...drops, ...langDrops, ...deferred]);
-    // ➤ --explain: records the exact reason for each body-based discard.
+    }
+  }
+
+  function dumpExplainReport() {
+    // ── --explain: record the survivors and dump the complete list ──
+    // ➤ Every offer that reaches here is a NEW one (it'll reach you). With everything
+    // ➤ recorded, data/scan-explain.txt is written: one line per offer.
     if (explain) {
-      for (const i of drops) logDrop('YEARS/DEGREE', newOffers[i]._why || 'body requirements you do not meet', newOffers[i]);
-      for (const i of langDrops) logDrop('LANGUAGE', newOffers[i]._why || 'the body requires a language you do not speak', newOffers[i]);
-      for (const i of deferred) logDrop('DEFERRED', newOffers[i]._why, newOffers[i]);
-    }
-    if (allDrops.size) {
-      const kept = newOffers.filter((_, i) => !allDrops.has(i));
-      // ➤ Years and degree are different verdicts and were reported as one:
-      // ➤ a drop for a degree the owner lacks was printed under "exp. years".
-      fExp = [...drops].filter(i => !newOffers[i].degree).length;
-      fDeg = [...drops].filter(i => newOffers[i].degree).length;
-      fLang += langDrops.size;
-      fDeferred = deferred.size;
-      newOffers.length = 0;
-      newOffers.push(...kept);
+      for (const o of newOffers) logDrop('✅ NEW', 'passed all filters — it reaches you', o);
+      writeExplainReport(explainRows, found);
     }
   }
 
-  // ── Liveness: drop clearly-dead Adzuna links before they reach the user ─
-  // ➤ Last filter: check that the Adzuna links are still alive,
-  // ➤ so the user doesn't get offers already withdrawn.
-  let prunedDead = 0;
-  if (newOffers.length > 0 && !args.includes('--no-liveness')) {
-    const candidates = newOffers.map((o, i) => ({ o, i })).filter(x => x.o.source === 'adzuna');
-    const dead = new Set();
-    const checks = candidates.map(({ o, i }) => async () => {
-      // ➤ The experience screen already downloaded this very page and left the
-      // ➤ verdict's evidence on the offer — judging from it avoids a second
-      // ➤ download of the whole batch (audit 2026-08-08). Only offers that
-      // ➤ arrived without evidence (screen skipped or errored) still fetch.
-      const isDead = o._live
-        ? deadFromEvidence(o._live.status, o._live.finalUrl, o._live.body)
-        : await isLikelyDead(o.url);
-      if (isDead) { dead.add(i); o._why = 'the link no longer works (offer withdrawn or expired)'; }
-      delete o._live;   // evidence served its purpose — keep it off the pipeline file
-    });
-    await parallel(checks, LIVENESS_CONCURRENCY);
-    if (explain) for (const i of dead) logDrop('DEAD', newOffers[i]._why || 'link down', newOffers[i]);
-    if (dead.size) {
-      const alive = newOffers.filter((_, i) => !dead.has(i));
-      prunedDead = newOffers.length - alive.length;
-      newOffers.length = 0;
-      newOffers.push(...alive);
-    }
-  }
-
-  // ── --explain: record the survivors and dump the complete list ──
-  // ➤ Every offer that reaches here is a NEW one (it'll reach you). With everything
-  // ➤ recorded, data/scan-explain.txt is written: one line per offer.
-  if (explain) {
-    for (const o of newOffers) logDrop('✅ NEW', 'passed all filters — it reaches you', o);
-    writeExplainReport(explainRows, found);
-  }
-
-  // ── Persist + refresh the single live list ──────────────────────────
-  // ➤ Saving: if it's not a dry run and there are new offers, they're recorded
-  // ➤ in pipeline.md and the history. There is NO separate "new offers"
-  // ➤ message: to stop duplicated messages from piling up, the ONLY Telegram
-  // ➤ message is the single live list, which deletes its previous version and
-  // ➤ re-posts ALL pending offers (the new ones included). alert:true makes
-  // ➤ THIS repost audible — a real ping when new offers arrive.
-  // ➤ EXCEPTION: if the listener launched you with "search"
-  // ➤ (ARGUS_SKIP_LIST_REFRESH=1), it does NOT refresh here — the listener
-  // ➤ refreshes AFTER the "Search finished" message so the list ends at the bottom.
-  // ➤ It must SAY WHY nothing was sent: "off" is what an unconfigured bot would
-  // ➤ report, so a quiet run and a broken setup left the same line in the log.
-  let telegram = dryRun ? 'dry-run' : 'nothing to send';
-  if (!dryRun && newOffers.length > 0) {
-    appendToPipeline(newOffers);
-    appendToScanHistory(newOffers, date);
-    if (!process.env.ARGUS_SKIP_LIST_REFRESH) {
-      // ➤ THE LIST WAITS FOR THE COUNCIL (the user, 2026-08-03). The alert used
-      // ➤ to go out the moment the offers landed, and the verdicts arrived by a
-      // ➤ silent replacement ~3 minutes later — so the ping always showed the
-      // ➤ newest offer with no [YES]/[NO] on it. With the Council on, the new
-      // ➤ offers are judged FIRST and the one alerted list already carries
-      // ➤ every verdict. Capped and best-effort: judges failing or timing out
-      // ➤ mean an untagged list, never a missing or a late one.
-      // ➤ (The interactive "search" path skips this block with the refresh.)
-      if (config.council?.enabled === true) {
-        const { execFile } = await import('child_process');
-        await new Promise(resolve => {
-          execFile(process.execPath,
-            [join(SCRIPT_DIR, 'argus-council', 'judge-shadow.mjs'), '--pending-only', '--no-refresh'],
-            { cwd: ROOT, timeout: 12 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 },
-            (err, stdout) => {
-              const tail = String(stdout || '').trim().split('\n').pop() || 'no output';
-              console.log(`Council before the list: ${err ? `skipped (${String(err.message).slice(0, 120)})` : tail}`);
-              resolve();
-            });
-        });
+  async function persistAndNotify() {
+    // ── Persist + refresh the single live list ──────────────────────────
+    // ➤ Saving: if it's not a dry run and there are new offers, they're recorded
+    // ➤ in pipeline.md and the history. There is NO separate "new offers"
+    // ➤ message: to stop duplicated messages from piling up, the ONLY Telegram
+    // ➤ message is the single live list, which deletes its previous version and
+    // ➤ re-posts ALL pending offers (the new ones included). alert:true makes
+    // ➤ THIS repost audible — a real ping when new offers arrive.
+    // ➤ EXCEPTION: if the listener launched you with "search"
+    // ➤ (ARGUS_SKIP_LIST_REFRESH=1), it does NOT refresh here — the listener
+    // ➤ refreshes AFTER the "Search finished" message so the list ends at the bottom.
+    // ➤ It must SAY WHY nothing was sent: "off" is what an unconfigured bot would
+    // ➤ report, so a quiet run and a broken setup left the same line in the log.
+    if (!dryRun && newOffers.length > 0) {
+      appendToPipeline(newOffers);
+      appendToScanHistory(newOffers, date);
+      if (!process.env.ARGUS_SKIP_LIST_REFRESH) {
+        // ➤ THE LIST WAITS FOR THE COUNCIL (the user, 2026-08-03). The alert used
+        // ➤ to go out the moment the offers landed, and the verdicts arrived by a
+        // ➤ silent replacement ~3 minutes later — so the ping always showed the
+        // ➤ newest offer with no [YES]/[NO] on it. With the Council on, the new
+        // ➤ offers are judged FIRST and the one alerted list already carries
+        // ➤ every verdict. Capped and best-effort: judges failing or timing out
+        // ➤ mean an untagged list, never a missing or a late one.
+        // ➤ (The interactive "search" path skips this block with the refresh.)
+        if (config.council?.enabled === true) {
+          const { execFile } = await import('child_process');
+          await new Promise(resolve => {
+            execFile(process.execPath,
+              [join(SCRIPT_DIR, 'argus-council', 'judge-shadow.mjs'), '--pending-only', '--no-refresh'],
+              { cwd: ROOT, timeout: 12 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 },
+              (err, stdout) => {
+                const tail = String(stdout || '').trim().split('\n').pop() || 'no output';
+                console.log(`Council before the list: ${err ? `skipped (${String(err.message).slice(0, 120)})` : tail}`);
+                resolve();
+              });
+          });
+        }
+        try {
+          const { refreshList } = await import(new URL('./live-list.mjs', import.meta.url));
+          const n = await refreshList({ alert: true });
+          // ➤ THREE DIFFERENT ANSWERS, not two (audit 2026-07-31). refreshList
+          // ➤ returns null when Telegram is not set up and false when the send
+          // ➤ FAILED, and both used to be written down as "not-configured": the
+          // ➤ summary a human reads said the bot was not set up when it was, while
+          // ➤ the new offers had already been written to the pending list and to
+          // ➤ the anti-repeat history — so they could never be offered again, and
+          // ➤ you were never told about them once.
+          telegram = n === null ? 'not-configured' : n === false ? 'SEND FAILED' : 'sent';
+        } catch (e) {
+          telegram = 'error';
+          console.log('Live list refresh failed:', e.message);
+        }
+      } else {
+        telegram = 'skipped-search';
       }
-      try {
-        const { refreshList } = await import(new URL('./live-list.mjs', import.meta.url));
-        const n = await refreshList({ alert: true });
-        // ➤ THREE DIFFERENT ANSWERS, not two (audit 2026-07-31). refreshList
-        // ➤ returns null when Telegram is not set up and false when the send
-        // ➤ FAILED, and both used to be written down as "not-configured": the
-        // ➤ summary a human reads said the bot was not set up when it was, while
-        // ➤ the new offers had already been written to the pending list and to
-        // ➤ the anti-repeat history — so they could never be offered again, and
-        // ➤ you were never told about them once.
-        telegram = n === null ? 'not-configured' : n === false ? 'SEND FAILED' : 'sent';
-      } catch (e) {
-        telegram = 'error';
-        console.log('Live list refresh failed:', e.message);
-      }
-    } else {
-      telegram = 'skipped-search';
     }
   }
 
-  // ➤ Saves a "snapshot" of the scan in last-scan.json (when it ran,
-  // ➤ how many offers, how many failures...). It serves to monitor that the
-  // ➤ server scanner is working properly.
-  if (!dryRun) {
-    writeFileSync(STATE_PATH, JSON.stringify({
-      last_scan: new Date().toISOString(),
-      companies_scanned: targets.length,
-      jobs_found: found,
-      new_offers: newOffers.length,
-      countries_off: country.off,
-      adzuna_calls: adzunaCalls,
-      adzuna_failed: adzunaFailed,
-      rate_limited: adzunaRateLimited,
-      lang_filtered: fLang,
-      exp_filtered: fExp,
-      degree_filtered: fDeg,
-      linkedin_calls: liCalls,
-      linkedin_status: liStatus,
-      dropped_dead: prunedDead,
-      no_link: fNoLink,
-      telegram,
-      errors: errors.length,
-    }, null, 2));
-  }
-
-  // ➤ Final summary on screen: how many offers were found, how many
-  // ➤ fell at each filter and how many new ones were added.
-  console.log(`\n${'━'.repeat(45)}`);
-  console.log(`Portal Scan (extended) — ${date}`);
-  console.log(`${'━'.repeat(45)}`);
-  console.log(`Companies scanned:     ${targets.length}${sourcesOk < targets.length ? ` (${sourcesOk} answered)` : ''}`);
-  if (emptyBoards.length) console.log(`  boards that answered with zero postings: ${emptyBoards.join(', ')}`);
-  console.log(`Total jobs found:      ${found}`);
-  console.log(`Filtered by title:     ${fTitle}`);
-  console.log(`Filtered by company:   ${fCompany} (blocklist)`);
-  console.log(`Filtered by location:  ${fLoc}`);
-  console.log(`Filtered by country:   ${fCountry} (toggled OFF)`);
-  // ➤ Printed only when it happens: on a healthy run it is zero, and a line of
-  // ➤ zeros every two hours is how a number stops being read.
-  if (fNoLink) console.log(`Dropped, no usable link: ${fNoLink}  <-- a board may have changed its link field`);
-  console.log(`Duplicates:            ${dupes}`);
-  if (adzunaWanted) {
-    console.log(`Adzuna API calls:      ${adzunaCalls} ok, ${adzunaFailed} failed${adzunaRateLimited ? ' (RATE LIMITED)' : ''}`);
-  }
-  console.log(`Filtered by language:  ${fLang} (title not in EN/ES/CA)`);
-  console.log(`Filtered by exp. years:${fExp} (require > threshold)`);
-  console.log(`Filtered by degree:    ${fDeg} (requires one you lack)`);
-  if (fDeferred) console.log(`Deferred (body unread): ${fDeferred} — retried on the next scan`);
-  if (liCfg.enabled) console.log(`LinkedIn:              ${liCalls} calls (${liStatus})`);
-  console.log(`Dropped (dead):        ${prunedDead}`);
-  console.log(`Telegram:              ${telegram}`);
-  console.log(`New offers added:      ${newOffers.length}`);
-
-  if (skipped.length) {
-    console.log(`\nNot used (optional, nothing is wrong):`);
-    for (const s of skipped) console.log(`  · ${s}`);
-  }
-  if (errors.length) {
-    console.log(`\nErrors (${errors.length}):`);
-    for (const e of errors) console.log(`  ✗ ${e.company}: ${e.error}`);
-  }
-
-  // ➤ ── SAY WHEN THE RUN DID NOTHING AT ALL ────────────────────────────────
-  // ➤ (audit 2026-07-31) Argus's normal failure is to find nothing, which looks
-  // ➤ exactly like a quiet week. Three different breakages produced a clean exit
-  // ➤ and total silence: no network (every source failed), a config that parses
-  // ➤ but selects no sources, and a config that lists sources none of which
-  // ➤ answered. The scan wrote down the error count and NOTHING read it.
-  // ➤ These lines cost nothing when all is well and are the difference between
-  // ➤ "no new jobs this week" and "the bot has been dead since Tuesday".
-  const anySourceConfigured = targets.length > 0 || adzunaWanted || liCfg.enabled;
-  const nothingToScan = !anySourceConfigured;
-  // ➤ NOT "everything errored" — "nothing answered". A source that is switched
-  // ➤ on but never reached raises no error at all: a missing Adzuna key is
-  // ➤ reported as skipped, and LinkedIn's cadence and cooldown paths return in
-  // ➤ silence. Requiring an error meant the quietest failure of all — the one
-  // ➤ this alarm exists for — could not set it off.
-  // ➤ A --company run is exempt: it deliberately scans one board with the
-  // ➤ aggregators switched off, so "no aggregator answered" is the point of the
-  // ➤ command, not a fault worth waking you for.
-  const everythingFailed = anySourceConfigured && !only
-    && sourcesOk === 0 && adzunaCalls === 0 && liCalls === 0 && found === 0;
-  if (nothingToScan) {
-    console.log('\n! NOTHING WAS SEARCHED. No employer, no aggregator and no LinkedIn are switched on —');
-    console.log('  portals.yml and config/profile.yml between them select no sources at all.');
-    console.log('  This run did nothing, and so will every run until that is changed.');
-  } else if (everythingFailed) {
-    console.log(`\n! EVERY SOURCE FAILED — not one of them answered (${errors.length} error(s)).`);
-    console.log('  That is a network or configuration problem, not a quiet week: no offer could');
-    console.log('  have been found today whatever was published.');
-  }
-  // ➤ And say it where you would actually see it, not only in a log file nobody
-  // ➤ opens. Once per run, and never on a dry run.
-  if ((nothingToScan || everythingFailed) && !dryRun && !process.env.ARGUS_SKIP_LIST_REFRESH) {
-    try {
-      const { sendTelegram } = await import(new URL('./notify.mjs', import.meta.url));
-      await sendTelegram(nothingToScan
-        ? 'Argus searched nothing this run: no employer, aggregator or LinkedIn is switched on. Nothing will arrive until that is fixed.'
-        : `Argus could not reach a single source this run (${errors.length} error(s)). That is a network or configuration problem, not a quiet week.`);
-    } catch { /* if Telegram is down too, the log above is what is left */ }
-  }
-  if (newOffers.length) {
-    console.log('\nNew offers:');
-    // ➤ Same cleaning as the pipeline line, so the log reads like the offer
-    // ➤ does on Telegram ("R&amp;D" was showing up raw here).
-    for (const o of newOffers) console.log(`  + ${sanitizeField(o.company)} | ${sanitizeField(o.title)} | ${sanitizeField(normalizeLocation(o.location)) || 'N/A'}${o.years != null ? ` | ${o.years}yr req` : ''}`);
-  }
 }
 
 // ➤ The scan only runs when this file is launched directly (node

@@ -794,7 +794,7 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ok(/v\.stage === 'NO LINK'\) fNoLink\+\+/.test(scan), 'an offer with no usable link is counted');
   ok(!/isSafeUrl\(job\.url\)\) \{ logDrop/.test(scan), 'and no inline gate steals the drop before it can be counted');
   // ➤ Years and degree are different verdicts, and both were printed as one.
-  ok(/degree_filtered: fDeg/.test(scan), 'a degree drop is counted apart from the years');
+  ok(/degree_filtered: s\.fDeg/.test(scan), 'a degree drop is counted apart from the years');
   // ➤ A LinkedIn refusing every call is a block, not a run with no matches.
   ok(/BLOCKED \(HTTP \$\{lastRefused\} on every call\)/.test(scan), 'a fully-refused LinkedIn says BLOCKED, not ran');
   // ➤ An answered ZERO never trips the no-answer alarm; naming those boards is
@@ -821,8 +821,8 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
     ok(/\(k && seenRole\.has\(k\)\)/.test(hk) && /if \(k\) seenRole\.add\(k\)/.test(hk),
       'housekeep: and the dedup loop never writes or matches an empty key');
   }
-  ok(/if \(fNoLink\) console\.log/.test(scan), 'and said out loud, but only when it is not zero');
-  ok(/no_link: fNoLink/.test(scan), 'and recorded where the server can be watched from outside');
+  ok(/if \(s\.fNoLink\) console\.log/.test(scan), 'and said out loud, but only when it is not zero');
+  ok(/no_link: s\.fNoLink/.test(scan), 'and recorded where the server can be watched from outside');
 
   ok(/detached: true/.test(li) && /child\.unref\(\)/.test(li),
     'the listener starts the cover letter detached and lets go of it');
@@ -1443,6 +1443,22 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   ok(chrome.length > 6000, 'code: the fixture really is bigger than the judges\' window');
   ok(stripHtml(page).slice(0, 6000).includes('Telecomunicaciones'),
     'code: with the code gone, the requirement is inside the window the judges read');
+}
+
+// ── 20) The "nothing ran" alarm decides from a summary, and can be tested ──
+// ➤ Until the scan's phases were split, this decision lived among 600 lines
+// ➤ of locals and could only be exercised by running a real scan. Now it is a
+// ➤ pure function of the run's summary: three shapes of silence, one of which
+// ➤ is legitimate, and the --company exemption.
+{
+  const { runVerdict } = await import('./scan.mjs');
+  const base = { targets: 0, adzunaWanted: false, liEnabled: false, only: null, sourcesOk: 0, adzunaCalls: 0, liCalls: 0, found: 0 };
+  eq(runVerdict(base), 'nothing-to-scan', 'alarm: no employer, no aggregator, no LinkedIn = nothing was searched');
+  eq(runVerdict({ ...base, targets: 3 }), 'everything-failed', 'alarm: sources configured, not one answered = every source failed');
+  eq(runVerdict({ ...base, adzunaWanted: true }), 'everything-failed', 'alarm: a switched-on aggregator that never answered counts as failure, not silence');
+  eq(runVerdict({ ...base, targets: 3, sourcesOk: 1 }), null, 'alarm: one board answering is a quiet week, not a fault');
+  eq(runVerdict({ ...base, targets: 3, found: 12 }), null, 'alarm: offers found means something answered');
+  eq(runVerdict({ ...base, targets: 3, only: 'fugro' }), null, 'alarm: a --company run is exempt — the aggregators were switched off on purpose');
 }
 
 if (fail) { console.log(`\n${fail}/${pass + fail} robustness tests FAILED.`); process.exit(1); }
