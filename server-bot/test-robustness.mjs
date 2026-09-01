@@ -453,15 +453,13 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(stripHtml('<p>Hello <strong>world</strong> <a href="http://x/y?a=1&amp;b=2">link</a></p>'),
      'Hello world link', 'ordinary markup is still stripped correctly');
   eq(stripHtml('<ul><li>one</li><li>two</li></ul>'), 'one. two.', 'and list items still become sentences');
-  // ➤ A KNOWN LIMIT, unchanged by the fix and recorded here so nobody reads it
-  // ➤ as a regression: loose comparison signs in prose look exactly like a tag,
-  // ➤ and the text between them is dropped. It behaved identically before, and
-  // ➤ job adverts do not write "salary < 40k" in raw HTML.
-  eq(stripHtml('a < b and c > d'), 'a d', 'loose comparison signs are swallowed, as they always were');
-  // ➤ A ">" inside an attribute value ends the tag early — the other known
-  // ➤ limit, also unchanged by the fix. Written out rather than compared
-  // ➤ against the function itself, which would prove nothing.
-  eq(stripHtml('<input value="5 > 3">text'), '3">text', 'a ">" inside an attribute still ends the tag early');
+  // ➤ Two limits the regex stripper carried for months are gone with the parser
+  // ➤ (2026-08-26): loose comparison signs in prose looked exactly like a tag
+  // ➤ and the words between them were dropped, and a ">" inside an attribute
+  // ➤ ended the tag early. A parser knows the difference, and these pins now
+  // ➤ hold it to that.
+  eq(stripHtml('a < b and c > d'), 'a < b and c > d', 'loose comparison signs in prose survive: the parser knows they are not a tag');
+  eq(stripHtml('<input value="5 > 3">text'), 'text', 'a ">" inside an attribute value no longer ends the tag early');
 }
 
 // ── 6e) Accent folding, which every text filter depends on ───────────────
@@ -873,15 +871,13 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
   eq(stripHtml('<p>Hello <strong>world</strong> <a href="http://x/y?a=1&amp;b=2">link</a></p>'),
      'Hello world link', 'ordinary markup is still stripped correctly');
   eq(stripHtml('<ul><li>one</li><li>two</li></ul>'), 'one. two.', 'and list items still become sentences');
-  // ➤ A KNOWN LIMIT, unchanged by the fix and recorded here so nobody reads it
-  // ➤ as a regression: loose comparison signs in prose look exactly like a tag,
-  // ➤ and the text between them is dropped. It behaved identically before, and
-  // ➤ job adverts do not write "salary < 40k" in raw HTML.
-  eq(stripHtml('a < b and c > d'), 'a d', 'loose comparison signs are swallowed, as they always were');
-  // ➤ A ">" inside an attribute value ends the tag early — the other known
-  // ➤ limit, also unchanged by the fix. Written out rather than compared
-  // ➤ against the function itself, which would prove nothing.
-  eq(stripHtml('<input value="5 > 3">text'), '3">text', 'a ">" inside an attribute still ends the tag early');
+  // ➤ Two limits the regex stripper carried for months are gone with the parser
+  // ➤ (2026-08-26): loose comparison signs in prose looked exactly like a tag
+  // ➤ and the words between them were dropped, and a ">" inside an attribute
+  // ➤ ended the tag early. A parser knows the difference, and these pins now
+  // ➤ hold it to that.
+  eq(stripHtml('a < b and c > d'), 'a < b and c > d', 'loose comparison signs in prose survive: the parser knows they are not a tag');
+  eq(stripHtml('<input value="5 > 3">text'), 'text', 'a ">" inside an attribute value no longer ends the tag early');
 }
 
 // ── 8) The onboarding must produce a search that is actually the USER'S ───
@@ -1398,11 +1394,11 @@ const eq = (got, want, name) => ok(JSON.stringify(got) === JSON.stringify(want),
 
   // ➤ stripHtml: nested comments leave nothing behind, and an ad QUOTING an
   // ➤ entity is not decoded one step further than it wrote.
-  eq(stripHtml('a <!--<!-- x -->--> b'), 'a b', 'codeql: a nested comment is removed whole, no live fragment');
+  eq(stripHtml('a <!--<!-- x -->--> b'), 'a --> b', 'codeql: a comment ends at the first "-->" and the leftover is plain text, exactly as a browser reads it');
   eq(stripHtml('a <!-- x --!><b>y</b> b'), 'a y b', 'codeql: the browser-accepted --!> closer counts as a close too');
   eq(stripHtml('5&amp;quot; pipe'), '5&quot; pipe', 'codeql: &amp;quot; decodes ONCE, to the literal entity');
   eq(stripHtml('R&amp;D role'), 'R&D role', 'codeql: a plain &amp; still becomes &');
-  eq(stripHtml('caf&eacute; job'), 'caf job', 'codeql: unknown named entities still collapse to a space');
+  eq(stripHtml('caf&eacute; job'), 'café job', 'a named entity becomes its character, so an accented word survives whole for the screens');
 
   // ➤ The OAuth echo: the query-string error goes through the escape, read
   // ➤ straight from the source like the GET-only pin in the gmail suite.

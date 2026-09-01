@@ -18,6 +18,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
+import { convert } from 'html-to-text';
 
 // ➤ SEARCH PROFILE loader. The user-specific lists (fields, degrees, skills)
 // ➤ live in config/profile.yml under `search:`, NOT in this code — that's what
@@ -493,68 +494,54 @@ export function extractAdzunaJd(html) {
   return stripHtml(s.slice(i)); // unclosed section → to the end
 }
 
-// ➤ Cheap HTML → plain text: strip the tags, decode the handful of entities
-// ➤ that ATS descriptions actually use, collapse whitespace. Good enough for
-// ➤ the regex screening above, which is all it is for.
+// ➤ HTML → plain text for the screens, on a real parser. This used to be a
+// ➤ chain of regexes, and regexes cannot parse HTML: CodeQL found three ways
+// ➤ past them in two days (a nested comment, "--!>" as a comment end, junk in
+// ➤ a closing tag), each a shape a browser accepts and a pattern did not. The
+// ➤ parser knows the shapes; what stays here is the SENTENCE rule the screens
+// ➤ depend on and the whitespace discipline.
+// ➤ The one deliberate difference: named entities now become their character
+// ➤ ("&eacute;" → "é") instead of a space, so an accented word in an advert
+// ➤ survives whole — the old behaviour cut "exp&eacute;rience" into two words
+// ➤ the requirement regexes could not read.
 export function stripHtml(html) {
-  let s = String(html || '');
-  // ➤ Comments are removed UNTIL NOTHING CHANGES (CodeQL round, 2026-08-24):
-  // ➤ one pass over "<!--<!-- x -->-->" leaves a live "-->" fragment behind,
-  // ➤ and the ad body is the one input the boards write, not us.
-  // ➤ "--!>" closes too: browsers accept it as a comment end, so a filter
-  // ➤ that does not is a filter an ad can walk around (CodeQL #9).
-  for (let prev = null; prev !== s;) { prev = s; s = s.replace(/<!--[\s\S]*?--!?>/g, ''); }
-  // ➤ What the loop cannot pair it sweeps: a nesting like <!--<!-- x -->-->
-  // ➤ leaves one orphan "-->" behind, and an unclosed "<!--" would otherwise
-  // ➤ ride into the tag pass and take a sentence with it.
-  s = s.replace(/<!--|--!?>/g, ' ');
-  // ➤ SCRIPT AND STYLE GO WITH THEIR CONTENTS (field case #1005, 2026-08-26).
-  // ➤ Stripping only the tags left the JavaScript and the CSS behind AS PROSE:
-  // ➤ a careers page that loads Google Tag Manager at the top handed 6,942
-  // ➤ characters of code to whoever read the "offer body" — and the Council,
-  // ➤ which cuts at 6,000, never reached a word of the advert. It voted on
-  // ➤ cookie banners. The letter writer drinks from the same function, so it
-  // ➤ was sending that code to Claude too.
-  // ➤ A closing tag may carry anything up to its ">" — "</script >" and even
-  // ➤ "</script\t\n foo>" close it in a browser, so they close it here (a
-  // ➤ pattern that only allowed spaces was still one shape short: CodeQL #10).
-  // ➤ "</scriptfoo>" does NOT close it, which is what the word boundary is for.
-  // ➤ A tag left UNCLOSED swallows the rest of the document in a real parser,
-  // ➤ and it does here as well.
-  s = s.replace(/<script\b[\s\S]*?<\/script\b[^>]*>/gi, ' ')
-    .replace(/<style\b[\s\S]*?<\/style\b[^>]*>/gi, ' ')
-    .replace(/<(?:script|style)\b[\s\S]*$/i, ' ');
-  return s
-    // ➤ Formatting tags go WITHOUT leaving a space: they sit inside words and a
-    // ➤ space breaks them (#526: "<strong>de 3 a</strong>ños" read as "3 a ños"
-    // ➤ and the offer slipped). Block tags DO become a space — they separate.
-    .replace(/<\/?(?:strong|b|em|i|u|span|a|sub|sup|mark|small|font)(?:\s[^<>]*)?>/gi, '')
-    // ➤ 2026-07-18: each </li> becomes a PERIOD. Bullets carry no final stop, so
-    // ➤ flattened they merged into one sentence and an "is a plus" from the next
-    // ➤ bullet cancelled a real requirement (case WtbE: "Minimaal 5 jaar" got
-    // ➤ through because of an "RSTAD is een pre" two bullets away). ONLY </li>:
-    // ➤ doing it to </p> broke the softening of a "Nice to have:" heading.
-    .replace(/<\/li>/gi, '. ')
-    // ➤ Same rule as above: a tag ends at the next angle bracket of ANY kind
-    // ➤ (`[^<>]`, not `[^>]`). An ad that writes a bare "<" in its own text
-    // ➤ used to make this pattern treat everything up to the next ">" as one
-    // ➤ giant tag and delete it — sentences with the real requirement in them
-    // ➤ simply vanished before the screening ever saw them.
-    .replace(/<[^<>]*>/g, ' ')
-    // ➤ Numeric entities too (audit 2026-07-25): "5&#160;years" hid the
-    // ➤ requirement because only the named &nbsp; was decoded.
-    .replace(/&#(?:160|xa0);/gi, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&#3[49];|&rsquo;|&lsquo;|&apos;/gi, "'")
-    .replace(/&quot;|&#34;/gi, '"')
-    // ➤ &amp; is decoded LAST, and the catch-all must not eat it (CodeQL
-    // ➤ round, 2026-08-24): decoding it first turned "&amp;quot;" — an ad
-    // ➤ QUOTING an entity — into a real quote, one decode too many.
-    .replace(/&(?!amp;)[a-z]+;/gi, ' ')
-    .replace(/&amp;/gi, '&')
+  // ➤ Each </li> ends a sentence (2026-07-18). Bullets carry no final stop, so
+  // ➤ flattened they merged into one sentence and an "is a plus" from the next
+  // ➤ bullet cancelled a real requirement (case WtbE). ONLY </li>: doing it to
+  // ➤ </p> broke the softening of a "Nice to have:" heading.
+  // ➤ "--!>" ends a comment in every browser (CodeQL #9); the parser only
+  // ➤ knows "-->", and would otherwise read the rest of the page as comment.
+  const withStops = String(html || '').replaceAll('--!>', '-->').replace(/<\/li\s*>/gi, '. </li>');
+  const text = convert(withStops, {
+    wordwrap: false,
+    selectors: [
+      // ➤ Code and styling are not the advert. noscript IS: it is what a page
+      // ➤ says to a reader without JavaScript.
+      { selector: 'script', format: 'skip' },
+      { selector: 'style', format: 'skip' },
+      { selector: 'img', format: 'skip' },
+      { selector: 'hr', format: 'skip' },
+      // ➤ No decorations: the library would write "[url]" after links, bullets
+      // ➤ before items, "> " before quotes and HEADINGS IN CAPITALS.
+      { selector: 'a', options: { ignoreHref: true } },
+      { selector: 'ul', format: 'inline' },
+      { selector: 'ol', format: 'inline' },
+      { selector: 'li', format: 'inline' },
+      { selector: 'blockquote', format: 'block' },
+      // ➤ Table cells as blocks, so neighbouring cells never glue into one word.
+      { selector: 'table', format: 'block' },
+      { selector: 'tr', format: 'block' },
+      { selector: 'td', format: 'block' },
+      { selector: 'th', format: 'block' },
+      ...['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].map(h => ({ selector: h, options: { uppercase: false } })),
+    ],
+  });
+  return text
+    // ➤ "5&#160;years" hid the requirement while the no-break space was not a
+    // ➤ space to the regexes (audit 2026-07-25).
+    .replace(/ /g, ' ')
     .replace(/\s+/g, ' ')
-    // ➤ If a bullet ALREADY carried a final period, the </li> added another
-    // ➤ ("x.. ") — consecutive periods merge into one.
+    // ➤ A bullet that ALREADY carried a final period got another ("x.. ").
     .replace(/\.(?:\s*\.)+/g, '.')
     .trim();
 }
