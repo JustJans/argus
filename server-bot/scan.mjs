@@ -169,7 +169,7 @@ export function normUrl(u) {
 // ➤ Looks at each company's entry in portals.yml and figures out which portal it uses, to
 // ➤ know how to ask for the offer list. None recognised → null, and the company is
 // ➤ skipped.
-function detectApi(company) {
+export function detectApi(company) {
   // Workday (explicit config block)
   if (company.workday?.tenant && company.workday?.site) {
     const { tenant, dc = 'wd3', site } = company.workday;

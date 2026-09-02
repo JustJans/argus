@@ -25,7 +25,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
-import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, buildCountryFilter, admissionVerdict, roleKey, parseTeamtailor, parseSmartRecruiters, parseSuccessFactors, slugTitle, parseJobPostingLd, parseLinkedInCards, titleDemandsForeignLanguage, titleEncodingBroken, bodyLanguageBlock, pipelineRoleKey, hasApplySignal, overrideDeadIfApply, formatSalary, normUrl } from './scan.mjs';
+import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, buildCountryFilter, admissionVerdict, roleKey, detectApi, parseTeamtailor, parseSmartRecruiters, parseSuccessFactors, slugTitle, parseJobPostingLd, parseLinkedInCards, titleDemandsForeignLanguage, titleEncodingBroken, bodyLanguageBlock, pipelineRoleKey, hasApplySignal, overrideDeadIfApply, formatSalary, normUrl } from './scan.mjs';
 import { offerAffinity } from './notify.mjs';
 import { extractRequiredYears, stripHtml, experienceScreen, extractAdzunaJd, degreeScreen } from './requirements.mjs';
 import { harness } from './test-harness.mjs';
@@ -1288,6 +1288,35 @@ for (const [name, ok] of COMPANY) {
     'successfactors: the advert comes through decoded, entities and all', sf[0]._jd);
   check(parseSuccessFactors('', 'X').length === 0, 'successfactors: nothing is nothing, not a crash', '0');
   check(parseSuccessFactors(null, 'X').length === 0, 'successfactors: and neither is no answer', '0');
+}
+
+// ➤ How a company entry in portals.yml is recognised as one of the boards that publish
+// ➤ their list without a key. Detection is what decides whether a board is read at all.
+{
+  const tt = detectApi({ careers_url: 'https://acme.teamtailor.com/' });
+  check(tt?.type === 'teamtailor' && tt.url === 'https://acme.teamtailor.com/jobs.json',
+    'teamtailor: a teamtailor.com address is recognised on its own', JSON.stringify(tt));
+  const ttOwn = detectApi({ careers_url: 'https://careers.acme.example/', teamtailor: true });
+  check(ttOwn?.type === 'teamtailor' && ttOwn.url === 'https://careers.acme.example/jobs.json',
+    'teamtailor: a custom domain needs the flag, and the feed sits on its origin', JSON.stringify(ttOwn));
+  const sf = detectApi({ careers_url: 'https://careers.acme.example/jobs/', successfactors: true });
+  check(sf?.type === 'successfactors' && sf.url === 'https://careers.acme.example/jobs.xml',
+    'successfactors: the flag points at <site>/jobs.xml', JSON.stringify(sf));
+  const sfFeed = detectApi({ careers_url: 'https://careers.acme.example/', successfactors: 'https://careers.acme.example/en/jobs.rss' });
+  check(sfFeed?.url === 'https://careers.acme.example/en/jobs.rss',
+    'successfactors: a string names the feed directly', JSON.stringify(sfFeed));
+  const sr = detectApi({ careers_url: 'https://jobs.smartrecruiters.com/Acme/744000137613800' });
+  check(sr?.type === 'smartrecruiters' && sr.meta?.slug === 'Acme' && /\/companies\/Acme\/postings/.test(sr.url),
+    'smartrecruiters: the slug comes off any of their links', JSON.stringify(sr));
+  const srOwn = detectApi({ careers_url: 'https://careers.acme.example/', smartrecruiters: 'AcmeCo' });
+  check(srOwn?.meta?.slug === 'AcmeCo' && /\/companies\/AcmeCo\/postings/.test(srOwn.url),
+    'smartrecruiters: or is declared for a custom domain', JSON.stringify(srOwn));
+  check(detectApi({ careers_url: 'https://job-boards.eu.greenhouse.io/acme' })?.type === 'greenhouse',
+    'the boards detected before still are', 'greenhouse');
+  check(detectApi({ careers_url: 'https://careers.acme.example/' }) === null,
+    'a plain careers site with no declaration is skipped, not guessed', 'null');
+  check(detectApi({ careers_url: 'not a url', teamtailor: true }) === null,
+    'an unusable address is skipped, never a crash', 'null');
 }
 
 done();
