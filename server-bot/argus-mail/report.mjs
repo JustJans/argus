@@ -15,13 +15,10 @@
 // ➤ contain "&" and "<". Telegram rejects the whole message if they arrive raw.
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-// ➤ FOUR COLOURS, NOT SIX. Every state the code tracks does not need a colour
-// ➤ of its own in the message: past four the reader is decoding a legend
-// ➤ instead of reading a list. A blue "just sent" and an orange "never
-// ➤ arrived" were both tried and both thrown out for that.
-// ➤ So a line in the count can cover MORE THAN ONE state. Ghosted and rejected
-// ➤ share one — after two months of silence the answer is the same, and the
-// ➤ difference between "they said no" and "they never said anything" survives
+// ➤ FOUR COLOURS, NOT SIX: past four the reader is decoding a legend instead of reading a
+// ➤ list (a blue "just sent" and an orange "never arrived" were both tried and thrown
+// ➤ out). So a line in the count can cover MORE THAN ONE state: ghosted and rejected share
+// ➤ one — after two months of silence the answer is the same, and the difference survives
 // ➤ where it belongs, in the record, not as a second shade of red.
 const STATES = [
   // ➤ Listed first, and grouped with the ones that never answered, because
@@ -38,13 +35,11 @@ const STATES = [
   { keys: ['interview'], dot: '🟢', label: 'Interview', title: 'Interview', always: true },
 ];
 
-// ➤ Which ones are worth reading one by one. A rejection is closed: it is
-// ➤ counted above and left there.
-// ➤ Which of those get a section of their own underneath, spelled out here as
-// ➤ the STATE KEYS of the entries above rather than as a second hand-written
-// ➤ list. Written out by hand, a state added to STATES and forgotten here would
-// ➤ be counted in the header and then never listed — and the stray-state guard
-// ➤ below would not notice, because it only checks against STATES.
+// ➤ Which ones are worth reading one by one (a rejection is closed: counted above and left
+// ➤ there). Spelled out as the STATE KEYS of the entries above rather than a second
+// ➤ hand-written list: a state added to STATES and forgotten here would be counted in the
+// ➤ header and never listed — and the stray-state guard below would not notice, because it
+// ➤ only checks against STATES.
 const LISTED_LABELS = ['Never arrived', 'N/A', 'Received', 'Interview'];
 const LISTED = STATES.filter(s => LISTED_LABELS.includes(s.title)).flatMap(s => s.keys);
 
@@ -53,13 +48,11 @@ const LISTED = STATES.filter(s => LISTED_LABELS.includes(s.title)).flatMap(s => 
 // ➤ wrote and nothing else — no clock, no network, no disk — so the `mail`
 // ➤ command answers the instant it is typed.
 export function formatStatus(status) {
-  // ➤ AN ARRAY, not merely something with a length. A string has a length too,
-  // ➤ so a status file whose "applications" arrived as text sailed past this
-  // ➤ guard and died on the next line with "apps.filter is not a function" —
-  // ➤ found by feeding the command a deliberately malformed file. Nothing this
-  // ➤ project writes produces that shape, but a half-written file, a bad merge
-  // ➤ or an edit by hand does, and the answer to a broken file is to say so,
-  // ➤ not to hand back a stack trace.
+  // ➤ AN ARRAY, not merely something with a length: a string has a length too, so a status
+  // ➤ file whose "applications" arrived as text would sail past this guard and die on the
+  // ➤ next line with "apps.filter is not a function" (found by feeding the command a
+  // ➤ deliberately malformed file). A half-written file, a bad merge or a hand edit does
+  // ➤ produce that shape, and the answer to a broken file is to say so, not a stack trace.
   if (!Array.isArray(status?.applications) || !status.applications.length) {
     return 'No applications on record yet. Mark one with <code>applied N</code> and this fills up.';
   }

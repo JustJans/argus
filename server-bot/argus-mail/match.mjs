@@ -35,14 +35,11 @@ export function tokens(s) {
   return fold(s).split(/[^a-z0-9]+/).filter(w => w.length > 3 && !NOISE.has(w));
 }
 
-// ➤ The name with everything but letters and digits removed, and the generic
-// ➤ words dropped: "Jan De Nul Group" → "jandenul".
-// ➤ WHY THIS EXISTS: tokens() keeps words of more than three letters, and by
-// ➤ that rule "Jan De Nul Group" yields NOTHING — Jan, De and Nul are all too
-// ➤ short and Group is generic. The strongest signal there is went silent for
-// ➤ that employer, and a receipt whose subject read "Jan De Nul - Tender
-// ➤ Engineer Offshore" failed to find the application of exactly that name.
-// ➤ Compacted, it matches the "careers-jandenul.com" the mail came from too.
+// ➤ The name with everything but letters and digits removed, and the generic words
+// ➤ dropped: "Jan De Nul Group" → "jandenul". tokens() keeps words of more than three
+// ➤ letters, and by that rule "Jan De Nul Group" yields NOTHING — Jan, De and Nul are too
+// ➤ short and Group is generic — so the strongest signal there is went silent for that
+// ➤ employer. Compacted, it also matches the "careers-jandenul.com" the mail came from.
 export function compactName(s) {
   const words = fold(s).split(/[^a-z0-9]+/).filter(w => w && !NOISE.has(w));
   return words.join('');
@@ -118,13 +115,11 @@ export function scoreLink(message, application) {
   // ➤ The same check with the punctuation squeezed out, which is the only way
   // ➤ a name made entirely of short words is recognised at all.
   else if (compact.length >= 6 && compactAll(all).includes(compact)) { identity += 10; why.push('company'); }
-  // ➤ AND THE ACRONYMS. A company called "TWD" produces no tokens (three
-  // ➤ letters) and is too short for the squeezed-out search above, so it was
-  // ➤ invisible: a receipt from "TWD/Marine Engineer" was correctly read as a
-  // ➤ receipt and then belonged to nobody. The rule above cannot simply be
-  // ➤ loosened — "twd" as a loose substring would hit inside other words — so a
-  // ➤ short name has to appear as a WHOLE WORD, which is exactly how a company
-  // ➤ writes its own name.
+  // ➤ AND THE ACRONYMS. A company called "TWD" produces no tokens (three letters) and is too
+  // ➤ short for the squeezed-out search above, so a receipt from "TWD/Marine Engineer" was
+  // ➤ read correctly and then belonged to nobody. The rule cannot simply be loosened — "twd"
+  // ➤ as a loose substring would hit inside other words — so a short name must appear as a
+  // ➤ WHOLE WORD, which is how a company writes its own name.
   else if (compact.length >= 2 && compact.length < 6 && hasWord(all, compact)) { identity += 10; why.push('company'); }
 
   // ➤ 3: real but weak, so it takes TWO matching words — never one, however
@@ -146,13 +141,11 @@ export function scoreLink(message, application) {
   // ➤ company you never applied to gets filed against one you did.
   if (identity === 0) return { score: 0, why: ['nothing-identifies-it'] };
 
-  // ➤ An email cannot be about an application that did not exist yet — but the
-  // ➤ date on the application is the day you TOLD the bot, not the day you
-  // ➤ applied, and those are not the same day. A real receipt arrived on the
-  // ➤ 17th against an application logged on the 18th and was thrown out by half
-  // ➤ a day, which is the wrong side of a rule that exists to stop nonsense.
-  // ➤ Two days of slack covers logging it the next morning; anything that
-  // ➤ arrived earlier than that really cannot be an answer.
+  // ➤ An email cannot be about an application that did not exist yet — but the date on the
+  // ➤ application is the day you TOLD the bot, not the day you applied. A real receipt
+  // ➤ arrived on the 17th against an application logged on the 18th and was thrown out by
+  // ➤ half a day. Two days of slack covers logging it the next morning; anything earlier
+  // ➤ really cannot be an answer.
   const when = new Date(message.date), applied = new Date(application.ts);
   if (!isNaN(when) && !isNaN(applied) && (when - applied) / 86_400_000 < -LOGGING_LAG_DAYS) {
     return { score: 0, why: ['arrived-before-applying'] };
@@ -197,13 +190,11 @@ export function linkOutcomes(messages, applications, { margin = 1 } = {}) {
 
     if (!ranked.length) { orphans.push(m); continue; }
     // ➤ IDENTITY ALONE DECIDES WHICH VACANCY. A third route to "clear" — identity level plus a
-    // ➤ better total — would let the date bonus and the city decide, the only ingredients of
-    // ➤ the total that are not identity: with two applications at the SAME employer and an
-    // ➤ email that names nothing but the company, the one applied to most recently would win
-    // ➤ on its date bonus, and a rejection be filed against a vacancy that had not rejected
-    // ➤ you. That flatly contradicts what this file says twice over: timing corroborates an
-    // ➤ identity, it never outranks one. Level identity is a TIE, which is the honest answer —
-    // ➤ the email is shown to you and you say which one it was. A gap costs you a question; a
+    // ➤ better total — would let the date bonus and the city decide: with two applications at
+    // ➤ the SAME employer and an email naming only the company, the most recent application
+    // ➤ would win on its date bonus and a rejection be filed against a vacancy that had not
+    // ➤ rejected you. Timing corroborates an identity, it never outranks one: level identity
+    // ➤ is a TIE, the email is shown to you and you say which. A gap costs you a question; a
     // ➤ wrong link costs you the truth.
     const clear = ranked.length === 1
       || (ranked[0].identity - ranked[1].identity) >= margin;
@@ -213,13 +204,12 @@ export function linkOutcomes(messages, applications, { margin = 1 } = {}) {
       // ➤ happened to differ, so the bot would announce a tie and then name only
       // ➤ one side of it — which reads exactly like a decision it did not make.
       const tied = ranked.filter(r => r.identity === ranked[0].identity);
-      // ➤ A BOUNCE IS THE ONE THING THAT LINKS TO ALL OF THEM. Every other kind of message is
-      // ➤ about ONE vacancy, so guessing between two would put a rejection on the wrong job. A
-      // ➤ bounce is not about a vacancy at all — it says mail to that ADDRESS did not get
-      // ➤ through, which is equally true of every application sent there. Real case: two
-      // ➤ applications to the same employer on the same day, one failure notice — reported as an
-      // ➤ unresolved tie it told you nothing, and the one thing you could act on was the thing
-      // ➤ that stayed silent.
+      // ➤ A BOUNCE IS THE ONE THING THAT LINKS TO ALL OF THEM. Every other message is about ONE
+      // ➤ vacancy, so guessing between two would put a rejection on the wrong job; a bounce says
+      // ➤ mail to that ADDRESS did not get through, equally true of every application sent
+      // ➤ there. Two applications to the same employer on the same day and one failure notice,
+      // ➤ reported as an unresolved tie, told you nothing — and it was the one thing you could
+      // ➤ act on.
       if (m.kind === 'bounced') {
         for (const t of tied) links.push({ message: m, application: t.application, score: t.score, why: [...t.why, 'bounce-hits-every-application-there'] });
         continue;

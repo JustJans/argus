@@ -1,18 +1,13 @@
 #!/usr/bin/env node
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ WHAT IT IS: the read-only door to your Gmail. It exists so the bot can
-// ➤ see what happened AFTER you applied — the rejection, the interview, the
-// ➤ silence — which is the only signal in the whole system that does not come
-// ➤ from your own opinion.
+// ➤ WHAT IT IS: the read-only door to your Gmail, so the bot can see what happened AFTER
+// ➤ you applied — the rejection, the interview, the silence: the one signal in the whole
+// ➤ system that does not come from your own opinion.
 // ➤
-// ➤ WHY IT CANNOT DELETE ANYTHING. Three locks, and only the first one matters:
-// ➤   1. THE TOKEN ITSELF. It is issued for gmail.readonly, and Google enforces
-// ➤      that on their side. If this file asked to delete a message, their
-// ➤      server would refuse. The guarantee does not depend on this code being
-// ➤      correct, which is the point: your mailbox is not protected by my care.
-// ➤   2. ONE DOOR. Every call goes through get(), which hardcodes GET. There is
-// ➤      no code path here that can send any other verb.
-// ➤   3. A TEST reads this file and fails if a second verb ever appears in it.
+// ➤ WHY IT CANNOT DELETE ANYTHING. The token is issued for gmail.readonly and Google
+// ➤ enforces that on their side, so the guarantee does not depend on this code being
+// ➤ correct. Every call goes through get(), which hardcodes GET. And a test reads this
+// ➤ file and fails if a second verb ever appears in it.
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 import { convert } from 'html-to-text';
@@ -143,15 +138,11 @@ function collect(part, mimeType, out = []) {
   return out;
 }
 
-// ➤ How the HTML gets turned into words. Every one of these is here because of
-// ➤ something that goes wrong without it:
-// ➤   TABLES: half the ATS mails lay their text out in a table, and without
-// ➤     dataTable the cells run together — "Puesto" + "Marine Engineer" comes
-// ➤     out "PuestoMarine Engineer", a word that exists in no language and
-// ➤     matches nothing. Same fault as the bullet lists in the offer filter.
-// ➤   LINKS: the href would land in the text as a URL, and tracking URLs carry
-// ➤     other companies' names inside them. The words stay, the address goes.
-// ➤   IMAGES: alt text is "logo", "banner", or a whole marketing sentence.
+// ➤ How the HTML gets turned into words; each option answers a real fault. TABLES: half
+// ➤ the ATS mails lay their text out in a table, and without dataTable the cells run
+// ➤ together ("PuestoMarine Engineer", a word that matches nothing). LINKS: the href would
+// ➤ land in the text, and tracking URLs carry other companies' names — the words stay, the
+// ➤ address goes. IMAGES: alt text is "logo", "banner" or a whole marketing sentence.
 const HTML_TO_TEXT = {
   wordwrap: false,
   selectors: [
@@ -161,11 +152,10 @@ const HTML_TO_TEXT = {
   ],
 };
 
-// ➤ The words of a message, wherever they are.
-// ➤ PLAIN TEXT WINS when there is any, so nothing that already worked changes.
-// ➤ THE HTML FALLBACK IS THE POINT: it was assumed every ATS sends a text
-// ➤ alternative, and counted on the real mailbox, 51 of 116 messages do NOT —
-// ➤ 44% were being judged on the subject and the two lines of the snippet.
+// ➤ The words of a message, wherever they are. PLAIN TEXT WINS when there is any. THE HTML
+// ➤ FALLBACK IS THE POINT: on the real mailbox 51 of 116 messages carry no text
+// ➤ alternative — 44% that would otherwise be judged on the subject and two lines of
+// ➤ snippet.
 export function messageText(payload) {
   const plain = collect(payload, 'text/plain').join('\n').trim();
   if (plain) return plain;
@@ -173,19 +163,16 @@ export function messageText(payload) {
   return html ? convert(html, HTML_TO_TEXT) : '';
 }
 
-// ➤ How much of a message is enough to tell a rejection from an invitation.
-// ➤ The verdict is in the opening; the rest is signature, legal and footer.
-// ➤ Raised from 4,000 when the HTML fallback arrived: converted HTML runs much
-// ➤ longer than a text alternative (navigation, tables, legal), and at 4,000
-// ➤ 15 of 116 messages were already being cut off mid-message.
+// ➤ How much of a message is enough to tell a rejection from an invitation: the verdict is
+// ➤ in the opening, the rest is signature, legal and footer. Converted HTML runs much
+// ➤ longer than a text alternative, and at 4,000 characters 15 of 116 messages were cut
+// ➤ off mid-message.
 export const BODY_LIMIT = 20_000;
 
-// ➤ One message: who sent it, the subject, the date, and the opening of the
-// ➤ text. NOTHING HERE IS EVER WRITTEN TO DISK — the body is read, matched
-// ➤ against your applications in memory, and dropped. What survives is the
-// ➤ kind of message and its date. Measured before it was widened: reading the
-// ➤ body found 3 outcomes the ~200-character snippet missed and changed no
-// ➤ verdict it already had, so it adds reach without adding disagreement.
+// ➤ One message: sender, subject, date and the opening of the text. NOTHING HERE IS EVER
+// ➤ WRITTEN TO DISK — the body is matched against your applications in memory and dropped;
+// ➤ what survives is the kind of message and its date. Reading the body found 3 outcomes
+// ➤ the ~200-character snippet missed and changed no verdict it already had.
 export async function messageSummary(id, { token, fetchImpl = fetch } = {}) {
   const t = token || await accessToken({ fetchImpl });
   const j = await get(`/messages/${encodeURIComponent(id)}`, [['format', 'full']], t, fetchImpl);

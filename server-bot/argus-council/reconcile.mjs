@@ -1,22 +1,12 @@
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ WHAT IT IS: the "reality judge". Weeks later, it fills in the
-// ➤ userDecision field of each line in data/judge-shadow.jsonl by cross-checking
-// ➤ it against what the user ACTUALLY decided. This lets us measure, two weeks on,
-// ➤ whether the Council would have got it right. It is the step that turns the
-// ➤ shadow log into a grade.
-// ➤ WHAT IT DOES, start to finish:
-// ➤   1. Gathers the user's real decisions per offer:
-// ➤        · data/applications.jsonl  → 'show'  (application sent, "applied N")
-// ➤        · server-bot/feedback.jsonl→ 'hide'  (rejected with a reason, "no N ...")
-// ➤        · "| visto" marks in pipeline.md → 'seen' (the user looked at it and passed)
-// ➤   2. Walks through judge-shadow.jsonl and, for each line whose userDecision
-// ➤      is still empty, matches it by URL (preferred) or by id. Precedence:
-// ➤      applied(show) > rejected(hide) > seen(seen).
-// ➤   3. Rewrites the file with the userDecision fields filled in.
-// ➤ WHEN IT RUNS: by hand (or on an occasional cron) when it is time to review
-// ➤ the Council-vs-user agreement. It does NOT call the AI or the network.
-// ➤ WHAT IT USES (read-only except its own journal): applications.jsonl,
-// ➤ feedback.jsonl, pipeline.md. It only writes data/judge-shadow.jsonl.
+// ➤ WHAT IT IS: the "reality judge". Weeks later it fills in the userDecision field of
+// ➤ each line in data/judge-shadow.jsonl from what the user ACTUALLY decided, which turns
+// ➤ the shadow log into a grade. Sources: data/applications.jsonl → 'show' ("applied N"),
+// ➤ server-bot/feedback.jsonl → 'hide' ("no N ..."), "| visto" marks in pipeline.md →
+// ➤ 'seen'. Each line whose userDecision is still empty is matched by URL (preferred) or
+// ➤ by id, precedence applied > rejected > seen, and the file is rewritten. Runs by hand
+// ➤ or on an occasional cron; calls neither the AI nor the network; writes only its own
+// ➤ journal.
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 import { readFileSync, existsSync } from 'fs';

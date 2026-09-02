@@ -1,14 +1,12 @@
 #!/usr/bin/env node
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ WHAT IT IS: the one-time SETUP flow over Telegram. A new user runs `/start`
-// ➤ and Argus walks them through a short questionnaire (CV + a few questions,
-// ➤ some with buttons) and writes their profile to config/profile.yml + cv.md,
-// ➤ so the generic engine becomes THEIR job searcher. `settings` re-opens any
-// ➤ single question later to edit it. The daily commands stay typed; buttons
-// ➤ are only used here, where multi-selecting from a fixed list is nicer.
-// ➤ HOW IT WORKS: a tiny state machine. The current step + the answers so far
-// ➤ live in data/onboarding-state.json. Text answers arrive as normal messages;
-// ➤ button taps arrive as callback_query (routed here by telegram-listener.mjs).
+// ➤ WHAT IT IS: the one-time SETUP over Telegram. `/start` walks a new user through a
+// ➤ short questionnaire (CV + a few questions, some with buttons) and writes
+// ➤ config/profile.yml + cv.md, so the generic engine becomes THEIR job searcher;
+// ➤ `settings` re-opens any single question later. HOW IT WORKS: a tiny state machine —
+// ➤ the current step and the answers so far live in data/onboarding-state.json; text
+// ➤ answers arrive as messages, button taps as callback_query (routed here by
+// ➤ telegram-listener.mjs).
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 import { readFileSync, writeFileSync, existsSync, chmodSync, copyFileSync } from 'fs';
@@ -23,11 +21,10 @@ function writePrivate(path, data) {
   try { chmodSync(path, 0o600); } catch { /* not POSIX — ignore */ }
 }
 
-// ➤ Keep the old version before replacing a document you could not retype from
-// ➤ memory. Exactly ONE backup is kept (<file>.bak): enough to undo an accident,
-// ➤ and it can never pile up copies of a private file over the months.
-// ➤ Best-effort on purpose — if the backup fails the setup carries on, because
-// ➤ refusing to save the CV you just pasted would be the worse outcome.
+// ➤ Keep the old version before replacing a document you could not retype from memory:
+// ➤ exactly ONE backup (<file>.bak), enough to undo an accident without piling up copies
+// ➤ of a private file. Best-effort — if the backup fails the setup carries on, because
+// ➤ refusing to save the CV you just pasted would be worse.
 function backupBeforeOverwrite(path) {
   try {
     if (!existsSync(path)) return;
@@ -53,12 +50,11 @@ const CV_PATH = join(ROOT, 'cv.md');
 const COVER_EXAMPLE_PATH = join(ROOT, 'config', 'cover-example.md');
 
 // ── Catalogs for the button questions ────────────────────────────────────
-// ➤ Countries offered as buttons. Each carries the display label and (when it exists) the
-// ➤ Adzuna domain code, so the written profile is complete. aliases = the country's NATIVE
-// ➤ spellings, emitted into locations.allow: the allow gate is a plain substring test with
-// ➤ no translation, and offers arrive written in their own language — "München, Bayern,
-// ➤ Deutschland" contains no "Germany". Full names only: the substring match makes short
-// ➤ codes ("ES") unsafe.
+// ➤ Countries offered as buttons, each with its display label and (when it exists) the
+// ➤ Adzuna domain code. aliases = the country's NATIVE spellings, emitted into
+// ➤ locations.allow: that gate is a plain substring test with no translation, and
+// ➤ "München, Bayern, Deutschland" contains no "Germany". Full names only — the substring
+// ➤ match makes short codes ("ES") unsafe.
 const COUNTRY_CATALOG = [
   { name: 'Spain', label: 'SPAIN', adzuna: 'es', aliases: ['España'] },
   { name: 'France', label: 'FRANCE', adzuna: 'fr' },
@@ -148,13 +144,12 @@ const QUESTIONS = [
 ];
 const Q_BY_KEY = Object.fromEntries(QUESTIONS.map((q, i) => [q.key, { ...q, index: i }]));
 
-// ➤ What the CV itself can tell the setup — no LLM anywhere, the same rule-based route the
-// ➤ open-source resume parsers use, with the buttons as the human confirmation that
-// ➤ absorbs any imprecision. Degrees: the catalog's values are ALREADY multilingual
-// ➤ regexes (the same stems the offer filter matches), so the CV is tested against the
-// ➤ very definition of each family — one source of truth. A family the CV shows is NOT
-// ➤ pre-ticked as excluded; everything else is. Over-detection merely leaves one more tap
-// ➤ to the user, and under-detection one tap the other way: a default, never a decision.
+// ➤ What the CV itself can tell the setup — no LLM, the rule-based route the open-source
+// ➤ resume parsers use, with the buttons as the human confirmation. Degrees: the catalog's
+// ➤ values are ALREADY multilingual regexes (the stems the offer filter matches), so the
+// ➤ CV is tested against the very definition of each family. A family the CV shows is NOT
+// ➤ pre-ticked as excluded; everything else is. Over- or under-detection costs one tap
+// ➤ either way: a default, never a decision.
 export function cvDegreesHeld(cvText, catalog = DEGREE_CATALOG) {
   const t = String(cvText || '');
   return catalog
@@ -162,13 +157,11 @@ export function cvDegreesHeld(cvText, catalog = DEGREE_CATALOG) {
     .map(o => o.value);
 }
 
-// ➤ The person's name, read the way every rule-based resume parser reads it:
-// ➤ CVs open with the name, so the first early line that LOOKS like one — two
-// ➤ to four capitalised words, no digits, no @, not a header word like
-// ➤ "Curriculum" — is it. A miss returns '' and the question just has no
-// ➤ suggestion; a wrong hit costs one retype, because it is only a default.
-// ➤ Name particles stay lowercase in real names — Fernández DE Silva, VAN der
-// ➤ Berg — so "every word capitalised" would reject half of Europe.
+// ➤ The person's name, read the way rule-based resume parsers read it: CVs open with the
+// ➤ name, so the first early line that LOOKS like one — two to four capitalised words, no
+// ➤ digits, no @, not a header word like "Curriculum" — is it. A miss means no suggestion;
+// ➤ a wrong hit costs one retype. Name particles stay lowercase in real names (Fernández
+// ➤ DE Silva, VAN der Berg), so "every word capitalised" would reject half of Europe.
 const NAME_PARTICLES = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'e', 'van', 'von', 'der', 'den', 'da', 'das', 'dos', 'di', 'du', 'le', 'el', 'al', 'bin', 'ter']);
 // ➤ Job words: "Senior Accountant" has exactly a name's SHAPE. Anything that
 // ➤ names a trade is a headline, not a person.
@@ -209,13 +202,11 @@ function tidyNameCase(name) {
   }).join(' ');
 }
 
-// ➤ Feature SCORING, the way the open-source parsers do it (OpenResume keeps
-// ➤ one positive/negative feature set per attribute) — never "first line
-// ➤ wins", because a CV's first line is as often a headline or an address.
-// ➤ With plain text (no font sizes) the two strongest features left are:
-// ➤ job words DISQUALIFY a line, and the CV's own EMAIL vouches for one —
-// ➤ mail locals are built from names, so "camilaalegre@" backs the line
-// ➤ "Camila Alegre" and nothing else. No line scores → no suggestion.
+// ➤ Feature SCORING, as the open-source parsers do it — never "first line wins", because a
+// ➤ CV's first line is as often a headline or an address. With plain text the two
+// ➤ strongest features are: job words DISQUALIFY a line, and the CV's own EMAIL vouches
+// ➤ for one — mail locals are built from names, so "camilaalegre@" backs "Camila Alegre"
+// ➤ and nothing else. No line scores → no suggestion.
 export function cvFullName(cvText) {
   const text = String(cvText || '');
   const email = foldLetters((text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/) || [''])[0].split('@')[0]);
@@ -285,12 +276,10 @@ export function cvContact(cvText) {
   return { email, phone, city };
 }
 
-// ➤ Pulls candidate skills out of the CV: section heading + keyword rules, no
-// ➤ model, no network — the same route the open-source resume parsers take
-// ➤ (OpenResume et al. are pdf-to-text plus keyword matching, exactly this).
-// ➤ The Skills block is found by an H2 ("## Skills") and stays open across its
-// ➤ sub-headings ("### Technical"), closing only at the next H2 — the shape
-// ➤ almost every CV uses.
+// ➤ Pulls candidate skills out of the CV: section heading + keyword rules, no model, no
+// ➤ network — the route the open-source resume parsers take. The Skills block opens at an
+// ➤ H2 ("## Skills"), stays open across its sub-headings ("### Technical") and closes at
+// ➤ the next H2 — the shape almost every CV uses.
 export function extractCvSkills(cvText) {
   const out = [];
   let inSkills = false;
@@ -330,11 +319,10 @@ export function cvSuggestions(cvText) {
   };
 }
 
-// ➤ Degree families by professional AREA, so an accountant is asked about
-// ➤ Economics and ADE, not Aerospace. Values are multilingual regexes in the
-// ➤ same style as DEGREE_CATALOG (which IS the engineering area, so an
-// ➤ engineer keeps exactly today's question). Curated and small on purpose:
-// ➤ these are the degrees offers in each area actually name.
+// ➤ Degree families by professional AREA, so an accountant is asked about Economics and
+// ➤ ADE, not Aerospace. Multilingual regexes in the style of DEGREE_CATALOG (which IS the
+// ➤ engineering area). Curated and small on purpose: the degrees offers in each area
+// ➤ actually name.
 const AREA_DEGREES = {
   business: [
     { label: 'Business Administration', value: "business admin|ADE\\b|betriebswirtschaft|BWL\\b|bedrijfskunde|administraci[óo]n de empresas|gestion d'entreprise" },
@@ -545,14 +533,12 @@ async function askCurrent(s) {
 }
 
 // ── Public entry points ─────────────────────────────────────────────────
-// ➤ `/start` → begin the full setup from question 0. IT ASKS FIRST IF YOU ALREADY HAVE A
-// ➤ PROFILE. Question 0 is "paste your CV", and the listener hands any text you type to
-// ➤ the setup BEFORE it looks for a command — so with the setup already running, typing
-// ➤ "list" would write the word "list" over your entire CV, with no confirmation, nothing
-// ➤ to cancel with, and cv.md the only copy: it is what your cover letters are built from.
-// ➤ `settings` already refuses to run without a profile; this is the same guard pointing
-// ➤ the other way. Is there a CV worth protecting? The shipped file is a placeholder, so
-// ➤ its presence alone means nothing — a real one is longer and does not say so.
+// ➤ `/start` → begin the full setup from question 0, ASKING FIRST IF YOU ALREADY HAVE A
+// ➤ PROFILE: question 0 is "paste your CV", and while the setup runs the listener hands
+// ➤ ANY text you type to it before looking for a command — typing "list" would overwrite
+// ➤ your entire CV, the only copy your cover letters are built from. `settings` refuses to
+// ➤ run without a profile; this is the same guard the other way. A CV worth protecting is
+// ➤ longer than the shipped placeholder and does not say so.
 function hasRealCv() {
   try {
     const t = readFileSync(CV_PATH, 'utf-8');
@@ -918,12 +904,10 @@ function quote(s) {
 function splitList(text) {
   return String(text || '').split(',').map(s => s.trim()).filter(Boolean);
 }
-// ➤ Turn a plain word the user typed into a regex fragment that matches it
-// ➤ LITERALLY. The "fields" answer is free text (e.g. "C++", "R&D") and later
-// ➤ becomes a regex (requirements.mjs); without this, "C++" is an invalid regex
-// ➤ and "(a+)+$" would be a catastrophic-backtracking one. Escaping every regex
-// ➤ metacharacter makes the term safe and match exactly what was typed. (The
-// ➤ hand-authored marine defaults keep their regex power — they never pass here.)
+// ➤ Turn a plain word the user typed into a regex fragment that matches it LITERALLY. The
+// ➤ "fields" answer is free text ("C++", "R&D") that later becomes a regex; unescaped,
+// ➤ "C++" is invalid and "(a+)+$" a catastrophic-backtracking one. (The hand-authored
+// ➤ marine defaults keep their regex power — they never pass here.)
 function reEscape(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -937,24 +921,20 @@ export function buildProfileYaml(a) {
   const cEmail = cp ? cp.email : (legacyContact[0] || '');
   const cPhone = cp ? cp.phone : (legacyContact[1] || '');
   const cCity = cp ? cp.city : legacyContact.slice(2).join(', ');
-  // ➤ AN EMPTY LIST OF ROLES SWITCHES THE TITLE FILTER OFF. An answer that is only spaces or
-  // ➤ only commas comes out as [], and the title filter reads an empty positive list as "no
-  // ➤ keyword required" — so every job title in the world passes and the only thing left
-  // ➤ between you and the entire market is the deal-breaker list. That is the opposite of
-  // ➤ what a blank answer means. So when there is nothing usable the key is left out of the
-  // ➤ file altogether and the rules already in force stay.
+  // ➤ AN EMPTY LIST OF ROLES WOULD SWITCH THE TITLE FILTER OFF: an answer of only spaces or
+  // ➤ commas comes out as [], which the title filter reads as "no keyword required" — every
+  // ➤ job title in the world passes and only the deal-breaker list stands between you and
+  // ➤ the market, the opposite of what a blank answer means. With nothing usable the key is
+  // ➤ left out and the rules in force stay.
   const roles = splitList(a.roles);
-  // ➤ WHAT TO SEARCH FOR, WHEN THE ROLES ANSWER GAVE US NOTHING USABLE. A punctuation-only
-  // ➤ answer reduces to an empty list, and neither obvious option is right: writing [] tells
-  // ➤ the scanner no keyword is required, so every title in the world passes; leaving the
-  // ➤ key out makes it fall back to portals.yml, whose list is the shipped MARINE example —
-  // ➤ so an accountant's bot would ask the boards for accounting jobs and then reject every
-  // ➤ one of them for having "no keyword from your field", for ever, without a word. The
-  // ➤ fields answered two questions later ARE the user's own, so they are what the filter
-  // ➤ falls back to. A worse filter than a proper list of titles, but about the right line
-  // ➤ of work, which is the part that matters. Fields become regexes downstream, so each
-  // ➤ typed word is escaped to match literally (roles do NOT need it — scan.mjs escapes
-  // ➤ title terms itself).
+  // ➤ WHAT TO SEARCH FOR WHEN THE ROLES ANSWER GAVE NOTHING USABLE. Neither obvious option
+  // ➤ is right: [] tells the scanner no keyword is required; leaving the key out falls back
+  // ➤ to portals.yml's shipped MARINE example, so an accountant's bot would fetch accounting
+  // ➤ jobs and reject every one for having "no keyword from your field", for ever, in
+  // ➤ silence. The fields answered two questions later ARE the user's own, so they are the
+  // ➤ fallback: a worse filter than a proper list of titles, but about the right line of
+  // ➤ work. Fields become regexes downstream, so each word is escaped to match literally
+  // ➤ (roles do not need it — scan.mjs escapes title terms itself).
   const fields = splitList(a.fields).map(reEscape);
   const titleTerms = roles.length ? roles : splitList(a.fields);
   const langs = a.languages || [];

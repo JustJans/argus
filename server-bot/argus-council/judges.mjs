@@ -1,16 +1,10 @@
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ WHAT IT IS: the 3 JUDGES of "The Council" and the vote reader.
-// ➤ Each judge is a block of instructions (its "personality") + the AI model
-// ➤ assigned to it. The AI is NOT called here: this file only DEFINES the judges
-// ➤ and offers a function that UNDERSTANDS what each judge replies (parseVerdict).
-// ➤ WHAT IT DOES, start to finish:
-// ➤   · JUDGES  = the list of the 3 judges (name, key, model and their prompt).
-// ➤   · parseVerdict(text) = reads the judge's reply (whether it comes as clean
-// ➤     JSON or loose text, in English or Spanish) and extracts {vote, reason, confidence}.
-// ➤ WHEN IT RUNS: it is imported by engine.mjs (to launch each judge) and
-// ➤ judge-shadow.mjs (the harness). Importing this file is SAFE: it only exports,
-// ➤ it runs nothing on load.
-// ➤ WHAT IT USES: nothing external. It is pure text and a deterministic parse function.
+// ➤ WHAT IT IS: the 3 JUDGES of "The Council" and the vote reader. Each judge is a block
+// ➤ of instructions (its "personality") + the AI model assigned to it; the AI is NOT
+// ➤ called here. JUDGES = the list of the 3 (name, key, model, prompt); parseVerdict(text)
+// ➤ reads a judge's reply — clean JSON or loose text, English or Spanish — into {vote,
+// ➤ reason, confidence}. Imported by engine.mjs and judge-shadow.mjs; importing it runs
+// ➤ nothing.
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 // ➤ Your profile may override these default (marine) prompts via

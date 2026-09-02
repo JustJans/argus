@@ -1,12 +1,10 @@
 #!/usr/bin/env node
 // ➤ ═══════════════════════════════════════════════════════════════════
-// ➤ WHAT IT IS: the list of pending offers, to view it in the terminal.
-// ➤ Reads the data/pipeline.md file (where the scanner stores the offers
-// ➤ it found) and shows the ones still under "Pending": their stable
-// ➤ number, company, title, location and link. That number (#N) is the same
-// ➤ one that arrives via Telegram and the one you use when replying "seen N" or "no N".
-// ➤ WHEN IT RUNS: manually, when you want to review the list; also,
-// ➤ other bot scripts reuse the offer-reading function from here.
+// ➤ WHAT IT IS: the pending offers, for the terminal. Reads data/pipeline.md (where the
+// ➤ scanner stores what it found) and shows what is still under "Pending": stable number,
+// ➤ company, title, location and link. That number (#N) is the one Telegram shows and the
+// ➤ one you use in "seen N" or "no N". Run by hand to review the list; the other scripts
+// ➤ reuse its offer-reading function.
 // ➤ ═══════════════════════════════════════════════════════════════════
 
 /**

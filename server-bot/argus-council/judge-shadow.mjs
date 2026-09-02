@@ -1,30 +1,20 @@
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ WHAT IT IS: the HARNESS of "The Council". It's the only file that runs on
-// ➤ its own (via cron or by hand). It OBSERVES what Argus already decided and
-// ➤ rethinks it with the 3 judges, noting the result in ITS OWN log. It runs in
-// ➤ SHADOW: it decides NOTHING, it does NOT touch pipeline.md or any other bot file.
-// ➤ WHAT IT DOES, start to finish:
-// ➤   1. Reads the config (the council: block in portals.yml). If it is not
-// ➤      on (enabled:false or the block is missing), it does NOTHING and exits.
-// ➤   2. Gathers the offers to judge: the PRESENTED ones (pending, with URL) +
-// ➤      a SAMPLE of dropped ones (by title, from data/scan-explain.txt).
-// ➤   3. Drops the ones it ALREADY judged before (anti-repeat lock): each offer
-// ➤      goes through the Council ONLY once, even if it stays pending and cron
-// ➤      sees it again. For each NEW offer: it fetches its body (fetchOfferPage),
-// ➤      runs the 3 judges, computes the verdict (2 of 3) and logs it.
-// ➤ WHEN IT RUNS: CHAINED right after the scan (same cron line:
-// ➤ «scan ; council»), with flock, reading the freshly written pipeline.md.
-// ➤ ARCHITECTURE: Argus (the scanner) is the BASE and works on its own — it filters
-// ➤ and sends the offers to Telegram by itself. The Council is the OPTIONAL layer
-// ➤ "Argus Plus": it only adds its opinion (in shadow, to the log); if it's turned off
-// ➤ (council.enabled:false) Argus keeps working the same. It can also be run by hand to test.
-// ➤ WHAT IT USES (read-only): pendingOffers() from list-offers.mjs (presented),
-// ➤ data/scan-explain.txt (sample of dropped), fetchOfferPage() from
-// ➤ cover-letter.mjs (body), and the Council's judges/engine/ballot-box. The ONLY
-// ➤ thing it writes are TWO of its own files: data/judge-shadow.jsonl (a machine
-// ➤ log, one JSON line per offer) and data/council-log.txt (the SAME
-// ➤ content but READABLE by you, with each judge's vote and reason).
-// ➤ Neither belongs to the pipeline: it's still pure shadow.
+// ➤ WHAT IT IS: the HARNESS of "The Council" — the only file here that runs on its own
+// ➤ (chained after the scan on the same cron line, or by hand). It OBSERVES what Argus
+// ➤ already decided and rethinks it with the 3 judges, noting the result in ITS OWN log.
+// ➤ SHADOW: it decides NOTHING and touches no bot file.
+// ➤
+// ➤ WHAT IT DOES: reads the council: block of portals.yml (off or missing → exits);
+// ➤ gathers the PRESENTED offers (pending, with URL) plus a SAMPLE of dropped ones (by
+// ➤ title, from data/scan-explain.txt); drops the ones already judged (each offer goes
+// ➤ through the Council ONCE); for each new one fetches the body, runs the 3 judges,
+// ➤ computes the verdict (2 of 3) and logs it.
+// ➤
+// ➤ ARCHITECTURE: Argus is the BASE and works alone; the Council is the OPTIONAL layer
+// ➤ that adds an opinion — off (council.enabled:false), nothing changes.
+// ➤
+// ➤ WRITES two files of its own and nothing else: data/judge-shadow.jsonl (one JSON line
+// ➤ per offer) and data/council-log.txt (the same, readable).
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 import { readFileSync, existsSync, appendFileSync } from 'fs';

@@ -1,16 +1,12 @@
-// ➤ The text of an offer, fetched from wherever the board keeps it. Workday,
-// ➤ Oracle, LinkedIn and Adzuna each have an API or a page section that holds
-// ➤ the description alone; any other board hands over its whole page. Two
-// ➤ readers drink from this — the letter writer and the Council — so it lives
-// ➤ in a module of its own instead of inside the letter writer.
+// ➤ The text of an offer, fetched from wherever the board keeps it: Workday, Oracle,
+// ➤ LinkedIn and Adzuna have an API or a page section with the description alone; any
+// ➤ other board hands over its whole page. Shared by the letter writer and the Council.
 import { stripHtml, extractAdzunaJd } from './requirements.mjs';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36';
-// ➤ Depending on the link's portal, it requests the offer text via the right route
-// ➤ (Workday and Oracle have their own "data gateway"; LinkedIn has a public version;
-// ➤ Adzuna is read from its details page). If nothing matches, it downloads the page as-is
-// ➤ and strips the HTML. Returns { text, status }: the text, and the HTTP status of the
-// ➤ request that decided it — 0 when no answer came at all (timeout, DNS, refused). The
+// ➤ Routes by portal (Workday and Oracle data gateways, LinkedIn's public version,
+// ➤ Adzuna's details page), else the whole page stripped of HTML. Returns { text, status
+// ➤ }: the HTTP status of the request that decided it, 0 when no answer came at all. The
 // ➤ status matters to the Council: Adzuna answers a burst with 429 and CloudFront with
 // ➤ 403, and an empty text that means "come back later" must not be judged like a page
 // ➤ that has nothing to say.

@@ -1,22 +1,21 @@
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ EXPERIMENTAL (in no release yet): the "no" that teaches.
+// ➤ EXPERIMENTAL (in no release yet): the "no" that teaches. "no N reason" only wrote a
+// ➤ record for a human to read when hand-tuning; this makes the rejection ACT — right
+// ➤ after one, the bot offers one-tap standing vetoes built from the rejected offer (the
+// ➤ distinctive words of its title, its company, its city), and offers matching them never
+// ➤ reach the list again.
 // ➤
-// ➤ WHAT IT IS: "no N reason" only wrote a record a human reads when hand-tuning the
-// ➤ filters. This makes the rejection ACT: right after one, the bot reads the rejected
-// ➤ offer and offers one-tap standing vetoes — the distinctive words of its title, its
-// ➤ company, its city. One tap and offers matching it never reach the list again.
-// ➤
-// ➤ WHY BUTTONS AND NOT A COMMAND: a "veto <word>" command makes the user do the analysis.
-// ➤ The offer is right there; the bot can propose and the user only has to recognise. Free
-// ➤ text stays what it was — the reason record.
+// ➤ WHY BUTTONS: a "veto <word>" command makes the user do the analysis; the offer is
+// ➤ right there, the bot proposes and the user only recognises. Free text stays the reason
+// ➤ record.
 // ➤
 // ➤ WHY A FILE OF ITS OWN (data/vetoes.json): the profile is REGENERATED from the
 // ➤ onboarding answers on every settings edit, so anything written into profile.yml by
-// ➤ another door gets silently wiped. This store survives, and scan + housekeep merge it
-// ➤ into the filters they build.
+// ➤ another door is wiped. This store survives, and scan + housekeep merge it into the
+// ➤ filters they build.
 // ➤
-// ➤ EVERY VETO IS REVERSIBLE: Undo on the panel just after the tap, and the "vetoes"
-// ➤ command lists every standing one with a remove button.
+// ➤ EVERY VETO IS REVERSIBLE: Undo on the panel, and the "vetoes" command lists every
+// ➤ standing one with a remove button.
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 import { readFileSync, existsSync } from 'fs';
@@ -126,13 +125,12 @@ const CHIP_STOP = new Set((
   'job jobs vacancy vacature offre empleo trabajo puesto oferta stelle new nuevo'
 ).split(/\s+/));
 
-// ➤ A chip must never be able to kill the user's own search: tapping
-// ➤ "Mooring" away because one mooring offer was bad would silently veto the
-// ➤ whole field. For a SINGLE word the test is containment both ways,
-// ➤ accent-blind ("moor"/"mooring" in either direction is too close to the
-// ➤ field to offer). A PAIR always narrows — "Divorce Lawyer" blocks only
-// ➤ divorce lawyers however much "lawyer" is a positive — so a pair is only
-// ➤ blocked when it IS a positive, whole and equal.
+// ➤ A chip must never be able to kill the user's own search: tapping "Mooring" away
+// ➤ because one mooring offer was bad would silently veto the whole field. A SINGLE word
+// ➤ is tested by containment both ways, accent-blind ("moor"/"mooring" either way is too
+// ➤ close to the field). A PAIR always narrows — "Divorce Lawyer" blocks only divorce
+// ➤ lawyers however much "lawyer" is a positive — so a pair is blocked only when it IS a
+// ➤ positive, whole and equal.
 function clashesWithPositives(chip, positives, { phrase = false } = {}) {
   const w = fold(chip);
   return positives.some(p => {

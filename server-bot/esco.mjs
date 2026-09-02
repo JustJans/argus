@@ -1,12 +1,10 @@
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ WHAT IT IS: the bridge to ESCO — the European Commission's official
-// ➤ taxonomy of 3,007 occupations and 13,896 skills, in 28 languages, free
-// ➤ and without an API key. The setup drinks from it: the terms read from a
-// ➤ CV become the person's actual occupation(s), each with its ISCO code
-// ➤ (naming the professional area) and its advert-usable job titles.
-// ➤ IT NEVER THROWS at the caller: a term ESCO does not know, or no network
-// ➤ at all, just yields fewer occupations, and the setup falls back to what
-// ➤ the CV alone said.
+// ➤ WHAT IT IS: the bridge to ESCO — the European Commission's taxonomy of 3,007
+// ➤ occupations and 13,896 skills, in 28 languages, free and without an API key. The terms
+// ➤ read from a CV become the person's actual occupation(s), each with its ISCO code (the
+// ➤ professional area) and its advert-usable job titles. IT NEVER THROWS at the caller: a
+// ➤ term ESCO does not know, or no network at all, just yields fewer occupations and the
+// ➤ setup falls back to what the CV alone said.
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';

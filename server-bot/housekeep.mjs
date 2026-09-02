@@ -66,12 +66,11 @@ try {
 // ➤ How many links are checked at once (5, so as not to overload the sites).
 const LIVENESS_CONCURRENCY = 5;
 
-// ➤ Cleans a URL for comparing duplicates: strips what comes after "?" and the
-// ➤ trailing slash; and the Adzuna redirect /land/ad/<id> is matched to its
-// ➤ /details/<id> page (same offer, two link forms).
-// ➤ Two links to the SAME posting written differently. Exported to be tested:
-// ➤ it decides whether an offer already lives in the history, and getting it
-// ➤ wrong either deletes something twice or lets a deleted one come back.
+// ➤ Cleans a URL for comparing duplicates: strips what follows "?" and the trailing slash,
+// ➤ and maps the Adzuna redirect /land/ad/<id> to its /details/<id> page — two link forms,
+// ➤ one posting. Exported to be tested: it decides whether an offer already lives in the
+// ➤ history, and getting it wrong either deletes something twice or lets a deleted one
+// ➤ come back.
 export function normUrl(u) {
   return (u || '').split('?')[0].replace(/\/$/, '')
     .replace(/^(https?:\/\/[^/]*adzuna\.[a-z.]+)\/land\/ad\/(\d+)$/, '$1/details/$2');
@@ -108,11 +107,10 @@ function ensureInHistory(offers, why) {
 // ➤ what it removes without going near your real list.
 export function rewritePipelineWithout(linesToDrop, path = PIPELINE_PATH) {
   const drop = new Set(linesToDrop.map(l => l.trim()).filter(Boolean));
-  // ➤ Read and write INSIDE the lock. Re-reading late already meant this could
-  // ➤ not overwrite a change made while the HTTP checks ran, but it did not
-  // ➤ stop the reverse: a "seen" arriving between this read and this write was
-  // ➤ erased. Measured: eight concurrent read-modify-writes kept 200 lines of
-  // ➤ 1600. The lock is held for these two lines, not for the minutes before.
+  // ➤ Read and write INSIDE the lock. Re-reading late stops this from overwriting a change
+  // ➤ made while the HTTP checks ran; the lock stops the reverse — a "seen" arriving between
+  // ➤ this read and this write being erased (eight concurrent read-modify-writes kept 200
+  // ➤ lines of 1,600). Held for these two lines, not for the minutes before.
   return withFileLock(path, () => {
     const fresh = readFileSync(path, 'utf-8').split('\n');
     const kept = fresh.filter(l => !drop.has(l.trim()));
@@ -125,20 +123,16 @@ export function rewritePipelineWithout(linesToDrop, path = PIPELINE_PATH) {
 
 // ➤ ── THE BRAKE ON A MASS DELETE ──────────────────────────────────────────
 // ➤ Deleting here is PERMANENT: the link goes to the anti-repeat history and the scanner
-// ➤ will never propose that job again. "Dead" is decided from a single HTTP answer, and
-// ➤ some of those answers (a 403 while a portal blocks us, a 404 from a site that is down,
-// ➤ our own rate-limiting) mean "not right now", not "withdrawn". When MOST of the list
-// ➤ dies at once, that is a portal or network problem, not a dozen companies closing their
-// ➤ vacancies in the same minute — so nothing is deleted and the next run re-checks.
-// ➤ Exported and used by BOTH delete paths: the Sunday full clean-up deletes strictly more
-// ➤ than the daily check and needs the same brake.
-// ➤ TWO WAYS TO TRIGGER, because a ratio alone gets it wrong at both ends: with no floor,
-// ➤ one genuinely withdrawn offer out of two is half of them, so the brake would fire
-// ➤ every run and the dead link stay for ever; a count alone would miss "everything died
-// ➤ at once" on a small list. So: five or more dead AND at least half — many at once is an
-// ➤ outage whatever the list size — OR every single one dead, from three up, which cannot
-// ➤ be a coincidence either. One or two dead links get deleted, which is what they are
-// ➤ for.
+// ➤ never proposes that job again. "Dead" comes from a single HTTP answer, and some
+// ➤ answers (a 403 while a portal blocks us, a 404 from a site that is down, our own
+// ➤ rate-limiting) mean "not right now". When MOST of the list dies at once that is a
+// ➤ portal or network problem, not a dozen companies closing vacancies in the same minute
+// ➤ — nothing is deleted and the next run re-checks. Used by BOTH delete paths: the Sunday
+// ➤ clean-up deletes strictly more than the daily check.
+// ➤ TWO WAYS TO TRIGGER, because a ratio alone fails at both ends (one withdrawn offer out
+// ➤ of two is half of them; a count alone misses "everything died" on a small list): five
+// ➤ or more dead AND at least half, OR every single one dead from three up. One or two
+// ➤ dead links get deleted, which is what they are for.
 export function looksLikeAnOutage(pendingCount, deadCount) {
   if (pendingCount <= 0 || deadCount <= 0) return false;
   const half = deadCount >= Math.ceil(pendingCount * 0.5);
@@ -280,12 +274,10 @@ async function isLikelyDead(url) {
 // ➤ Browser identification: the bot presents itself as a normal Chrome so sites don't reject it.
 const DESC_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36';
 
-// ➤ Polite download: leaves a gap between requests to the same portal and, if
-// ➤ the portal answers "too many requests" (429), waits and retries. Still
-// ➤ limited → returns "I don't know", never "dead". THE RULE: never conclude
-// ➤ anything from a 429. Adzuna throttled us after a day's sweeps, the check
-// ➤ read that as "alive", and a dead offer (#61) reached the phone. Tomorrow's
-// ➤ cron retries with fresh quota.
+// ➤ Polite download: a gap between requests to the same portal and, on a 429, wait and
+// ➤ retry. Still limited → "I don't know", never "dead". THE RULE: never conclude anything
+// ➤ from a 429 — a throttled Adzuna once read as "alive" and a dead offer reached the
+// ➤ phone. Tomorrow's cron retries with fresh quota.
 const HOST_GAP_MS = { 'adzuna': 1500, 'linkedin': 1200 };
 // ➤ Slot allocator, not a last-request timestamp: under 5-way concurrency every waiter
 // ➤ would compute its wait from the same stale timestamp, wake at the same moment and fire
@@ -321,11 +313,10 @@ async function politeFetch(hostKey, url, opts = {}) {
   return null; // still rate-limited → inconclusive
 }
 
-// ➤ Recovers an offer's full text from its URL alone, depending on the
-// ➤ portal (Workday, Oracle, LinkedIn or Adzuna). If it can't, it returns empty
-// ➤ and the offer is kept unfiltered.
-// ➤ Adzuna URLs where the CLEAN description (without menus) was obtained:
-// ➤ only on those is it safe to check the body language.
+// ➤ Recovers an offer's full text from its URL alone, by portal (Workday, Oracle, LinkedIn
+// ➤ or Adzuna); if it can't, it returns empty and the offer is kept unfiltered. Adzuna
+// ➤ URLs where the CLEAN description (without menus) was obtained: only on those is it
+// ➤ safe to check the body language.
 const adzunaJdClean = new Set();
 
 async function fetchDescriptionByUrl(url) {
@@ -365,12 +356,11 @@ async function fetchDescriptionByUrl(url) {
       if (jd) { adzunaJdClean.add(url); return jd; }
       return stripHtml(html);
     }
-    // ➤ Everything else — SuccessFactors career pages and the like — reads the
-    // ➤ page itself, exactly what the scan does. Returning '' here meant a
-    // ➤ #808 whose Master's demand the scan COULD have read stayed invisible
-    // ➤ to every weekly recheck for ever. Raw page text is noisier than an
-    // ➤ API answer, but the degree and language rechecks only act on
-    // ➤ affirmative sentences, which menus do not write.
+    // ➤ Everything else — SuccessFactors career pages and the like — reads the page itself,
+    // ➤ exactly as the scan does; returning '' here would leave a Master's demand the scan
+    // ➤ could read invisible to every weekly recheck. Raw page text is noisier than an API
+    // ➤ answer, but the degree and language rechecks only act on affirmative sentences, which
+    // ➤ menus do not write.
     const res = await politeFetch(new URL(url).hostname, url, { redirect: 'follow' });
     return res && res.ok ? stripHtml(await res.text()) : '';
   } catch { return ''; }

@@ -1,15 +1,11 @@
 #!/usr/bin/env node
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ WHAT THIS IS: the "messenger" of the job searcher. This file is in charge
-// ➤ of sending the new offers the scanner finds to your Telegram.
-// ➤ WHAT IT DOES from start to finish: it groups the offers by country
-// ➤ (Barcelona first, then Spain, France...), cleans up and translates the
-// ➤ titles into English, and sends them as a message with clickable links; if
-// ➤ they don't fit in one message, it splits them across several without
-// ➤ cutting lines in half.
-// ➤ WHEN IT RUNS: the scanner (scan.mjs, every 2 hours on the server) calls it
-// ➤ when there are new offers; by hand it accepts --test and --setup.
-// ➤ WHAT IT USES: telegram.json (the bot's keys) and countries.yml (countries).
+// ➤ WHAT THIS IS: the "messenger" — it sends the offers the scanner finds to your
+// ➤ Telegram: grouped by country (home city first, then your countries), titles cleaned
+// ➤ and translated into English, clickable links, split across messages without cutting a
+// ➤ line when they do not fit in one. Called by the scanner when there are new offers; by
+// ➤ hand it accepts --test and --setup. Uses telegram.json (the bot's keys) and
+// ➤ countries.yml.
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 /**
@@ -54,12 +50,10 @@ const JUDGE_JOURNAL_PATH = join(ROOT, 'data', 'judge-shadow.jsonl');
 // ➤ pattern every Telegram-bot test harness uses). Never set in production.
 export const TG_API = process.env.ARGUS_TG_API || 'https://api.telegram.org';
 
-// ➤ How much text goes in one message before it is sent and a new one begun.
-// ➤ TELEGRAM REFUSES ANYTHING OVER 4096 CHARACTERS, and refusing means you get
-// ➤ no list at all — the failure is total, not partial. The margin exists
-// ➤ because the count is of the VISIBLE text while what is sent carries HTML
-// ➤ tags and links on top. Exported so a test can hold it under the limit: a
-// ➤ mutation that raised it to 100000 passed every test there was.
+// ➤ How much text goes in one message before a new one begins. TELEGRAM REFUSES ANYTHING
+// ➤ OVER 4096 CHARACTERS, and refusing means no list at all — the failure is total. The
+// ➤ margin exists because the count is of VISIBLE text while what is sent carries HTML
+// ➤ tags and links. Exported so a test can hold it under the limit.
 export const MAX_CHUNK = 3500;
 export const TELEGRAM_LIMIT = 4096;
 // ➤ A backstop for the splitter, not a reading width: a line that alone exceeds
@@ -95,13 +89,10 @@ const _COUNTRIES = (Array.isArray(searchProfile.countries) && searchProfile.coun
 const HOME_CITY = String(searchProfile.home_city || 'Barcelona');
 const HOME_GROUP = HOME_CITY.toUpperCase();
 
-// ➤ Order in which the country groups appear in the Telegram message: home city
-// ➤ first, then your countries in priority order, then the catch-all groups.
-// ➤ DE-DUPLICATED, because the list is walked to build the message and a label
-// ➤ appearing twice sends its offers twice. The onboarding offers "Remote" as a
-// ➤ country to tick, so anyone who ticks it gets REMOTE from their own list AND
-// ➤ the fixed one below. A home city named like one of the countries would do
-// ➤ the same.
+// ➤ Order of the country groups: home city first, then your countries in priority order,
+// ➤ then the catch-all groups. DE-DUPLICATED: a label appearing twice would send its
+// ➤ offers twice — the onboarding offers "Remote" as a country to tick, so anyone who
+// ➤ ticks it has REMOTE from their own list AND the fixed one below.
 const GROUP_ORDER = [...new Set([HOME_GROUP, ..._COUNTRIES.map(c => c.label), 'REMOTE', 'OTHER', 'NO LOCATION'])];
 
 // ➤ From the English country name (as it arrives from the job portals) to the
@@ -267,14 +258,11 @@ function persistTranslation(key, out) {
   try { writeFileAtomic(TRANSLATIONS_PATH, JSON.stringify(_tdisk)); } catch { /* disk full — cache still works in memory */ }
 }
 
-// ➤ Which language a job title in a given country is written in. Used only as
-// ➤ a second attempt, when the automatic detection has already given up.
-// ➤ Written WITHOUT accents, and the text is stripped of them before matching.
-// ➤ Not tidiness: JavaScript's \b only knows ASCII, so "\bbelgië\b" never
-// ➤ matches "België" — the ë is not a word character to it, so there is no
-// ➤ boundary to find and the country goes unrecognised. Folding both sides
-// ➤ also means "Espana" and "España" are the same word, which is how the job
-// ➤ boards actually spell it: both.
+// ➤ Which language a job title in a given country is written in — a second attempt only,
+// ➤ when automatic detection has given up. Written WITHOUT accents and matched against
+// ➤ folded text: JavaScript's word boundary only knows ASCII, so an accented name like
+// ➤ "België" has no boundary to find; folding both sides also makes "Espana" and "España"
+// ➤ the same word, and the boards spell it both ways.
 const COUNTRY_LANG = [
   [/\bfrance\b|\bfrancia\b|\bfrankrijk\b|\bmonaco\b|\.fr[/?]|\.fr$/i, 'fr'],
   [/\bspain\b|\bespana\b|\bspanje\b|\bspanien\b|\.es[/?]|\.es$/i, 'es'],
@@ -299,20 +287,15 @@ async function askTranslator(title, sl, fetchImpl = fetch) {
   return (data?.[0] || []).map(seg => seg?.[0] || '').join('').trim();
 }
 
-// ➤ Translates the title into English with Google's free translator (no key).
-// ➤ If it fails or takes more than 8 seconds, the original title is used.
-// ➤ EVERY title goes through it. A "looks foreign" heuristic was tried first
-// ➤ and failed on ASCII German compounds ("Nachrichtentechnik"), which reached
-// ➤ the phone untranslated. English input comes back unchanged, and a scan
-// ➤ notifies a handful of offers at most, so the cost is nil.
-// ➤
-// ➤ THE SECOND ATTEMPT IS WHY FRENCH WAS NOT WORKING. Job titles are three or
-// ➤ four words long, and on those the automatic detection guesses badly:
-// ➤ "Charpentier naval H/F" is reported as ENGLISH, so it comes back exactly as
-// ➤ it went in and reaches the phone in French. Told the language outright it
-// ➤ answers "Shipwright M/F". The country the job is in is the hint, and being
-// ➤ wrong about it costs nothing — an English title handed over as French comes
-// ➤ back unchanged, which is what a wrong guess should do.
+// ➤ Translates the title into English with Google's free translator (no key); on failure,
+// ➤ or after 8 seconds, the original stays. EVERY title goes through it: a "looks foreign"
+// ➤ heuristic failed on ASCII German compounds ("Nachrichtentechnik"), English comes back
+// ➤ unchanged, and a scan notifies a handful of offers at most.
+// ➤ THE SECOND ATTEMPT, with the language named outright, is why French works: on
+// ➤ three-word titles automatic detection guesses badly — "Charpentier naval H/F" is
+// ➤ reported as ENGLISH and comes back untouched; told it is French it answers "Shipwright
+// ➤ M/F". The job's country is the hint, and a wrong hint costs nothing: an English title
+// ➤ handed over as French comes back unchanged.
 export async function translateTitle(title, place = '', { fetchImpl = fetch, cache = _tcache } = {}) {
   // ➤ The disk layer only backs the REAL cache: a test that injects its own
   // ➤ cache touches no file.
@@ -436,12 +419,12 @@ export async function deleteTelegramMessage(messageId) {
   }
 }
 
-// ── Inline BUTTONS (used only by the one-time onboarding / settings) ─────────
-// ➤ The daily commands stay typed (the user's rule); buttons are only for the
-// ➤ one-time setup, where multi-selecting from a fixed list (countries,
-// ➤ languages...) is much nicer than typing. `rows` is a 2D array of
-// ➤ {label, data}: each inner array is one row of buttons. `data` is the short
-// ➤ payload (<=64 bytes) Telegram sends back when the button is tapped.
+// ➤ ── Inline BUTTONS (setup questions, list pages, review cards, veto panel) ─────
+// ➤ The daily commands stay typed (the user's rule); buttons serve the one-time setup,
+// ➤ where multi-selecting from a fixed list (countries, languages...) beats typing, and
+// ➤ the cards and panels that came later. `rows` is a 2D array of {label, data}: each
+// ➤ inner array is one row; `data` is the short payload (<=64 bytes) Telegram sends back
+// ➤ on a tap.
 
 // ➤ Turns our simple {label,data} rows into Telegram's inline_keyboard shape.
 // ➤ {label,url} makes a LINK button instead (the review card's "Open offer"):
@@ -589,17 +572,15 @@ function escAttr(s) {
  * entity parsing, so URLs inside <a href> cost nothing. Splits only on truly
  * huge batches, repeating the plain country header (no "(cont.)" markers).
  */
-// ➤ THE MAIN FUNCTION: takes the list of new offers and sends them to your
-// ➤ Telegram grouped by country, each as a line with a clickable link. It
-// ➤ tries to fit everything in ONE message; if there are too many, it splits
-// ➤ them across several, repeating the header of the country where it cut.
+// ➤ THE MAIN FUNCTION (notifyNewOffers, below) sends the new offers grouped by country,
+// ➤ one line with a clickable link each — in ONE message when they fit, several otherwise,
+// ➤ repeating the country header where it cut.
 // ➤ ── THE COUNCIL'S WORD ON EACH OFFER ───────────────────────────────────
-// ➤ What the shadow judges decided, one tag per offer: show → [YES],
-// ➤ tie → [MYB], hide → [NO]. Read from the journal the Council appends after
-// ➤ each scan, and spoken on the list ONLY while portals.yml has the Council
-// ➤ switched on — with it off, the list does not change by one character.
-// ➤ Returns null when off; a Map (possibly empty) when on, so an offer the
-// ➤ judges have not reached yet simply says nothing until the next pass.
+// ➤ What the shadow judges decided, one tag per offer: show → [YES], tie → [MYB], hide →
+// ➤ [NO], blind → [?]. Read from the journal the Council appends after each scan, and
+// ➤ spoken ONLY while portals.yml has the Council on — off, the list does not change by
+// ➤ one character. Returns null when off; a Map (possibly empty) when on, so an offer the
+// ➤ judges have not reached yet says nothing.
 export function councilVerdicts({ portalsPath = PORTALS_PATH, journalPath = JUDGE_JOURNAL_PATH } = {}) {
   try {
     if (yaml.load(readFileSync(portalsPath, 'utf-8'))?.council?.enabled !== true) return null;
@@ -711,12 +692,11 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
       const word = verdicts && (verdicts.get(o.url) ?? verdicts.get('#' + o.id));
       const councilTag = word ? ` [${word}]` : '';
       const lineTxt = `- ${newTag}${idTag}${parts.join(' - ')}${councilTag}`;
-      // ➤ Build the line FIRST, then ask whether it fits. What goes to
-      // ➤ Telegram is the markup, not the words: every line carries
-      // ➤ <a href="the whole URL">, and measuring only the visible text made
-      // ➤ the real message 1.8x the size counted — about 6,300 characters
-      // ➤ against a 4,096 limit, so past roughly thirty offers in one country
-      // ➤ the list simply stopped being sent.
+      // ➤ Build the line FIRST, then ask whether it fits: what goes to Telegram is the markup,
+      // ➤ not the words — every line carries <a href="the whole URL">, and measuring only the
+      // ➤ visible text made the real message 1.8x the size counted (about 6,300 characters
+      // ➤ against a 4,096 limit), so past roughly thirty offers in one country the list stopped
+      // ➤ being sent.
       const lineHtml = `- ${isNew ? '<b>[NEW]</b> ' : ''}${esc(idTag)}<a href="${escAttr(o.url)}">${esc(parts.join(' - '))}</a>${esc(councilTag)}\n\n`;
       if (chunk.length + lineHtml.length > MAX_CHUNK) {
         await flush();
@@ -731,12 +711,11 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
 
   // ➤ Send phase.
   if (paged && pages.length) {
-    // ➤ ONE message in the chat, whatever the list's length: page 1 goes out
-    // ➤ (with Prev/Next buttons when there is more than one page) and every
-    // ➤ page is stored on disk so a button tap — handled by a LATER listener
-    // ➤ process — can redraw the same message with another page. The stored
-    // ➤ message_id ties the pages to their message: a tap on an older, orphan
-    // ➤ list finds the id mismatch and gets told the list is outdated.
+    // ➤ ONE message in the chat whatever the list's length: page 1 goes out (with Prev/Next
+    // ➤ when there is more than one page) and every page is stored on disk so a button tap —
+    // ➤ handled by a LATER listener process — can redraw the same message with another page.
+    // ➤ The stored message_id ties the pages to their message: a tap on an older, orphan list
+    // ➤ finds the mismatch and is told the list is outdated.
     const total = pages.length;
     // ➤ Buttons on every list, single page included: a short list has no page row, but the
     // ➤ review entry is always there.
@@ -764,14 +743,12 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
 
 // ── CLI ─────────────────────────────────────────────────────────────
 
-// ➤ "--setup" mode (initial configuration): detects only your chat_id. You
-// ➤ must have sent any message to the bot beforehand; it reads that message,
-// ➤ notes the number in telegram.json and sends you a confirmation to your phone.
-// ➤ EXIT CODES, because the setup scripts react differently to each and a user staring
-// ➤ at "Unauthorized" cannot tell them apart:
-// ➤   2 = the token itself is wrong (a typo when pasting) → ask for it again.
-// ➤   1 = the token works but you have not messaged the bot yet, or the network
-// ➤       is down → the fix is yours to do, then re-run this.
+// ➤ --setup: detects only your chat_id. You must have sent any message to the bot first;
+// ➤ it reads that message, writes the number to telegram.json and sends a confirmation to
+// ➤ your phone. EXIT CODES, because the setup scripts react differently and a user staring
+// ➤ at "Unauthorized" cannot tell them apart: 2 = the token itself is wrong (a paste typo)
+// ➤ → ask again; 1 = the token works but you have not messaged the bot yet, or the network
+// ➤ is down → fix it, then re-run.
 async function cliSetup() {
   const c = loadCfg();
   if (!c?.bot_token) {
@@ -779,19 +756,17 @@ async function cliSetup() {
     console.error('  {"bot_token": "123456:ABC...", "chat_id": ""}');
     process.exit(1);
   }
-  // ➤ WAIT for the message instead of demanding it already arrived: people send their
-  // ➤ message and press Enter within a second or two, and Telegram can lag a few seconds. So
-  // ➤ this polls — up to two minutes, stopping the moment it appears — before declaring
-  // ➤ nothing there. The wait costs nothing when the message already arrived: the very first
-  // ➤ look finds it.
+  // ➤ WAIT for the message instead of demanding it already arrived: people press Enter
+  // ➤ within a second or two and Telegram can lag. So this polls — up to two minutes,
+  // ➤ stopping the moment it appears; when the message is already there the very first look
+  // ➤ finds it.
   let updates;
   const deadline = Date.now() + 120_000;
   for (;;) {
-    // ➤ THE LISTENER MAY HAVE LINKED THE CHAT MEANWHILE: once any listener polls this bot — a
-    // ➤ scheduled one from this install, or a survivor of an earlier one — it CONSUMES the
-    // ➤ very message this poll is looking for, so waiting on getUpdates alone would wait for
-    // ➤ ever. telegram.json is the meeting point: the listener writes the chat_id there and
-    // ➤ this console run only has to notice.
+    // ➤ THE LISTENER MAY HAVE LINKED THE CHAT MEANWHILE: any listener polling this bot — from
+    // ➤ this install, or a survivor of an earlier one — CONSUMES the very message this poll
+    // ➤ waits for, so getUpdates alone would wait for ever. telegram.json is the meeting
+    // ➤ point: the listener writes the chat_id there and this console run only has to notice.
     const linked = loadCfg();
     if (linked?.chat_id) {
       console.log(`chat_id ${linked.chat_id} saved (the listener completed the link). Confirmation sent.`);

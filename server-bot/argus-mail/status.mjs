@@ -9,12 +9,10 @@
 // ➤ one is what keeps the record from flattering itself.
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
-// ➤ NO GRACE PERIOD, DELIBERATELY. An application younger than three days used
-// ➤ to be held in a state of its own. It bought nothing: every automated
-// ➤ receipt in the real mailbox arrived within the same HOUR of applying, so
-// ➤ an application with no receipt is already saying something on day zero.
-// ➤ The age sits next to it in the report anyway, and a reader understands
-// ➤ "one day old" where they could not read a fifth colour.
+// ➤ NO GRACE PERIOD, DELIBERATELY. Holding an application younger than three days in a
+// ➤ state of its own bought nothing: every automated receipt in the real mailbox arrived
+// ➤ within the same HOUR of applying, so an application with no receipt is already saying
+// ➤ something on day zero. The age sits next to it in the report anyway.
 
 // ➤ WHEN WAITING BECOMES AN ANSWER: two months of nothing is a no that nobody
 // ➤ bothered to write. Counted from the LAST thing that happened, not from the
@@ -28,13 +26,12 @@ export const GHOSTED_AFTER_DAYS = 60;
 // ➤ it arrives, so it is not on this ladder.
 const RANK = { acknowledged: 1, interview: 2 };
 
-// ➤ WHAT YOU KNOW BEATS WHAT THE INBOX SAYS. Some employers never write: they
-// ➤ post the verdict on their own portal, or their address bounces and they
-// ➤ never notice. Nothing arrives, so nothing can be read, and the application
-// ➤ sits under "no reply" for ever although you already know how it ended.
-// ➤ `no N` records that, and it has to be replayed here because the nightly
-// ➤ run rebuilds everything from mail and would otherwise erase your answer
-// ➤ every midnight. Verdicts are { id, state, reason, ts }; newest wins.
+// ➤ WHAT YOU KNOW BEATS WHAT THE INBOX SAYS. Some employers never write — the verdict sits
+// ➤ on their portal, or their address bounces unnoticed — and the application would sit
+// ➤ under "no reply" for ever although you know how it ended. `no N` records that, and it
+// ➤ is replayed here because the nightly run rebuilds everything from mail and would
+// ➤ otherwise erase your answer every midnight. Verdicts are { id, state, reason, ts };
+// ➤ newest wins.
 export function applyVerdicts(records, verdicts) {
   if (!verdicts?.length) return records;
   const latest = new Map();

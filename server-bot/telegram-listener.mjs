@@ -1,18 +1,13 @@
 #!/usr/bin/env node
 
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ WHAT IT IS: the Telegram "remote control" for your job search.
-// ➤ It reads the messages YOU send to the bot's chat and turns them into actions:
-// ➤ launch a search now (search), view the pending offers (list),
-// ➤ generate an offer's cover-letter PDF (cover N), or
-// ➤ remove offers from the list (seen, or "no" with a reason to improve the filter).
-// ➤ WHEN IT RUNS: always. It keeps one quiet connection open to Telegram
-// ➤ (long polling) and reacts the moment you send something — about a second.
-// ➤ The schedule only revives it if it dies.
-// ➤ WHAT IT USES: telegram.json (bot keys), telegram-offset.json (remembers where
-// ➤ it was reading), notify.mjs (send messages/PDFs), list-offers.mjs
-// ➤ (pending offers), seen.mjs (mark as seen), scan.mjs (search),
-// ➤ cover-letter.mjs (cover letters), and writes to feedback.jsonl (your rejections).
+// ➤ WHAT IT IS: the Telegram "remote control" for your job search: it reads the messages
+// ➤ YOU send to the bot and turns them into actions — search now, list the pending offers,
+// ➤ a cover-letter PDF (cover N), remove offers (seen, or "no" with a reason). WHEN IT
+// ➤ RUNS: always — one quiet long-polling connection to Telegram, reacting within about a
+// ➤ second; the schedule only revives it if it dies. Uses telegram.json (bot keys),
+// ➤ telegram-offset.json (where it was reading), notify.mjs, list-offers.mjs, seen.mjs,
+// ➤ scan.mjs, cover-letter.mjs, and writes feedback.jsonl (your rejections).
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 /**
@@ -108,13 +103,12 @@ export function pidAlive(pid, kill = process.kill.bind(process)) {
   catch (e) { return e?.code === 'EPERM'; }
 }
 
-// ➤ Claims (or re-claims) the "I am the listener" slot. One function serves
-// ➤ both moments: at startup it decides who runs, and every heartbeat it
-// ➤ refreshes the stamp. Returns false when ANOTHER listener holds a fresh
-// ➤ claim — the caller must not poll, because Telegram gives getUpdates to one
-// ➤ consumer only and two pollers steal each other's updates. A stale stamp or
-// ➤ a dead pid is taken over: that listener is gone. The read-check-write sits
-// ➤ under the directory lock so two starters cannot both claim the same gap.
+// ➤ Claims (or re-claims) the "I am the listener" slot — at startup to decide who runs,
+// ➤ and every heartbeat to refresh the stamp. Returns false when ANOTHER listener holds a
+// ➤ fresh claim: the caller must not poll, because Telegram gives getUpdates to one
+// ➤ consumer only and two pollers steal each other's updates. A stale stamp or a dead pid
+// ➤ is taken over. The read-check-write sits under the directory lock so two starters
+// ➤ cannot both claim the same gap.
 export function claimListenerSlot(selfPid, deps = {}) {
   const d = {
     load: () => loadJson(ALIVE_PATH, null),
@@ -135,14 +129,12 @@ export function claimListenerSlot(selfPid, deps = {}) {
   return owned;
 }
 
-// ➤ Works out "where we got to" again WITHOUT running anything. Used when the
-// ➤ position file is missing or unreadable: asking Telegram with offset -1 hands
-// ➤ back only the most recent update, so we learn the current position and write
-// ➤ it down. Nothing is handled on this tick — that is the point. The
-// ➤ alternative, starting from zero, replays every command of the last 24 hours.
-// ➤ On the very first run there are no updates at all and there is nothing to
-// ➤ record; the next tick then starts from zero with an empty backlog, which
-// ➤ comes to the same thing and is harmless.
+// ➤ Works out "where we got to" again WITHOUT running anything, when the position file is
+// ➤ missing or unreadable: offset -1 hands back only the most recent update, so the
+// ➤ position is learnt and written down and nothing is handled this tick — starting from
+// ➤ zero would replay every command of the last 24 hours. On the very first run there are
+// ➤ no updates at all; the next tick then starts from zero with an empty backlog, which is
+// ➤ harmless.
 async function resyncOffset(cfg) {
   try {
     const res = await fetch(`${TG_API}/bot${cfg.bot_token}/getUpdates?offset=-1&timeout=0`,
@@ -150,12 +142,11 @@ async function resyncOffset(cfg) {
     const j = await res.json().catch(() => null);
     if (!j?.ok) return false;
     const last = (j.result || []).at(-1);
-    // ➤ AN EMPTY QUEUE STILL HAS TO LEAVE A POSITION BEHIND. Writing nothing
-    // ➤ meant a fresh install never created the file, so the next tick came
-    // ➤ straight back here — and the tick that finally found something recorded
-    // ➤ it and returned WITHOUT handling it. The very first command anyone ever
-    // ➤ typed was swallowed in silence. Nothing waiting means nothing to
-    // ➤ replay, so zero is the safe position to start from.
+    // ➤ AN EMPTY QUEUE STILL HAS TO LEAVE A POSITION BEHIND: writing nothing means a fresh
+    // ➤ install never creates the file, the next tick comes straight back here, and the tick
+    // ➤ that finally finds something records it WITHOUT handling it — the very first command
+    // ➤ anyone typed, swallowed. Nothing waiting means nothing to replay, so zero is the safe
+    // ➤ start.
     const offset = last ? last.update_id + 1 : 0;
     writeFileAtomic(OFFSET_PATH, JSON.stringify({ offset }));
     console.log(`[${new Date().toISOString()}] telegram position was missing; starting from ${offset}${last ? ' (the backlog was skipped, not replayed)' : ''}.`);
@@ -176,11 +167,9 @@ function runNode(script, args) {
   });
 }
 
-// ➤ Help text: it's what the bot replies to you when the message doesn't
-// ➤ match any known command.
-// ➤ Sent with HTML formatting (parse_mode HTML): <b> bold header, <code>
-// ➤ monospaced commands (they stand out and copy with one tap). No user data
-// ➤ goes in here, so the raw tags are safe.
+// ➤ Help text: the reply when a message matches no command. HTML formatting: <b> header,
+// ➤ <code> commands (they stand out and copy with one tap). No user data goes in, so the
+// ➤ raw tags are safe.
 const HELP =
   '<b>Argus — commands</b>\n' +
   '<i>N = the number shown next to each offer, e.g. #675</i>\n' +
@@ -203,13 +192,12 @@ const HELP =
 // ➤ File where your rejections are recorded with their reason, one per line.
 const FEEDBACK_PATH = join(SCRIPT_DIR, 'feedback.jsonl');
 
-// ➤ Turns a page of the live list when its Prev/Next button is tapped. The pages were
-// ➤ written to disk by the process that sent the list; this runs in a LATER listener
-// ➤ process, so the file is the only bridge. The stored message_id must match the tapped
-// ➤ message: a tap on an older list answers with a toast instead of quietly redrawing the
-// ➤ wrong thing. Returns false only when the tap is not a page button at all, so the
-// ➤ caller can route it to the onboarding instead. Exported and dependency-injected so the
-// ➤ honesty rules are testable.
+// ➤ Turns a page of the live list on a Prev/Next tap. The pages were written to disk by
+// ➤ the process that sent the list and this runs in a LATER listener process, so the file
+// ➤ is the only bridge; the stored message_id must match the tapped message — a tap on an
+// ➤ older list gets a toast, never a redraw of the wrong thing. Returns false only when
+// ➤ the tap is not a page button at all, so the caller can route it on.
+// ➤ Dependency-injected so the honesty rules are testable.
 export async function flipListPage(data, messageId, cbId, deps = {}) {
   const d = {
     loadPages: () => loadJson(LIST_PAGES_PATH, null),
@@ -257,27 +245,23 @@ export function seenReply(ids, out) {
   const tag = list => list.map(i => `#${i}`).join(', ');
   if (marked.length && missing.length) return `Marked as seen: ${tag(marked)}. Not found (already gone): ${tag(missing)}.`;
   if (marked.length) return `Marked as seen: ${tag(marked)}.`;
-  // ➤ "ALREADY GONE" IS ALSO A CLAIM ABOUT YOUR LIST, and it is false when the
-  // ➤ write simply failed — a full disk, a folder gone read-only, the program
-  // ➤ killed. The offer is still there and still pending, and being told it is
-  // ➤ gone means you stop chasing it. If the output looks like a crash rather
-  // ➤ than an answer, say so instead.
+  // ➤ "ALREADY GONE" IS ALSO A CLAIM ABOUT YOUR LIST, and false when the write simply failed
+  // ➤ — a full disk, a read-only folder, the program killed: the offer is still pending, and
+  // ➤ told it is gone you stop chasing it. Output that looks like a crash rather than an
+  // ➤ answer is reported as such.
   if (/[A-Za-z]*Error[:\s]|EACCES|EPERM|ENOSPC|ENOTDIR|^\s+at .+:\d+/m.test(text)) {
     return `Could not mark ${tag(missing)}: the list could not be written. Nothing was changed — try again.`;
   }
   return `Nothing marked: ${tag(missing)} ${missing.length > 1 ? 'are' : 'is'} not in the pending list (already removed?).`;
 }
 
-// ➤ Records something about an application you already SENT that you learnt
-// ➤ somewhere the bot cannot read: the employer's own portal, a phone call, a
-// ➤ bounced address they never fixed — or an interview arranged outside the
-// ➤ inbox (real case: a Calendar event you create yourself mails its invite
-// ➤ FROM you, and the mail reading skips your own messages on purpose).
-// ➤ It is written to its own file rather than to feedback.jsonl because the two
-// ➤ mean different things: feedback is "this offer was not for me" and trains
-// ➤ the filter; this is "this is how the application went" and must NOT — you
-// ➤ were right to apply.
-// ➤ Returns true if it found an application with that number.
+// ➤ Records something about an application you already SENT that you learnt where the bot
+// ➤ cannot read: the employer's portal, a phone call, a bounced address — or an interview
+// ➤ arranged outside the inbox (a Calendar event you create mails its invite FROM you, and
+// ➤ the mail reading skips your own messages on purpose). Its own file, not
+// ➤ feedback.jsonl: feedback is "this offer was not for me" and trains the filter; this is
+// ➤ "this is how the application went" and must NOT — you were right to apply. Returns
+// ➤ true if it found an application with that number.
 async function recordApplicationState(n, state, reason) {
   const path = join(ROOT, 'data', 'applications.jsonl');
   let app = null;
@@ -304,12 +288,11 @@ async function recordApplicationState(n, state, reason) {
 }
 
 // ➤ The "no N reason" command ("no 3 needs 5 years of experience"): removes offer 3 from
-// ➤ pending AND records why it didn't fit in feedback.jsonl. That file is your rejection
-// ➤ history — read it before touching the filters, so any change to them comes from your
-// ➤ real criteria (and with tests). quiet: the review card runs this same function for its
-// ➤ "No" button — records and honesty checks identical, but the card is the confirmation,
-// ➤ so the chat message is skipped. The return value carries what the card and a later
-// ➤ undo need: found, gone, and the record's ts.
+// ➤ pending AND records why in feedback.jsonl — your rejection history, to be read before
+// ➤ touching the filters. quiet: the review card runs this same function for its "No"
+// ➤ button, records and honesty checks identical, but the card is the confirmation so the
+// ➤ chat message is skipped. Returns what the card and a later undo need: found, gone, and
+// ➤ the record's ts.
 async function rejectWithReason(n, reason, { quiet = false } = {}) {
   // n is the STABLE offer id (#412 as shown on Telegram), never a position.
   const offers = pendingOffers();
@@ -317,11 +300,11 @@ async function rejectWithReason(n, reason, { quiet = false } = {}) {
   const off = offers.find(o => o.id === n);
   if (!off) {
     if (quiet) return { found: false };
-    // ➤ NOT PENDING — so it may be one you already SENT. Some employers never
-    // ➤ write back: they post the verdict on their own portal, or their address
-    // ➤ bounces and nobody notices. That application would sit under "no reply"
-    // ➤ for ever although you already know how it ended. Same word for the same
-    // ➤ meaning: "no" closes it, and the answer survives the nightly rebuild.
+    // ➤ NOT PENDING — so it may be one you already SENT. Some employers never write back (the
+    // ➤ verdict sits on their portal, or their address bounces unnoticed), and that
+    // ➤ application would sit under "no reply" for ever although you know how it ended. Same
+    // ➤ word for the same meaning: "no" closes it, and the answer survives the nightly
+    // ➤ rebuild.
     if (await recordApplicationState(n, 'rejected', reason)) return { found: true };
     await sendTelegram(`There's no pending offer with the number #${n} (did you already remove it?). The numbers appear on each offer in the list.`);
     return { found: false };
@@ -359,13 +342,10 @@ function runScan() {
   });
 }
 
-// ➤ The "cover N" command. It checks the offer exists, says it has started, and
-// ➤ HANDS THE WORK TO A SEPARATE PROGRAM — cover-letter.mjs sends you the PDF
-// ➤ itself when it is done.
-// ➤ WAITING HERE COST EVERYTHING ELSE. Claude takes minutes to write a letter,
-// ➤ this listener runs once a minute under a lock, and the next run is skipped
-// ➤ while this one is busy — so for those minutes "seen", "list" and "no" did
-// ➤ nothing at all, with no sign of why.
+// ➤ The "cover N" command: checks the offer exists, says it has started, and HANDS THE
+// ➤ WORK TO A SEPARATE PROGRAM — cover-letter.mjs sends you the PDF itself. Waiting here
+// ➤ would cost everything else: Claude takes minutes, this listener runs under a lock, and
+// ➤ for those minutes "seen", "list" and "no" would do nothing at all.
 async function coverCommand(n) {
   const off = pendingOffers().find(o => o.id === n);
   if (!off) {
@@ -410,16 +390,13 @@ async function forceScan() {
 // ➤ original system is left untouched — it's from another flow and has been idle since May).
 const APPLIED_PATH = join(ROOT, 'data', 'applications.jsonl');
 
-// ➤ The "applied N" command: records the application with date and data, and removes the
-// ➤ offer from pending (forever — a position already applied to must not
-// ➤ be proposed again even if the company reposts it).
-// ➤ "longshot": applying to something you KNOW you fall short of, on the off
-// ➤ chance. It is still a sent application — same file, same removal from the
-// ➤ list, same block on the offer coming back — but it carries longshot:true so
-// ➤ nothing downstream reads it as "the bot got this one right".
-// ➤ Why it matters: argus-council/reconcile.mjs treats applications.jsonl as the
-// ➤ ground truth for SHOW. Without the flag, an application sent in hope tells
-// ➤ it the opposite of the truth and grades the Council on a false positive.
+// ➤ The "applied N" command: records the application with date and data and removes the
+// ➤ offer from pending for good — a position applied to must not be proposed again even if
+// ➤ reposted. "longshot": applying to something you KNOW you fall short of; still a sent
+// ➤ application (same file, same removal, same block on coming back) but flagged
+// ➤ longshot:true, because argus-council/reconcile.mjs treats applications.jsonl as ground
+// ➤ truth for SHOW and an application sent in hope would grade the Council on a false
+// ➤ positive.
 async function markApplied(n, { longshot = false, reason = '', quiet = false } = {}) {
   const off = pendingOffers().find(o => o.id === n);
   if (!off) {
@@ -522,18 +499,15 @@ async function undoCommand(t) {
   }
 }
 
-// ➤ Is it "applied N"? → record that you SENT the application: it's logged in
-// ➤ data/applications.jsonl (your history of sent applications) and the offer drops off
-// ➤ pending (and won't come back even if reposted). The separator is optional — "applied5"
-// ➤ without a space is also valid. "longshot 729 I don't have the 3 years" is checked
-// ➤ BEFORE "applied" so the two never race, and the trailing text is kept as the
-// ➤ requirement you fall short of (same shape as "no N reason").
-// ➤ "mail": where every application you have sent stands. The twin of "list" — one shows
-// ➤ the offers waiting for you, the other what came back from the ones you sent. It
-// ➤ RE-READS THE INBOX FIRST, so it never answers with yesterday's report; if Gmail cannot
-// ➤ be read right now (down, token expired), the last report is shown with its date rather
-// ➤ than nothing. The nightly run stays — it keeps the report fresh without being asked.
-// ➤ "status" still answers too: it was the first name this had.
+// ➤ "applied N" → record that you SENT the application: logged in data/applications.jsonl
+// ➤ and the offer drops off pending (and won't come back even if reposted); "applied5"
+// ➤ without a space also works. "longshot 729 I don't have the 3 years" is checked BEFORE
+// ➤ "applied" so the two never race; the trailing text is the requirement you fall short
+// ➤ of.
+// ➤ "mail": where every application you sent stands — the twin of "list". It RE-READS THE
+// ➤ INBOX FIRST, so it never answers with yesterday; if Gmail cannot be read right now the
+// ➤ last report is shown with its date. The nightly run keeps the report fresh unasked;
+// ➤ "status" still answers too, its first name.
 async function mailCommand() {
   const { formatStatus } = await import('./argus-mail/report.mjs');
   const workingId = await sendTelegramMessage('Reading your inbox — this takes a minute.', { silent: true });
@@ -549,12 +523,12 @@ async function mailCommand() {
     return;
   }
   const stale = refreshed ? '' : `\n\nThe inbox could not be read just now — this is the report from ${String(status.generated || '').slice(0, 10)}.`;
-  // ➤ ONE mail report in the chat, not a pile: each "mail" replaces the previous report, the
-  // ➤ same discipline as the live list. Send FIRST, delete after — a failed send must never
-  // ➤ leave the chat with no report at all. The previous ids ride in data/mail-message.json.
-  // ➤ CHUNKED like the offers list: the report grows one line per application and Telegram
-  // ➤ refuses anything over 4096 chars, so around 60-odd listed applications a single send
-  // ➤ would fail every time, exactly when there is most to report.
+  // ➤ ONE mail report in the chat, not a pile: each "mail" replaces the previous one, the
+  // ➤ live list's discipline — send FIRST, delete after, so a failed send never leaves the
+  // ➤ chat with no report; the previous ids ride in data/mail-message.json. CHUNKED like the
+  // ➤ offers list: Telegram refuses anything over 4096 chars, and around 60 listed
+  // ➤ applications a single send would fail every time, exactly when there is most to
+  // ➤ report.
   const MAIL_MSG_PATH = join(ROOT, 'data', 'mail-message.json');
   const prev = loadJson(MAIL_MSG_PATH, null);
   const ids = [];
@@ -702,14 +676,13 @@ async function handle(text) {
   await sendTelegram(HELP, { html: true });
 }
 
-// ➤ Main routine: asks Telegram whether there are new messages since the last time,
-// ➤ processes them one by one ONLY those coming from your chat, and records where the
-// ➤ reading is up to so it doesn't repeat commands if something is cut off. pollSeconds >
-// ➤ 0 turns the ask into a LONG POLL: Telegram holds the request open that many seconds
-// ➤ and answers the instant something arrives. 0 keeps the plain ask-and-hang-up pass for
-// ➤ --once, tests and the diagnose scripts. Returns how many updates the pass saw, so the
-// ➤ loop can tell idle from busy. These two setup nags repeat on every pass; a person at a
-// ➤ terminal needs them once, not every seven seconds.
+// ➤ Main routine: asks Telegram for new messages since last time, handles them one by one
+// ➤ ONLY from your chat, and records where the reading got to so nothing repeats after a
+// ➤ cut. pollSeconds > 0 makes it a LONG POLL (Telegram holds the request open and answers
+// ➤ the instant something arrives); 0 keeps the plain pass for --once, tests and the
+// ➤ diagnose scripts. Returns how many updates the pass saw, so the loop can tell idle
+// ➤ from busy. The two setup nags repeat on every pass; a person at a terminal needs them
+// ➤ once, not every seven seconds.
 let saidLinkPending = false;
 let saidNotConfigured = false;
 async function main({ pollSeconds = 0 } = {}) {
@@ -717,20 +690,18 @@ async function main({ pollSeconds = 0 } = {}) {
   // ➤ file does not exist on Windows, where output is discarded).
   trimLog(join(SCRIPT_DIR, 'listener.log'));
   const cfg = loadJson(CFG_PATH, null);
-  // ➤ A token but no chat yet: FINISH THE LINK OURSELVES. The moment any listener polls this
-  // ➤ bot — this one, or a survivor of an earlier install — it CONSUMES the "hi" the setup
-  // ➤ console is waiting for, and the console would wait for a message that no longer
-  // ➤ exists, for ever. The listener is the rightful owner of getUpdates, so it completes
-  // ➤ the link itself; the console notices the chat_id appearing in telegram.json and moves
-  // ➤ on.
+  // ➤ A token but no chat yet: FINISH THE LINK OURSELVES. Any listener polling this bot —
+  // ➤ this one, or a survivor of an earlier install — CONSUMES the "hi" the setup console is
+  // ➤ waiting for, and the console would wait for ever. The listener is the rightful owner
+  // ➤ of getUpdates, so it completes the link itself; the console notices the chat_id
+  // ➤ appearing in telegram.json and moves on.
   if (cfg?.bot_token && !cfg?.chat_id) {
     try {
-      // ➤ The WHOLE backlog, not offset=-1. A negative offset returns only the newest update and
-      // ➤ — per Telegram's own API doc — forgets every earlier one: an owner who tapped START
-      // ➤ and then typed anything before this tick would have the /start permanently confirmed
-      // ➤ away, the tick seeing only the second message, refusing to bind, the bot mute with
-      // ➤ nothing to show why. A plain getUpdates confirms nothing and hands back everything
-      // ➤ pending.
+      // ➤ The WHOLE backlog, not offset=-1: a negative offset returns only the newest update and
+      // ➤ — per Telegram's own API doc — forgets every earlier one, so an owner who tapped START
+      // ➤ and then typed anything before this tick would have the /start confirmed away, the bot
+      // ➤ mute with nothing to show why. A plain getUpdates confirms nothing and hands back
+      // ➤ everything pending.
       const res = await fetch(`${TG_API}/bot${cfg.bot_token}/getUpdates?timeout=0`,
         { signal: AbortSignal.timeout(15_000) });
       const j = await res.json().catch(() => null);
@@ -742,12 +713,11 @@ async function main({ pollSeconds = 0 } = {}) {
         }
         return 0;
       }
-      // ➤ When the installer wrote a link_code, only the /start carrying that
-      // ➤ code may bind the chat — so a stranger who stumbles on the bot before
-      // ➤ its owner taps START cannot claim it. (The random start-token idea
-      // ➤ follows Advanced Web Machinery's write-up, advancedweb.hu, "The
-      // ➤ easiest way to set up a chat with your Telegram bot".) Without a
-      // ➤ code — the by-hand path — the first message binds, as always.
+      // ➤ When the installer wrote a link_code, only the /start carrying that code may bind the
+      // ➤ chat — a stranger who stumbles on the bot before its owner taps START cannot claim it
+      // ➤ (the random start-token idea follows Advanced Web Machinery's write-up,
+      // ➤ advancedweb.hu). Without a code — the by-hand path — the first message binds, as
+      // ➤ always.
       const binder = cfg.link_code
         ? backlog.find(u => String(u.message.text || '').trim() === `/start ${cfg.link_code}`)
         : backlog[0];
@@ -779,16 +749,13 @@ async function main({ pollSeconds = 0 } = {}) {
     return 0;
   }
 
-  // ➤ Asks Telegram for the pending messages starting from the last one already read, with a
-  // ➤ maximum wait of 15 seconds so it doesn't hang. WHERE WE GOT TO LAST TIME — the one
-  // ➤ thing stopping a command being run twice. Telegram keeps 24 hours of messages and
-  // ➤ hands back everything from the offset onwards, so "start from 0" does not mean "start
-  // ➤ fresh", it means REPLAY A WHOLE DAY: every `applied N`, every `no N`, every `cover N`
-  // ➤ you typed since yesterday, executed again. So a missing or unreadable file is NOT
-  // ➤ treated as zero. It resynchronises instead: ask Telegram for the latest update only,
-  // ➤ write that position down, and run nothing this tick. One tick's messages can be missed
-  // ➤ that way, which you would notice and could retype; a day of commands running
-  // ➤ themselves again is not something you could undo.
+  // ➤ Asks Telegram for the pending messages from the last one read, waiting at most 15
+  // ➤ seconds. WHERE WE GOT TO LAST TIME is the one thing stopping a command running twice:
+  // ➤ Telegram keeps 24 hours of messages, so "start from 0" means REPLAY A WHOLE DAY —
+  // ➤ every `applied N`, `no N`, `cover N` since yesterday, again. So a missing or
+  // ➤ unreadable file is NOT treated as zero: it resynchronises (latest update only,
+  // ➤ position written, nothing run this tick). One tick's messages can be missed, which you
+  // ➤ would notice and retype; a day of commands re-running is not something you could undo.
   const state = loadJson(OFFSET_PATH, null);
   if (!state || !Number.isInteger(state.offset)) {
     // ➤ fresh = the file never existed: the listener's very first run, not a
@@ -938,13 +905,12 @@ async function runForever() {
   }
 }
 
-// ➤ Startup: `--once` keeps the single pass (tests, diagnose scripts, and anything that
-// ➤ must not stay resident); otherwise the always-on loop runs. If something blows up, the
-// ➤ program exits quietly (the watchdog schedule launches a fresh one within a minute).
-// ➤ ONLY WHEN THIS FILE IS THE PROGRAM BEING RUN: a module that starts polling on import
-// ➤ would make a test that merely reads a function out of it poll Telegram with the real
-// ➤ token and execute whatever commands were waiting. Every other module in the project
-// ➤ guards its entry point this way.
+// ➤ Startup: `--once` keeps the single pass (tests, diagnose scripts, anything that must
+// ➤ not stay resident); otherwise the always-on loop. If something blows up it exits
+// ➤ quietly — the watchdog launches a fresh one within a minute. ONLY WHEN THIS FILE IS
+// ➤ THE PROGRAM BEING RUN: polling on import would make a test that merely reads a
+// ➤ function out of it poll Telegram with the real token and execute whatever commands
+// ➤ were waiting.
 if (process.argv[1] && /(^|[\\/])telegram-listener\.mjs$/.test(process.argv[1])) {
   if (process.argv.includes('--once')) main().catch(() => process.exit(0));
   else runForever().catch(() => process.exit(0));

@@ -25,11 +25,9 @@ export function tempNameFor(path) {
   return `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
 }
 
-// ➤ Drop-in for writeFileSync.
-// ➤ `io` exists only so a test can watch what this does rather than only what
-// ➤ it leaves behind: a plain writeFileSync to the target passes any test that
-// ➤ checks the final content, which is exactly how a rewrite could quietly
-// ➤ remove the protection this file exists to give.
+// ➤ Drop-in for writeFileSync. `io` exists only so a test can watch what this does rather
+// ➤ than what it leaves behind: a plain writeFileSync passes any test that only checks the
+// ➤ final content.
 export function writeFileAtomic(path, data, encoding = 'utf-8', io = { writeFileSync, renameSync, unlinkSync }) {
   const tmp = tempNameFor(path);
   try {
@@ -46,65 +44,53 @@ export function writeFileAtomic(path, data, encoding = 'utf-8', io = { writeFile
 }
 
 // ➤ ── READ, DECIDE, WRITE — WITHOUT LOSING SOMEBODY ELSE'S WORK ───────────
-// ➤ The atomic write above stops a reader ever seeing half a file. It does NOT stop this:
-// ➤ two jobs read the same list, each adds its own change, and the second one to write
-// ➤ erases the first (eight writers at once kept 200 of 1,600 lines). That is real here:
-// ➤ the scanner, housekeep and the Telegram listener all share one pending list, and their
-// ➤ cron locks only stop a job overlapping itself.
-// ➤ A DIRECTORY IS THE LOCK: mkdir either creates it or fails, in one step, on every
-// ➤ filesystem — no flag, no library, nothing left running — and it is held for the
-// ➤ milliseconds of the read-and-write, never for the minutes a job spends on HTTP. IT
-// ➤ ALWAYS PROCEEDS RATHER THAN GIVING UP: after the timeout it assumes the holder died
-// ➤ and takes the lock; refusing would mean silently dropping an offer or ignoring a
-// ➤ decision, and a race that loses one line is a smaller harm than a job that quietly
-// ➤ does nothing. THE LIMIT OF THAT CHOICE: clearing an abandoned lock can itself race, so
-// ➤ two jobs could both get in — but only once a lock has sat untouched past the stale
-// ➤ age, which means a job was already killed mid-write.
-// ➤ A real pause inside synchronous code: Atomics.wait sleeps without a callback and
-// ➤ without burning a core, so the callers stay synchronous.
+// ➤ The atomic write above stops a reader seeing half a file. It does NOT stop two jobs
+// ➤ reading the same list, each adding its change, and the second writer erasing the first
+// ➤ (eight writers at once kept 200 of 1,600 lines) — and the scanner, housekeep and the
+// ➤ listener all share one pending list.
+// ➤ A DIRECTORY IS THE LOCK: mkdir either creates it or fails, atomically, on every
+// ➤ filesystem, and it is held for the milliseconds of read-and-write, never for the
+// ➤ minutes a job spends on HTTP. IT ALWAYS PROCEEDS: past the timeout the holder is
+// ➤ presumed dead and the lock taken, because a race that loses one line is a smaller harm
+// ➤ than a job that quietly does nothing. The limit: clearing an abandoned lock can itself
+// ➤ race — only once it has sat untouched past the stale age, which means a job already
+// ➤ died mid-write.
+// ➤ sleepSync: Atomics.wait pauses without a callback and without burning a core, so the
+// ➤ callers stay synchronous.
 const SLEEP_BUF = new Int32Array(new SharedArrayBuffer(4));
 function sleepSync(ms) { Atomics.wait(SLEEP_BUF, 0, 0, ms); }
 
 export const LOCK_TIMEOUT_MS = 5000;
 
-// ➤ `staleMs` is the age at which a lock is presumed to belong to a dead job.
-// ➤ It defaults to the timeout, as it always did, but is its own knob: a test
-// ➤ that shortens the WAIT to 60ms must not also declare a 61ms-old live lock
-// ➤ dead, reap it and walk in — which is exactly what made the "runs unlocked
-// ➤ and says so" test flicker with the load on the machine.
+// ➤ `staleMs`: the age at which a lock is presumed to belong to a dead job. It defaults to
+// ➤ the timeout but is its own knob: a test that shortens the WAIT to 60 ms must not also
+// ➤ declare a 61 ms-old live lock dead and walk in.
 export function withFileLock(path, fn, { timeoutMs = LOCK_TIMEOUT_MS, staleMs = timeoutMs, io = { mkdirSync, rmdirSync, statSync }, log = console.log } = {}) {
   const lock = `${path}.lock`;
   const started = Date.now();
   let held = false;
   while (Date.now() - started < timeoutMs) {
     try { io.mkdirSync(lock); held = true; break; } catch (err) {
-      // ➤ Give up AT ONCE only when this path can never work — there is no such
-      // ➤ folder. Waiting out the full timeout there would stall every write by
-      // ➤ five seconds for nothing, and the write itself reports the real
-      // ➤ problem a moment later.
-      // ➤ EVERY OTHER ERROR IS TREATED AS CONTENTION AND RETRIED. The first
-      // ➤ version only retried on "already exists", and the six-process test
-      // ➤ caught it losing 15 lines of 150: on Windows a mkdir that collides
-      // ➤ with somebody else's release comes back EPERM, not EEXIST, and that
-      // ➤ writer walked straight in without the lock.
+      // ➤ Give up AT ONCE only when the path can never work (no such folder): waiting out the
+      // ➤ timeout would stall every write for nothing, and the write itself reports the real
+      // ➤ problem a moment later. EVERY OTHER ERROR IS CONTENTION AND IS RETRIED: on Windows a
+      // ➤ mkdir colliding with somebody else's release comes back EPERM, not EEXIST.
       if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR') break;
     }
-    // ➤ A lock older than the timeout belonged to a job that died. Clear it.
-    // ➤ A lock dated in the FUTURE is abandoned too: a live one is milliseconds
-    // ➤ old, so a future stamp can only be a clock that jumped. Without this it
-    // ➤ is never reaped, and every writer then burns the whole timeout and runs
-    // ➤ unlocked — for ever, and there the writes do succeed.
+    // ➤ A lock older than the timeout belonged to a job that died: clear it. A lock dated in
+    // ➤ the FUTURE is abandoned too — a live one is milliseconds old, so a future stamp can
+    // ➤ only be a clock that jumped, and left alone it would make every writer burn the
+    // ➤ timeout and run unlocked for ever.
     try {
       const age = Date.now() - io.statSync(lock).mtimeMs;
       if (age > staleMs || age < -staleMs) { io.rmdirSync(lock); continue; }
     } catch { /* it vanished: try again */ }
     sleepSync(15);
   }
-  // ➤ RUNNING UNLOCKED IS WORTH A LINE. Going ahead anyway is the right call —
-  // ➤ see above — but doing it in silence means a data folder that has gone
-  // ➤ read-only, or a lock nobody can clear, degrades every write from every job
-  // ➤ for ever with nothing to show for it. A real hold lasts milliseconds, so
-  // ➤ this line should never appear; if it does, it is the only warning there is.
+  // ➤ RUNNING UNLOCKED IS WORTH A LINE: going ahead is the right call, but done in silence a
+  // ➤ read-only data folder or a lock nobody can clear degrades every write from every job
+  // ➤ for ever with nothing to show for it. A real hold lasts milliseconds, so this line
+  // ➤ should never appear.
   if (!held) log(`[${new Date().toISOString()}] lock on ${path} could not be taken in ${timeoutMs}ms; going ahead without it.`);
   try {
     return fn();

@@ -14,14 +14,12 @@ export const unaccent = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g
 export const fold = s => unaccent(s).toLowerCase();
 
 // ➤ A title reduced to what identifies the ROLE, for telling a re-post from a new vacancy:
-// ➤ gender tags "(m/w/d)" / "(x w m)" / "(all genders)" and schedules "80-100%" vary
-// ➤ between postings of the same job and go, dashes are unified, whitespace collapsed,
-// ➤ trailing punctuation dropped. Case is lowered but accents are KEPT on purpose — a key
-// ➤ is only ever compared with a key built the same way from the same source. The
-// ➤ gender-tag pattern is written WITHOUT ambiguous repetition: an optional-separator form
-// ➤ backtracks exponentially on a title like "(m m m m …" with no closing paren, and
-// ➤ titles come from the boards. Separators are one mandatory run; a fused "(mwd)" has its
-// ➤ own branch.
+// ➤ gender tags ("(m/w/d)", "(x w m)", "(all genders)") and schedules ("80-100%") go,
+// ➤ dashes are unified, whitespace collapsed, trailing punctuation dropped. Case is
+// ➤ lowered but accents KEPT — a key is only compared with a key built the same way. The
+// ➤ gender-tag pattern has no ambiguous repetition: an optional separator backtracks
+// ➤ exponentially on "(m m m m …" with no closing paren, and titles come from the boards;
+// ➤ separators are one mandatory run, and a fused "(mwd)" has its own branch.
 export function titleKey(s) {
   return String(s).toLowerCase()
     .replace(/\(\s*(?:[mwfdxhv](?:[\s/|,.]+[mwfdxhv])+|[mwfdxhv]{2,}|all\s*genders?|gn)\s*\)/gi, ' ')

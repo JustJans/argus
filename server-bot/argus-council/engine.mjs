@@ -20,11 +20,10 @@ const ROOT = dirname(SERVERBOT);
 // ➤ Maximum time to wait for a judge to respond: 6 minutes.
 const JUDGE_TIMEOUT_MS = 6 * 60 * 1000;
 
-// ➤ Assembles the task for the judge: its instructions + the offer data.
-// ➤ The body is trimmed to 6000 characters (like the cover letter) so it doesn't blow up.
-// ➤ The offer body is attacker-controlled (anyone can post a job). Collapse any
-// ➤ run of triple quotes so it can't close the """ fence and inject instructions
-// ➤ into the judge (e.g. forcing a "show" verdict or reading local files).
+// ➤ Assembles the task for the judge: its instructions + the offer data, the body trimmed
+// ➤ to 6,000 characters. The body is attacker-controlled (anyone can post a job): any run
+// ➤ of triple quotes is collapsed so it cannot close the fence and inject instructions
+// ➤ into the judge (forcing a "show", reading local files).
 function untrust(s) {
   return String(s || '').replace(/"{3,}/g, '""');
 }

@@ -1,16 +1,12 @@
 #!/usr/bin/env node
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ WHAT IT IS: the runner. It reads your recent mail, works out which of your
-// ➤ applications each message is about, and writes ONE file saying where every
-// ➤ application stands: data/application-status.json.
-// ➤
-// ➤ WHAT IT WRITES ABOUT YOUR MAIL: the kind of message and its date. Never
-// ➤ the subject, never the sender, never a line of the body. If this file ever
-// ➤ leaks it says "an application was rejected on the 4th", nothing more.
-// ➤ WHAT IT CANNOT DO: anything to your mailbox. See gmail.mjs.
-// ➤ HOW MUCH IT READS: only back to your oldest recorded application. Nothing
-// ➤ before that can be an answer to anything the bot knows about.
-// ➤ RUN: node server-bot/argus-mail/listen.mjs [--dry-run]
+// ➤ WHAT IT IS: the runner. It reads your recent mail, works out which application each
+// ➤ message is about, and writes ONE file saying where every application stands:
+// ➤ data/application-status.json. It records only the kind of message and its date — never
+// ➤ the subject, the sender or a line of the body; if this file ever leaks it says "an
+// ➤ application was rejected on the 4th", nothing more. It can do nothing to your mailbox
+// ➤ (see gmail.mjs) and reads only back to your oldest recorded application. RUN: node
+// ➤ server-bot/argus-mail/listen.mjs [--dry-run]
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 import { readFileSync, existsSync } from 'fs';
@@ -47,15 +43,12 @@ export function windowFrom(applications, { pad = 1 } = {}) {
 // ➤ Gmail's own search syntax wants YYYY/MM/DD.
 export const gmailDate = d => `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 
-// ➤ The search. Two parts, and the second one is not cosmetic.
-// ➤ WHAT YOU SENT IS NOT AN ANSWER. Gmail's search covers Sent as well as the
-// ➤ inbox, so a reply you wrote comes back with everything else — and your own
-// ➤ words classify: a real one reads "thank you very much for considering me
-// ➤ for an interview", which is an interview invitation as far
-// ➤ as any pattern can tell. It would be your own message reported back to you
-// ➤ as news. Measured on the real window: this drops exactly the 2 messages
-// ➤ the owner sent and nothing else, and it means the bot reads less of the mailbox,
-// ➤ which is the right direction for something holding a standing key to it.
+// ➤ The search, in two parts, and the second is not cosmetic. WHAT YOU SENT IS NOT AN
+// ➤ ANSWER: Gmail's search covers Sent as well as the inbox, and your own words classify —
+// ➤ "thank you very much for considering me for an interview" is an interview invitation
+// ➤ as far as any pattern can tell, your own message reported back as news. Measured on
+// ➤ the real window it drops exactly the 2 messages the owner sent, and the bot reads less
+// ➤ of a mailbox it holds a standing key to.
 export const searchFor = since => `after:${gmailDate(since)} -from:me`;
 
 // ➤ The verdicts you gave by hand with "no N", one JSON object per line.
@@ -130,13 +123,10 @@ async function main() {
   // ➤ job rebuilds the file from scratch every night, so an answer you gave by
   // ➤ hand would otherwise be wiped at midnight.
   const records = applyVerdicts(buildStatus(applications, links), loadVerdicts());
-  // ➤ THE TITLES ARE PUT INTO ENGLISH HERE, not when the message is printed.
-  // ➤ The offers list has always done this; this list never did, so a Spanish
-  // ➤ or French posting reached the phone in its own language. It happens at
-  // ➤ build time on purpose: "mail" must answer instantly like "list" does, and
-  // ➤ it cannot if it has to wait on a translator. Done once a night, kept in
-  // ➤ the file, and the original stays alongside so the posting is still
-  // ➤ findable on the employer's own site.
+  // ➤ THE TITLES ARE PUT INTO ENGLISH HERE, at build time, not when the message is printed:
+  // ➤ "mail" must answer instantly like "list" does, and it cannot wait on a translator.
+  // ➤ Done once a night and kept in the file; the original stays alongside so the posting is
+  // ➤ still findable on the employer's own site.
   await Promise.all(records.map(async r => {
     const src = applications.find(a => a.id === r.id);
     const en = await translateTitle(r.title, `${src?.location || ''} ${src?.url || ''}`);

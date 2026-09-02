@@ -1,34 +1,22 @@
-// ➤ The three filters an offer must pass by title, company and location, and
-// ➤ the word rules they share. They lived inside scan.mjs; housekeep, the veto
-// ➤ panel and the tests all needed them, and the veto panel importing scan
-// ➤ for three functions had put a cycle in the module graph. A module with
-// ➤ no dependency but text.mjs, so anything may import it.
+// ➤ The three filters an offer must pass — title, company, location — and the word rules
+// ➤ they share. It depends on text.mjs only, so scan, housekeep, the veto panel and the
+// ➤ tests can all import it without a cycle in the module graph.
 import { fold } from './text.mjs';
 
 // ── Title filter ────────────────────────────────────────────────────
-// Positives: case-insensitive SUBSTRING for word stems ("Mooring" should
-// match "Moorings Analyst", "Oceanograph" → "Oceanography") — EXCEPT short
-// acronyms (GIS, PLC, ROV...), which get word boundaries: "GIS" as a
-// substring matched inside "Lo·gis·tiek" in production.
-// Negatives: word-boundary regex with optional plural, so "Intern" blocks
-// "Intern"/"Interns" but NOT "International", and "Lead" blocks "Lead
-// Engineer" but NOT "Leadership". Substring negatives caused real false
-// positives in production.
-// ➤ Filter by the offer's TITLE. It works with two lists from portals.yml:
-// ➤ "positive" words (the title must contain at least one to pass)
-// ➤ and "negative" words (if one appears, the offer is discarded).
-// ➤ The details below avoid real mistakes that already happened: "GIS"
-// ➤ matching inside "Logistiek", or "Intern" blocking "International".
+// ➤ Two lists from portals.yml: positives (the title must contain at least one) and
+// ➤ negatives (one hit discards). Positives are case-insensitive SUBSTRINGS of word stems
+// ➤ ("Mooring" → "Moorings Analyst", "Oceanograph" → "Oceanography") — except short
+// ➤ acronyms (GIS, PLC, ROV...), which get word boundaries: "GIS" once matched inside
+// ➤ "Lo·gis·tiek". Negatives are whole words with an optional plural, so "Intern" blocks
+// ➤ "Interns" but not "International", and "Lead" blocks "Lead Engineer" but not
+// ➤ "Leadership".
 
-// ➤ HOW A WORD IS COMPARED: lower case AND without accents, on both sides.
-// ➤ The accents are the point. A French job board writes "Electromécanicien
-// ➤ Naval" while a veto list says "Électromécanicien" — the same word, but a
-// ➤ different first letter as far as a computer is concerned, so the offer walks
-// ➤ straight past the rule. The usual patch is to add both spellings by hand,
-// ➤ once per word, for ever. Folding here fixes the whole class at once,
-// ➤ including the words nobody has hit yet.
-// ➤ It must be used on BOTH the list term and the text being tested, or accented
-// ➤ terms stop matching accented text and the filter quietly opens instead.
+// ➤ HOW A WORD IS COMPARED: lower case AND without accents, on both sides. A French board
+// ➤ writes "Electromécanicien Naval" while a veto says "Électromécanicien" — the same word
+// ➤ to a person, a different first letter to a computer. Folding both sides fixes the
+// ➤ whole class at once instead of adding spellings by hand; fold only one side and
+// ➤ accented terms quietly stop matching.
 export const norm = fold;
 
 // ➤ Builds the search pattern of a "bounded" word: it requires
@@ -79,13 +67,10 @@ export function buildTitleFilter(tf) {
     const k = norm(term);
     return (s) => s.includes(k);
   });
-  // ➤ Negatives take two shapes in the YAML: a plain "Term" blocks always,
-  // ➤ while { term: "T", unless: [...] } blocks ONLY when none of the "unless"
-  // ➤ words appear in the title — the rule for "Consultant is blocked unless
-  // ➤ it's offshore wind or related".
-  // ➤ Each negative keeps its LABEL (the term that defines it) alongside its
-  // ➤ check, so --explain mode can say WHICH word blocked
-  // ➤ each title.
+  // ➤ Negatives take two shapes in the YAML: a plain "Term" blocks always; { term: "T",
+  // ➤ unless: [...] } blocks only when none of the unless words appear in the title
+  // ➤ ("Consultant, unless offshore wind"). Each negative keeps its LABEL so --explain can
+  // ➤ say which word blocked.
   const negatives = (tf?.negative || []).map(t => {
     if (t && typeof t === 'object' && t.term) {
       const re = boundaryRegex(t.term, true);
@@ -138,10 +123,8 @@ export function buildTitleFilter(tf) {
 }
 
 // ── Location filter (portals.yml — fixed hard rules) ────────────────
-// Block terms use the acronym rule too: "UK" must not match inside
-// "Ukraine". Longer names stay substring ("Saudi" → "Saudi Arabia").
-// ➤ Filter by LOCATION according to the fixed rules in portals.yml. Same
-// ➤ acronym trick: "UK" must not match inside "Ukraine".
+// ➤ Block terms use the acronym rule too: "UK" must not match inside "Ukraine"; longer
+// ➤ names stay substring ("Saudi" → "Saudi Arabia").
 
 // ➤ Builds the function that detects blocked locations in a text.
 function buildBlockMatcher(blockTerms) {
@@ -165,11 +148,10 @@ export function buildLocationFilter(lf) {
   if (!lf) return Object.assign(() => true, { blockHit: () => false });
   const allow = (lf.allow || []).map(norm);
   const blockHit = buildBlockMatcher(lf.block);
-  // ➤ ONE SEAT YOU CAN TAKE IS ENOUGH. A posting open in several places arrives
-  // ➤ as one string ("Barcelona, ES; Dubai, AE" — Teamtailor joins them), and
-  // ➤ read whole it was VETOED, because the block list saw Dubai. The job in
-  // ➤ Barcelona was real and you never saw it. Each place is judged on its own
-  // ➤ and the offer survives if any one of them passes.
+  // ➤ ONE SEAT YOU CAN TAKE IS ENOUGH. A posting open in several places arrives as one
+  // ➤ string ("Barcelona, ES; Dubai, AE"); read whole, the block list sees Dubai and the
+  // ➤ real job in Barcelona is lost. Each place is judged on its own and the offer survives
+  // ➤ if any one of them passes.
   const one = (place) => {
     if (blockHit(place)) return false;
     if (allow.length === 0) return true;

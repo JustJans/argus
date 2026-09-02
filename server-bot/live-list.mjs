@@ -1,17 +1,13 @@
 #!/usr/bin/env node
 // ➤ ═══════════════════════════════════════════════════════════════════════
-// ➤ WHAT IT IS: the "live list" of pending offers in Telegram. Instead of
-// ➤ piling up old lists in the chat, there is ONE single list: every time
-// ➤ something changes (a new offer arrives, or you say seen/no/applied) the
-// ➤ previous list is DELETED and an updated one is RE-SENT to the bottom of
-// ➤ the chat, silently. Your commands and the bot's confirmations are never
-// ➤ touched: they stay as history. The only "use-and-throw-away" thing is the list.
-// ➤ WHAT IT USES: pendingOffers() (the pending offers), notifyNewOffers() (to
-// ➤ draw it the same way as always, grouped by country and with links) and
-// ➤ deleteTelegramMessage() (to delete the previous one). It remembers the ids
-// ➤ of the list messages in data/list-message.json.
-// ➤ WHEN IT RUNS: it is called by the listener (after list/seen/no/applied) and
-// ➤ by the scanner (when it adds new offers).
+// ➤ WHAT IT IS: the "live list" of pending offers in Telegram. Instead of piling up old
+// ➤ lists in the chat there is ONE: every time something changes (a new offer, or you say
+// ➤ seen/no/applied) the previous list is DELETED and an updated one RE-SENT to the bottom
+// ➤ of the chat, silently. Your commands and the bot's confirmations stay as history; only
+// ➤ the list is use-and-throw-away. Uses pendingOffers(), notifyNewOffers() (drawn grouped
+// ➤ by country, with links) and deleteTelegramMessage(); the list message ids live in
+// ➤ data/list-message.json. Called by the listener (after list/seen/no/applied) and by the
+// ➤ scanner (when it adds offers).
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
 import { readFileSync, writeFileSync } from 'fs';
@@ -48,12 +44,10 @@ export function saveListIds(ids, path = STATE_PATH) {
   } catch { /* we don't break just because we couldn't save the state */ }
 }
 
-// ➤ The offer ids you have ALREADY seen in a list (used to mark the rest as
-// ➤ [NEW]). Returns null when it has never been set (first run). Callers wrap
-// ➤ this as `new Set(loadSeenIds() || [])`, so null becomes an EMPTY seen-set:
-// ➤ on the very first list NOTHING counts as seen, so EVERYTHING shows [NEW]
-// ➤ until a command runs and saveSeenIds records the current offers as seen.
-// ➤ The `path` param is only for testing.
+// ➤ The offer ids you have ALREADY seen in a list (the rest show [NEW]). Returns null when
+// ➤ never set; callers wrap it as `new Set(loadSeenIds() || [])`, so on the very first
+// ➤ list EVERYTHING shows [NEW] until a command runs and saveSeenIds records the current
+// ➤ offers as seen. `path` is only for testing.
 export function loadSeenIds(path = SEEN_PATH) {
   try {
     const s = JSON.parse(readFileSync(path, 'utf-8'));
@@ -67,22 +61,16 @@ export function saveSeenIds(ids, path = SEEN_PATH) {
   catch { /* not critical: at worst an offer is marked [NEW] one extra time */ }
 }
 
-// ➤ THE HEART: deletes the previous list and re-sends the updated list of
-// ➤ pending offers to the bottom of the chat. Options:
-// ➤   alert   = true → the repost makes a sound (the scanner uses it for new
-// ➤                    offers; this single list is the ONLY offer message, so
-// ➤                    its ping IS the new-offers alert). Default silent.
-// ➤   markSeen= true → YOU viewed the list (a command of yours), so the current
-// ➤                    offers stop being "new". Offers not yet seen show [NEW].
-// ➤ It answers one of THREE things, and the difference matters to whoever calls it:
-// ➤   null   → Telegram is not configured, so nothing was even attempted.
+// ➤ THE HEART: deletes the previous list and re-sends the pending offers to the bottom of the chat.
+// ➤   alert   = true → makes a sound: this one list is the ONLY offer message, so its ping IS the alert.
+// ➤   markSeen= true → YOU viewed the list (your own command): the current offers stop being [NEW].
+// ➤ It answers one of THREE things, and the difference matters to the caller:
+// ➤   null   → Telegram is not configured, nothing was attempted.
 // ➤   false  → it tried and FAILED; no list reached your chat.
-// ➤   number → it worked, and this is how many offers are pending.
-// ➤ It never throws: if something fails, it logs it but doesn't take down its
-// ➤ caller (scanner or listener).
-// ➤ `deps` exists so the ORDER below can be tested: it is the whole point of this function
-// ➤ and cannot be checked from the outside — a test that only looks at the final state
-// ➤ passes even if the delete happens first.
+// ➤   number → it worked: how many offers are pending.
+// ➤ It never throws: a failure is logged, never thrown at the scanner or the listener.
+// ➤ `deps` exists so the ORDER below can be tested — a test that only looks at the final
+// ➤ state passes even if the delete happens first.
 export async function refreshList({ alert = false, markSeen = false, deps } = {}) {
   const d = deps || {
     telegramConfigured, pendingOffers, notifyNewOffers,

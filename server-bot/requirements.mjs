@@ -75,12 +75,11 @@ const EXP = /experien|experiè|expérien|erfahrung|ervaring/;
 // ➤ still protects against false positives.
 const REQ = /\brequir|\brequier|\brequisit|\bexige|\bexigen|\berforder|\bvereist|must have|you have|you bring/;
 
-// ➤ The company talking about ITSELF, not about you: "for over 25 years, our
-// ➤ experience…", "sommige met 25 jaar ervaring" (NL: some of the team with 25
-// ➤ years). Adzuna pages carry the whole "about us" next to the job, so these
-// ➤ show up constantly. If a marker is in the context window the number is
-// ➤ ignored even though EXP matched. Being generous here is safe: ignoring a
-// ➤ number can only make the offer more likely to be KEPT, never dropped.
+// ➤ The company talking about ITSELF, not about you: "for over 25 years, our experience…",
+// ➤ "sommige met 25 jaar ervaring". Adzuna pages carry the whole "about us" next to the
+// ➤ job, so these show up constantly; a marker in the context window makes the number not
+// ➤ count even though EXP matched. Generous on purpose: ignoring a number can only KEEP an
+// ➤ offer, never drop it.
 const NEG = /combined|collective|cumulative|founded|established|in business|in the market|en el mercado|op de markt|sur le marché|am markt|of history|de historia|of experience delivering|years young|our experi|our team|our expert|for over|with over|on over|built on|building on|we have|we bring|we are a|is a leading|leader in|leading provider|team of|sommige|some of our|some with|years serving|years in business|thanks to|gracias a|dank |is your partner|we deliver|we provide|we offer|we serve|trusted by|serving clients|our company|our history|proudly|since 19|since 20|warrant|garant[ií]|guarantee/;
 
 // ➤ Finds "number + years", ranges included ("3-5 years", "3 a 5 años", "2 or 5 years"),
@@ -161,14 +160,13 @@ const DURATION_BEFORE = /(?:contra(?:ct|to)s?|contrat|vertrag|dienstverband|arbe
 
 const WINDOW = 50; // chars of context scanned around each number match
 
-// ➤ The guards read the segment BETWEEN COMMAS around the match, not the whole sentence —
-// ➤ a "preferred" about another topic must not cancel a real requirement. Plus the
-// ➤ previous segment when short ("Ideally, 4 años…") and the next one always ("5 años,
-// ➤ aunque no imprescindibles,…"). A softener that opens the NEXT segment and then names a
-// ➤ FIELD ("…, ideally in offshore wind", "…, preferably in the maritime sector") modifies
-// ➤ the field, not the requirement: softener + preposition = about the field → that
-// ➤ segment stays out of the guard zone. A bare ", preferred" or ", aunque no
-// ➤ imprescindible" still cancels, as it should.
+// ➤ The guards read the segment BETWEEN COMMAS around the match, plus the previous segment
+// ➤ when short ("Ideally, 4 años…") and the next one always ("5 años, aunque no
+// ➤ imprescindibles,…") — a "preferred" about another topic must not cancel a real
+// ➤ requirement. A softener that opens the NEXT segment and then names a FIELD ("…,
+// ➤ ideally in offshore wind") modifies the field, not the requirement: softener +
+// ➤ preposition → that segment stays out of the guard zone. A bare ", preferred" still
+// ➤ cancels.
 const SOFT_FIELD_NEXT = /\b(?:ideally|preferably|preferable|preferiblemente|idealmente|idealerweise|bij voorkeur|de pr[ée]f[ée]rence|voorkeur)\s+(?:in|en|im|dans|with|met|op|auf|from|de|du|des)\b/i;
 
 function guardZone(t, cs, ce, idx) {
@@ -395,11 +393,10 @@ export function degreeScreen(text, title) {
   // ➤ pierces the automation-title exemption below — never matched it, so the
   // ➤ offer sailed through to the phone.
   const t0 = String(text || '').replace(/[’‘]/g, "'").toLowerCase().replace(/\s+/g, ' ');
-  // ➤ Order matters. The master's rule goes FIRST, piercing every title exemption (own-field
-  // ➤ included: a "Marine Surveyor" wearing "Education: Master's Degree in Naval
-  // ➤ Engineering" is still impossible): a FIRMLY required master's is impossible whatever
-  // ➤ the title says, and the rule already stands down for a bachelor alternative, a
-  // ➤ softener or an equivalence clause. Own-field titles remain exempt from the MAJORS scan
+  // ➤ Order matters: the master's rule goes FIRST and pierces every title exemption, own
+  // ➤ field included (a "Marine Surveyor" wearing "Education: Master's Degree in Naval
+  // ➤ Engineering" is still impossible); it already stands down for a bachelor alternative,
+  // ➤ a softener or an equivalence clause. Own-field titles stay exempt from the MAJORS scan
   // ➤ below — there the false drop is the expensive one.
   if (masterRequired(t0)) return true;
   if (USER_FIELDS.test(ttl)) return false;
@@ -440,11 +437,10 @@ export function degreeScreen(text, title) {
 // ➤ is absent — the caller then skips the check.
 export function extractAdzunaJd(html) {
   const s = String(html || '');
-  // ➤ Note the `[^<>]` (not `[^>]`) in every tag pattern here: a tag can only be read up to
-  // ➤ the next angle bracket of ANY kind. With the looser `[^>]` a single stray "<" in the
-  // ➤ page — an unescaped angle bracket typed into the ad, a tag someone forgot to close —
-  // ➤ lets the pattern run straight past the tag it was reading and swallow whatever comes
-  // ➤ after it, so the body handed to the years and degree checks is cut short or wrong.
+  // ➤ Note the `[^<>]` (not `[^>]`) in every tag pattern: a tag is read only up to the next
+  // ➤ angle bracket of ANY kind, so a stray "<" in the page — an unescaped bracket typed
+  // ➤ into the ad, a tag never closed — cannot let the pattern run past the tag and swallow
+  // ➤ what follows, handing the years and degree checks a cut or wrong body.
   const open = s.match(/<section[^<>]*\bclass\s*=\s*["']([^"']*\badp-body\b[^"']*)["'][^<>]*>/i);
   if (!open) return '';
   // ➤ Count nesting instead of stopping at the first </section>, or a nested one truncates
