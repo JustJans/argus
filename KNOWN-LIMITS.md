@@ -131,6 +131,16 @@ never been seen to misfire.
 (Counted 2026-07-27. If you change the lists, the numbers move; what should not
 move is the shape — nearly every test is the only witness of its rule.)
 
+### Codex is supported on its documented script interface, and verified only up to the login
+
+The Codex backend uses the three things `codex exec` has documented for scripts since it
+existed: the prompt on stdin, the final answer in a file (`-o`), a read-only sandbox. The
+rest (`--skip-git-repo-check`, `--ephemeral`, the reasoning effort) is optional and dropped,
+with one retry, the day a version rejects it. The maintainer uses Claude: Codex was checked
+against the real CLI as far as a machine without a login gets (the flags are accepted, the
+401 is classified as "not logged in"), and beyond that against a stand-in program. If a
+release changes what `codex exec` prints or expects, this is the seam to look at.
+
 ### `fs-atomic.mjs` has as much comment as code
 Roughly two comment lines for every line of code, in a hundred-line file. The
 reason the file exists *is* the comment: it holds the safe overwrite AND the

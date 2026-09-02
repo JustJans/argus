@@ -52,6 +52,8 @@ offer, with the reason.
 | `liveness-core.mjs` | Decides whether a posting is still open, from the page itself | Used by scan and housekeep |
 | `cover-letter.mjs` | **The letter writer.** Downloads the offer, has Claude write the letter from your CV and your rules, and renders it to PDF | On `cover N` |
 | `claude-cli.mjs` | The single shared way of calling the Claude CLI, including telling a real answer from a complaint about limits | Used by the letter and the Council |
+| `ai-cli.mjs` | Which AI CLI answers — Claude Code or Codex, from `ai.backend` in portals.yml — so the letter and the Council never name a program | Used by the letter and the Council |
+| `codex-cli.mjs` | The Codex twin of claude-cli.mjs: prompt on stdin, answer from a file, read-only sandbox, one retry without the optional flags | When `ai.backend` is codex |
 | `onboarding.mjs` | The `/start` questionnaire and the `settings` editor. Writes `config/profile.yml` and `cv.md` | On `/start` |
 | `list-offers.mjs` | Reads the pending list (and prints it in the console) | By hand |
 | `seen.mjs` | Marks offers as seen | Via Telegram |
@@ -76,6 +78,7 @@ offer, with the reason.
 | `test-vetoes.mjs` | the veto panel: which words it offers and what they block |
 | `test-live-list.mjs` | the single-list bookkeeping |
 | `test-robustness.mjs` | the parts that can LOSE DATA or answer wrongly |
+| `test-ai-cli.mjs` | which AI CLI is chosen, and the Codex launcher against a stand-in program |
 | `test-gmail.mjs` | the read-only inbox door |
 | `argus-council/test-council.mjs` | the judges, the vote reader and the blind state |
 | `argus-mail/test-mail.mjs` | replies → one state per application |

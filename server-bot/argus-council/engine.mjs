@@ -7,7 +7,7 @@
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { parseVerdict } from './judges.mjs';
-import { runClaudeCli, claudeErrorMessage } from '../claude-cli.mjs';
+import { runAi, aiErrorMessage } from '../ai-cli.mjs';
 
 // ➤ Paths: this file lives in server-bot/argus-council/. From here:
 // ➤   SCRIPT_DIR  = .../server-bot/argus-council
@@ -49,11 +49,11 @@ export function buildJudgePrompt(judge, offer, body) {
 export function runJudge(judge, offer, body, opts = {}) {
   const model = opts.model || judge.model || 'sonnet';
   const prompt = buildJudgePrompt(judge, offer, body);
-  // ➤ Shared launcher: it also detects claude complaining on its NORMAL output (the
-  // ➤ spend-limit warning) — otherwise that text is parsed as a verdict, journalled as the
-  // ➤ judge's reasoning, and the offer is marked "already judged" for ever.
-  return runClaudeCli(prompt, {
-    tokenPath: join(SERVERBOT, 'claude-token.json'),
+  // ➤ Shared launcher (Claude or Codex, whichever the user has): it also detects the CLI
+  // ➤ complaining on its NORMAL output (the spend-limit warning) — otherwise that text is
+  // ➤ parsed as a verdict, journalled as the judge's reasoning, and the offer is marked
+  // ➤ "already judged" for ever.
+  return runAi(prompt, {
     cwd: ROOT,
     model,
     timeoutMs: JUDGE_TIMEOUT_MS,
@@ -62,7 +62,7 @@ export function runJudge(judge, offer, body, opts = {}) {
     if (!res.ok) {
       // ➤ failed:true tells the harness this is NOT a real verdict, so the
       // ➤ offer is not recorded as judged and will be retried next time.
-      return { vote: null, reason: `judge ${judge.key} failed: ${claudeErrorMessage(res.kind, res.out)}`, confidence: 0, failed: true };
+      return { vote: null, reason: `judge ${judge.key} failed: ${aiErrorMessage(res.kind, res.out)}`, confidence: 0, failed: true };
     }
     return parseVerdict(res.out);
   });

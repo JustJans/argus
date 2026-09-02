@@ -310,7 +310,8 @@ Say "Optional extras (nothing breaks without them)"
 if (Test-Path (Join-Path $root 'server-bot\adzuna-key.json')) { Ok "Adzuna key present" }
 else { Write-Host "  - Adzuna key (free, https://developer.adzuna.com/) -> one more job board. Save it to server-bot\adzuna-key.json as {`"app_id`":`"...`",`"app_key`":`"...`"}" }
 if (Get-Command claude -ErrorAction SilentlyContinue) { Ok "Claude CLI present" }
-else { Write-Host "  - Claude CLI -> AI cover letters ('cover N') and the Council. Install: npm i -g @anthropic-ai/claude-code, then: claude setup-token" }
+elseif (Get-Command codex -ErrorAction SilentlyContinue) { Ok "Codex CLI present" }
+else { Write-Host "  - An AI CLI -> cover letters ('cover N') and the Council. Claude: npm i -g @anthropic-ai/claude-code, then: claude setup-token. Or Codex: npm i -g @openai/codex, then: codex login" }
 Write-Host "  - Chromium (npx playwright install chromium) -> cover letters as PDF"
 
 Say "Done. Everything else happens in Telegram ('help' lists the commands)."

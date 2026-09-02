@@ -56,7 +56,7 @@ Required: **Node.js 20+** and a **Telegram bot token** ([@BotFather](https://t.m
 | Extra | Unlocks | Without it |
 |---|---|---|
 | An [Adzuna API key](https://developer.adzuna.com/) (free) | the Adzuna job board | the other portals still work |
-| The Claude CLI, installed and logged in (`npm i -g @anthropic-ai/claude-code`, then `claude setup-token` → `server-bot/claude-token.json`) | `cover N` (AI cover letters) and the Council | searching, filtering and Telegram work exactly the same; the Council ships **off** |
+| An AI CLI, installed and logged in — **Claude Code** (`npm i -g @anthropic-ai/claude-code`, then `claude setup-token` → `server-bot/claude-token.json`) or **OpenAI Codex** (`npm i -g @openai/codex`, then `codex login`); both run on the plan you already pay for, no API key | `cover N` (AI cover letters) and the Council | searching, filtering and Telegram work exactly the same; the Council ships **off** |
 | Chromium | the cover letter as a PDF | installed on its own at the first `cover N` (~115 MB), or by hand: `npx playwright install chromium` |
 
 </details>
@@ -255,7 +255,7 @@ If the bot answers nothing, run the diagnosis (`setup\diagnose-windows.bat` or `
 
 - **The bot says nothing.** Check the watchdog line is in `crontab -l`, read `server-bot/listener.log`, and look at `server-bot/listener-alive.json`; its timestamp refreshes every 30s while the listener lives. The diagnose scripts check all three for you.
 - **No offers ever arrive.** Run `--explain` and read the file: one line per discarded offer with the exact reason. If your own field is being dropped, the fix is in `config/profile.yml`, not in the code.
-- **`cover N` replies with an error.** That command is the one part that needs the Claude CLI. The message tells you which of the two is missing (installed, or authenticated).
+- **`cover N` replies with an error.** That command is the one part that needs an AI CLI (Claude Code or Codex; `ai.backend` in `portals.yml` picks one, `auto` takes whichever is logged in). The message tells you which of the two is missing (installed, or authenticated).
 - **Nothing writes anything.** Secrets live in `server-bot/*.json` and are created with mode 600; if you copied the folder as another user, check you can still read them.
 
 Some behaviour that looks wrong is deliberate, and some of what the bot gets wrong is knowingly left alone. Both are written down, with the reasoning, in [KNOWN-LIMITS.md](KNOWN-LIMITS.md), and the incident behind each rule in the code is kept in [docs/HISTORY.md](docs/HISTORY.md); read it before "fixing" a filter.

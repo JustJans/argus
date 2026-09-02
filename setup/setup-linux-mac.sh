@@ -258,8 +258,10 @@ fi
 say "Optional extras (nothing breaks without them)"
 [ -f server-bot/adzuna-key.json ] && ok "Adzuna key present" \
   || echo "  - Adzuna key (free, https://developer.adzuna.com/) → one more job board. Save it to server-bot/adzuna-key.json as {\"app_id\":\"...\",\"app_key\":\"...\"}"
-command -v claude >/dev/null 2>&1 && ok "Claude CLI present" \
-  || echo "  - Claude CLI → AI cover letters ('cover N') and the Council. Install: npm i -g @anthropic-ai/claude-code, then: claude setup-token"
+if command -v claude >/dev/null 2>&1; then ok "Claude CLI present"
+elif command -v codex >/dev/null 2>&1; then ok "Codex CLI present"
+else echo "  - An AI CLI → cover letters ('cover N') and the Council. Claude: npm i -g @anthropic-ai/claude-code, then: claude setup-token. Or Codex: npm i -g @openai/codex, then: codex login"
+fi
 echo "  - Chromium (npx playwright install chromium) → cover letters as PDF"
 
 say "Done. Everything else happens in Telegram ('help' lists the commands)."

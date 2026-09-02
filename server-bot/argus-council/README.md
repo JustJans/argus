@@ -38,8 +38,10 @@ funnel, never inside it. Specifically:
     (`bodyChars` records how much text the judges were given),
     which `reconcile.mjs` uses to measure agreement with your decisions.
 - It is controlled by `council.enabled` in `portals.yml`, and it ships **off**:
-  the Council is the only part that needs the Claude CLI installed and logged
-  in. Set `enabled: true` once you have run `claude setup-token`.
+  the Council is, with the cover letter, the only part that needs an AI CLI
+  installed and logged in — Claude Code or OpenAI Codex, whichever plan you have
+  (`ai.backend` in `portals.yml`). Set `enabled: true` once you have run
+  `claude setup-token` or `codex login`.
 
 That's why it can live in the repo with no risk to the real flow.
 
@@ -65,8 +67,10 @@ node server-bot/argus-council/judge-shadow.mjs            # ➤ judges presented
 node server-bot/argus-council/judge-shadow.mjs --limit 3  # ➤ only the first 3 (test)
 ```
 
-It needs the Claude token (`server-bot/claude-token.json`), the same one the
-cover letter uses. Without it the judges return a null vote and the log says
+It needs the same AI CLI the cover letter uses: the Claude token
+(`server-bot/claude-token.json`) or a Codex login. With Codex the judges' tiers
+(haiku, sonnet) become low and medium reasoning effort on the CLI's default
+model, or on `ai.codex_model` if you name one. Without it the judges return a null vote and the log says
 `null` — it does not break.
 
 Weeks later, to fill in what you actually decided and measure the agreement:

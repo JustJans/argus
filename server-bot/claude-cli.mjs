@@ -52,8 +52,9 @@ export function claudeErrorMessage(kind, raw) {
   // ➤ "ENOENT" = the claude program is not installed here: cover letters and the Council are
   // ➤ the only features that need it — a missing OPTIONAL extra, not a broken bot.
   if (/ENOENT|not found/i.test(String(raw || ''))) {
-    return 'the Claude CLI is not installed on this machine — it is only needed for cover letters and the Council '
-      + '(install: npm i -g @anthropic-ai/claude-code, then claude setup-token). Searching works without it.';
+    return 'no AI CLI is installed on this machine — one is only needed for cover letters and the Council '
+      + '(Claude: npm i -g @anthropic-ai/claude-code, then claude setup-token; or Codex: npm i -g @openai/codex, then codex login). '
+      + 'Searching works without it.';
   }
   return `Claude failed: ${String(raw || 'no output').replace(/\s+/g, ' ').slice(0, 180)}`;
 }

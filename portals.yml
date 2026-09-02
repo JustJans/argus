@@ -1538,10 +1538,19 @@ tracked_companies:
 # ➤                     own: The Good=haiku, The Bad/The Ugly=sonnet).
 # ➤   · sample_dropped → how many DISCARDED (by title) to sample from
 # ➤                      data/scan-explain.txt besides the presented ones.
+# ➤ WHICH AI CLI writes the cover letters and sits on the Council. Either runs headless on
+# ➤ the plan you already pay for, no API key:
+# ➤   · claude → Claude Code   (npm i -g @anthropic-ai/claude-code, then: claude setup-token)
+# ➤   · codex  → OpenAI Codex  (npm i -g @openai/codex, then: codex login)
+# ➤   · auto   → Claude when its token file exists, otherwise Codex when it is logged in
+ai:
+  backend: auto
+  codex_model: ""           # ➤ Codex only. Empty = the CLI's own default model; the judges' haiku/sonnet become low/medium reasoning effort
+
 council:
-  # ➤ OFF by default: the Council is the only part that needs the Claude CLI
-  # ➤ installed and logged in on this machine. Searching, filtering and Telegram
-  # ➤ all work without it. Set to true once you have run: claude setup-token.
+  # ➤ OFF by default: the Council is, with the cover letter, the only part that needs an
+  # ➤ AI CLI installed and logged in on this machine (see ai: above). Searching, filtering
+  # ➤ and Telegram all work without it. Set to true once the CLI is logged in.
   enabled: false            # ➤ true = shadow mode (judges each scan; decides nothing)
   model: sonnet             # ➤ block's default model; empty = each judge's own
   sample_dropped: 0         # ➤ number of discarded to review per scan (0 = only the presented ones)

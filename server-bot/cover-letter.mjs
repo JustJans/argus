@@ -26,7 +26,7 @@ import yaml from 'js-yaml';
 import { fetchOfferBody } from './offer-body.mjs';
 import { unaccent } from './text.mjs';
 // ➤ The single shared way of calling Claude on the server (see claude-cli.mjs).
-import { runClaudeCli, claudeErrorMessage } from './claude-cli.mjs';
+import { runAi, aiErrorMessage } from './ai-cli.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(SCRIPT_DIR);
@@ -45,12 +45,11 @@ function loadJson(path, fallback) {
 // ➤ The launcher, path lookup and failure classification live in claude-cli.mjs, shared
 // ➤ with the Council.
 
-// ➤ Launches Claude on the server (headless) to write the letter with the stored token,
-// ➤ through the shared launcher — which treats a complaint on normal output (the
-// ➤ spend-limit warning) as a failure.
+// ➤ Launches the AI CLI the user has (Claude or Codex) headless to write the letter, through
+// ➤ the shared launcher — which treats a complaint on normal output (the spend-limit
+// ➤ warning) as a failure.
 function runClaude(prompt) {
-  return runClaudeCli(prompt, {
-    tokenPath: join(SCRIPT_DIR, 'claude-token.json'),
+  return runAi(prompt, {
     cwd: ROOT,
     model: 'sonnet',
     timeoutMs: CLAUDE_TIMEOUT_MS,
@@ -276,7 +275,7 @@ export async function makeCoverLetter(offer) {
 
   // ➤ Step 2: Claude writes the letter.
   const res = await runClaude(buildCoverPrompt(offer, body));
-  if (!res.ok) return { ok: false, error: claudeErrorMessage(res.kind, res.out) };
+  if (!res.ok) return { ok: false, error: aiErrorMessage(res.kind, res.out) };
 
   // ➤ If the portal gave us no text, the letter was written from the title and the company
   // ➤ alone. It is still usable, but you must know before sending it.
