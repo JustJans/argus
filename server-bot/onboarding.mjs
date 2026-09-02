@@ -12,6 +12,7 @@
 import { readFileSync, writeFileSync, existsSync, chmodSync, copyFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import yaml from 'js-yaml';
 
 // ➤ Write a file holding personal data (CV, profile, saved answers) locked to owner-only
 // ➤ (0600), so another local user on a shared box can't read it. chmod is a harmless no-op
@@ -927,7 +928,24 @@ function reEscape(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export function buildProfileYaml(a) {
+// ➤ The Council prompts a user wrote into config/profile.yml (search.judge_prompts) are
+// ➤ not an answer to any question, so a settings edit — which rebuilds the file from the
+// ➤ answers alone — would silently erase them. They are read back from the file being
+// ➤ replaced and written again, verbatim, at the end of the search block.
+function currentJudgePrompts() {
+  try {
+    const jp = yaml.load(readFileSync(PROFILE_PATH, 'utf-8'))?.search?.judge_prompts;
+    return jp && typeof jp === 'object' ? jp : null;
+  } catch { return null; }
+}
+function judgePromptsBlock(jp) {
+  if (!jp || typeof jp !== 'object' || !Object.keys(jp).length) return '';
+  const block = yaml.dump({ judge_prompts: jp }, { lineWidth: -1, noRefs: true });
+  return '\n  # ➤ Your own prompts for the Council\'s judges, kept across settings edits.\n'
+    + block.split('\n').map(l => (l ? '  ' + l : l)).join('\n');
+}
+
+export function buildProfileYaml(a, keep = {}) {
   // ➤ Contact, structured first: the onboarding stores what each piece IS, so nothing here
   // ➤ depends on the order the user typed. The positional split stays as the fallback for
   // ➤ answers saved before — every settings edit regenerates this file from the old record.
@@ -1030,11 +1048,11 @@ ${titleTerms.length ? `\n  positive_titles:${yamlList(titleTerms)}${roles.length
   # ➤ example. false = do not spend requests on them; your search comes from the
   # ➤ queries above. Set it to true if that example list happens to fit you.
   track_example_companies: false
-`;
+${judgePromptsBlock(keep.judge_prompts)}`;
 }
 
 // ➤ Writes the generated profile to config/profile.yml.
 function writeProfile(answers) {
-  try { writePrivate(PROFILE_PATH, buildProfileYaml(answers)); }
+  try { writePrivate(PROFILE_PATH, buildProfileYaml(answers, { judge_prompts: currentJudgePrompts() })); }
   catch (e) { console.log(`onboarding: could not write profile: ${e.message}`); }
 }

@@ -8,6 +8,7 @@
 
 import { parseContact, mergeContact, buildProfileYaml, cvDegreesHeld, cvSuggestions, cvProfileSuggestions, cvFullName, cvContact, optionsFor, extractCvSkills } from './onboarding.mjs';
 import { harness } from './test-harness.mjs';
+import yaml from 'js-yaml';
 
 const { ok, eq, done } = harness('onboarding');
 const check = eq;
@@ -178,6 +179,17 @@ check(mergeContact({ email: 'a@b.co', phone: '600 111 222', city: 'Roma' }, pars
   check(optionsFor(q, { answers: { degree_options: biz } }).options, biz,
     'and a settings edit, running on saved answers alone, sees the SAME families it was set up with');
   check(optionsFor(q, { answers: {} }).options, q.options, 'no record at all: the shipped catalog');
+}
+
+// ── buildProfileYaml keeps the Council prompts a settings edit would erase ──
+// ➤ search.judge_prompts is hand-written, never an answer: rebuilding the file from the
+// ➤ answers alone used to drop it. It is read from the file being replaced and re-emitted.
+{
+  const kept = { good: 'Be kind.\nQuote the barrier you hide on.', bad: 'Prosecute, with proof.', ugly: 'Weigh it.' };
+  const y = buildProfileYaml({ name: 'N' }, { judge_prompts: kept });
+  check(yaml.load(y).search.judge_prompts, kept, 'the current prompts ride into the regenerated profile, verbatim');
+  check(yaml.load(buildProfileYaml({ name: 'N' })).search.judge_prompts, undefined, 'a profile that never had them gets none');
+  check(yaml.load(buildProfileYaml({ name: 'N' }, { judge_prompts: null })).search.judge_prompts, undefined, 'and null means none too');
 }
 
 done();

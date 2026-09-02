@@ -258,7 +258,7 @@ If the bot answers nothing, run the diagnosis (`setup\diagnose-windows.bat` or `
 - **`cover N` replies with an error.** That command is the one part that needs the Claude CLI. The message tells you which of the two is missing (installed, or authenticated).
 - **Nothing writes anything.** Secrets live in `server-bot/*.json` and are created with mode 600; if you copied the folder as another user, check you can still read them.
 
-Some behaviour that looks wrong is deliberate, and some of what the bot gets wrong is knowingly left alone. Both are written down, with the reasoning, in [KNOWN-LIMITS.md](KNOWN-LIMITS.md); read it before "fixing" a filter.
+Some behaviour that looks wrong is deliberate, and some of what the bot gets wrong is knowingly left alone. Both are written down, with the reasoning, in [KNOWN-LIMITS.md](KNOWN-LIMITS.md), and the incident behind each rule in the code is kept in [docs/HISTORY.md](docs/HISTORY.md); read it before "fixing" a filter.
 
 **To uninstall:** Windows Settings → Installed apps → Argus → Uninstall (or `setup\uninstall-windows.bat`); on macOS/Linux, `bash setup/uninstall-linux-mac.sh`. Your profile, CV and application history live in the folder and are never deleted for you.
 

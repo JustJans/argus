@@ -56,6 +56,12 @@ offer, with the reason.
 | `list-offers.mjs` | Reads the pending list (and prints it in the console) | By hand |
 | `seen.mjs` | Marks offers as seen | Via Telegram |
 | `fs-atomic.mjs` | Writes files atomically, so a crash mid-write cannot truncate your list | Used everywhere that writes |
+| `filters.mjs` | The three filters an offer must pass (title, company, location) and the word rules they share | Used by scan, housekeep and the veto panel |
+| `text.mjs` | Accent folding and the title key that tells a re-post from a new vacancy | Used everywhere text is compared |
+| `offer-body.mjs` | Fetches an offer's text from whichever board holds it, with the HTTP status that decided it | Used by the letter writer and the Council |
+| `review.mjs` | The `review` mode: one card per offer, buttons, every decision undoable | On `review` |
+| `vetoes.mjs` | The veto panel a typed `no` earns, and the standing vetoes it keeps in `data/vetoes.json` | After a `no`, and by scan and housekeep |
+| `pipeline-format.mjs` | The two headings that divide `data/pipeline.md` | Used by everything that reads the list |
 | `argus-council/` | Three LLM judges reviewing offers in **shadow mode** — they vote, they decide nothing. [Its own README](argus-council/README.md) | Optional |
 | `esco.mjs` | The EU occupation taxonomy (free, no key): turns the CV's terms into real occupations, so the setup can suggest roles and degree areas | By the setup |
 
@@ -63,17 +69,20 @@ offer, with the reason.
 
 | File | Covers |
 |---|---|
-| `test-filter.mjs` | 603 tests — the filters. Run this after touching any rule |
-| `test-notify.mjs` | 106 tests — the Telegram message format and the listener |
-| `test-review.mjs` | 57 tests — the card-by-card review mode and its undo |
-| `test-onboarding.mjs` | 51 tests — the `/start` questionnaire and what the CV pre-fills |
-| `test-live-list.mjs` | 24 tests — the single-list bookkeeping |
-| `test-robustness.mjs` | 365 tests — the parts that can LOSE DATA or answer wrongly |
-| `test-gmail.mjs` | 69 tests — the read-only inbox door |
-| `argus-council/test-council.mjs` | 57 tests — the judges and the vote reader |
-| `argus-mail/test-mail.mjs` | 250 tests — replies → one state per application |
+| `test-filter.mjs` | the filters and the board parsers. Run this after touching any rule |
+| `test-notify.mjs` | the Telegram message format and the listener |
+| `test-review.mjs` | the card-by-card review mode and its undo |
+| `test-onboarding.mjs` | the `/start` questionnaire and what the CV pre-fills |
+| `test-vetoes.mjs` | the veto panel: which words it offers and what they block |
+| `test-live-list.mjs` | the single-list bookkeeping |
+| `test-robustness.mjs` | the parts that can LOSE DATA or answer wrongly |
+| `test-gmail.mjs` | the read-only inbox door |
+| `argus-council/test-council.mjs` | the judges, the vote reader and the blind state |
+| `argus-mail/test-mail.mjs` | replies → one state per application |
 
-`npm test` runs all 1582 of them.
+`npm test` runs every suite through `node --test`, in parallel, with one summary; any
+single file also runs on its own (`node server-bot/test-filter.mjs`). They all share
+`test-harness.mjs` (`ok`, `eq`, `done`), so a suite is a plain script of checks.
 
 ## 3. Configuration and data
 

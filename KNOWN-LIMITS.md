@@ -79,6 +79,17 @@ veto, 2026-08-26: `Cádiz`, `Cadiz`, `CÁDIZ` and `San Fernando, Cádiz` all
 blocked; `Barcelona` and `Cadizburg` untouched — the match is whole-word and
 accent-blind on both sides).
 
+### A field word that is part of the offer's own place name does not admit it
+
+Boards glue the region into the title: "Chirurgien orthopédiste - Seine-Maritime (76)", a
+nanny "à MARINES". Before the title filter looks for your field words, every segment of the
+offer's own location that appears verbatim in the title is masked, so "Maritime" or "Marine"
+has to be in the job part of the title to count. The other edge follows from it: a location
+that is itself a field word ("Offshore", listed as the place of a posting) masks that word too,
+and the title then needs another field word to pass. `--explain` says which of the two
+happened ("the title's only keyword from your field is part of its place name"). Negatives
+still read the whole title, which is the conservative direction.
+
 ### The Council has no decision power
 `server-bot/argus-council/judge-shadow.mjs`. (`portals.yml` → `council.enabled` only
 decides whether the judges RUN at all; it is not a switch for their authority.)
