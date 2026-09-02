@@ -37,9 +37,8 @@ const JOURNAL_PATH = join(ROOT, 'data', 'judge-shadow.jsonl');
 const LOG_PATH = join(ROOT, 'data', 'council-log.txt');   // ➤ the READABLE log
 
 // ➤ ── ANTI-REPEAT ("1 batch per offer, don't repeat it") ──────────
-// ➤ Unique key of an offer: its clean URL (without the tail after "?") if any;
-// ➤ if not (dropped ones come with no URL), company+title. Used to tell whether
-// ➤ an offer ALREADY went through the Council.
+// ➤ Unique key of an offer: its clean URL (no "?" tail) if any, else company+title. Says
+// ➤ whether an offer ALREADY went through the Council.
 export function offerKey(o) {
   // ➤ Same Adzuna normalisation as scan/housekeep, or the SAME offer arriving once as
   // ➤ /land/ad/ and once as /details/ counts as two and is judged (and paid for) twice.
@@ -68,10 +67,9 @@ export function filterUnjudged(work, judgedKeys) {
   return work.filter(o => !judgedKeys.has(offerKey(o)));
 }
 
-// ➤ Formats an offer's verdict in a READABLE way (what gets written to
-// ➤ council-log.txt): the offer, each judge's vote and confidence on one line,
-// ➤ the Council's ruling, and below each judge's reason. It's the same
-// ➤ format as the draft you reviewed. Pure function → easy to test.
+// ➤ Formats an offer's verdict READABLY for council-log.txt: the offer, each judge's vote
+// ➤ and confidence on one line, the Council's ruling, and each judge's reason below. Pure
+// ➤ function → easy to test.
 export function formatCouncilEntry(rec) {
   const v = rec.verdicts || {};
   const g = v.good || {}, b = v.bad || {}, u = v.ugly || {};
@@ -98,9 +96,8 @@ export function formatCouncilEntry(rec) {
   ].join('\n');
 }
 
-// ➤ Reads the council: block from portals.yml. If it's missing or off, returns
-// ➤ an object with enabled:false (so the harness doesn't run). It never breaks: on
-// ➤ any read problem, it behaves as "off".
+// ➤ Reads the council: block from portals.yml. Missing or off → enabled:false, so the
+// ➤ harness doesn't run; any read problem behaves as "off".
 export function readCouncilConfig() {
   try {
     const cfg = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
@@ -243,10 +240,9 @@ async function main() {
     }
   }
 
-  // ➤ --pending-only + --no-refresh: how the SCAN calls this file right before
-  // ➤ sending the list, so the new offers reach the phone with their verdict
-  // ➤ already on. Only the presented ones matter for that; the dropped sample
-  // ➤ keeps its place in the cron run, and the list is sent by the scan itself.
+  // ➤ --pending-only + --no-refresh: how the SCAN calls this file right before sending the
+  // ➤ list, so the new offers reach the phone with their verdict already on. The dropped
+  // ➤ sample keeps its place in the cron run, and the list is sent by the scan itself.
   const pendingOnly = args.includes('--pending-only');
   const noRefresh = args.includes('--no-refresh');
 
@@ -267,9 +263,9 @@ async function main() {
   if (Number.isFinite(limit)) work = work.slice(0, limit);
 
   if (!work.length) {
-    // ➤ "--limit 0" is not "nothing to judge": there may be a queue and you
-    // ➤ asked for none of it. Reporting the two the same way sent me looking
-    // ➤ for a broken Council when the flag was doing exactly as told.
+    // ➤ "--limit 0" is not "nothing to judge": there may be a queue and you asked for none of
+    // ➤ it. Reporting both the same way sent me looking for a broken Council when the flag was
+    // ➤ doing as told.
     console.log(limit === 0
       ? `--limit 0: nothing was judged on purpose (${skipped} already judged; the rest are still waiting).`
       : `No NEW offers to judge (${skipped} already-judged were skipped).`);
@@ -323,8 +319,8 @@ async function main() {
     }
     // ➤ It APPENDS to BOTH logs; it never overwrites anything. Under the journal's lock:
     // ➤ reconcile.mjs rewrites the whole file under it, and an append landing between its read
-    // ➤ and its write would be erased — the offer re-judged later, three paid AI calls
-    // ➤ repeated. Held for the one appendFileSync, nothing more.
+    // ➤ and write would be erased — the offer re-judged later, three paid AI calls repeated.
+    // ➤ Held for the one appendFileSync.
     withFileLock(JOURNAL_PATH, () => appendFileSync(JOURNAL_PATH, JSON.stringify(rec) + '\n'));   // ➤ for the machine
     appendFileSync(LOG_PATH, formatCouncilEntry(rec));          // ➤ readable by you
     tally[rec.council] = (tally[rec.council] || 0) + 1;
@@ -336,9 +332,9 @@ async function main() {
   if (unread) appendFileSync(LOG_PATH, `${unread} offer(s) gave no readable body this run and will be retried.\n`);
   appendFileSync(LOG_PATH, `Summary: SHOW ${tally.show} · HIDE ${tally.hide} · ties ${tally.tie} · blind ${tally.blind}\n`);
   console.log(`Done. ${done} offer(s) → data/judge-shadow.jsonl (machine) and data/council-log.txt (readable).`);
-  // ➤ The verdicts just written are SHOWN on the Telegram list, and the list
-  // ➤ the scan sent minutes ago predates them. One silent refresh and the new
-  // ➤ offers carry their word now, not two hours from now.
+  // ➤ The verdicts just written are SHOWN on the Telegram list, and the list the scan sent
+  // ➤ minutes ago predates them: one silent refresh and the new offers carry their word now,
+  // ➤ not two hours from now.
   if (done > 0 && !noRefresh) {
     try {
       const { refreshList } = await import('../live-list.mjs');
@@ -348,9 +344,9 @@ async function main() {
   }
 }
 
-// ➤ Guard anchored to the file name: main() runs ONLY when launching
-// ➤ this script directly, not when importing it from the tests. WARNING: if the
-// ➤ file is renamed, this regex must ALSO be updated (as in scan.mjs).
+// ➤ Guard anchored to the file name: main() runs ONLY when launching this script directly,
+// ➤ not on import from the tests. WARNING: renaming the file means updating this regex too
+// ➤ (as in scan.mjs).
 if (process.argv[1] && /(^|[\\/])judge-shadow\.mjs$/.test(process.argv[1])) {
   main().catch(e => { console.error('The Council failed:', e?.message || e); process.exit(1); });
 }

@@ -14,9 +14,8 @@ import { fold } from './text.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const CACHE_DIR = join(SCRIPT_DIR, '.esco-cache');
-// ➤ Overridable for tests, mirroring notify's ARGUS_TG_API: the e2e points
-// ➤ this at a mock's 404 wall so the setup's ESCO stage fails fast and falls
-// ➤ back deterministically instead of depending on the network being up.
+// ➤ Overridable for tests, like notify's ARGUS_TG_API: the e2e points it at a mock's 404
+// ➤ wall so the ESCO stage fails fast and falls back deterministically.
 const API = process.env.ARGUS_ESCO_API || 'https://ec.europa.eu/esco/api';
 
 

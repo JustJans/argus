@@ -21,17 +21,17 @@ const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').re
 // ➤ one — after two months of silence the answer is the same, and the difference survives
 // ➤ where it belongs, in the record, not as a second shade of red.
 const STATES = [
-  // ➤ Listed first, and grouped with the ones that never answered, because
-  // ➤ that is what it is — the difference being that this one is still in your
-  // ➤ hands: nobody read the application, so applying again is a real move.
+  // ➤ Listed first, and grouped with the ones that never answered, because that is what it
+  // ➤ is — except that this one is still in your hands: nobody read the application, so
+  // ➤ applying again is a real move.
   { keys: ['bounced'], dot: '⚪', label: 'Never arrived', title: 'Never arrived' },
   { keys: ['noreply'], dot: '⚪', label: 'N/A', title: 'N/A' },
   { keys: ['acknowledged'], dot: '🟡', label: 'Received', title: 'Received' },
   { keys: ['rejected', 'ghosted'], dot: '🔴', label: 'Rejected/Ghosted', title: 'Rejected' },
-  // ➤ ALWAYS SHOWN, even at zero, and it is the only one. Every other state is
-  // ➤ hidden when nobody is in it because an empty count is not news — but
-  // ➤ this is the one you are doing all of it for, so "0 Interview" says
-  // ➤ something, and a green circle missing from the line reads as a fault.
+  // ➤ ALWAYS SHOWN, even at zero, and it is the only one: every other state is hidden when
+  // ➤ nobody is in it, because an empty count is not news — but this is the one you are
+  // ➤ doing all of it for, so "0 Interview" says something, and a missing green circle reads
+  // ➤ as a fault.
   { keys: ['interview'], dot: '🟢', label: 'Interview', title: 'Interview', always: true },
 ];
 
@@ -43,10 +43,9 @@ const STATES = [
 const LISTED_LABELS = ['Never arrived', 'N/A', 'Received', 'Interview'];
 const LISTED = STATES.filter(s => LISTED_LABELS.includes(s.title)).flatMap(s => s.keys);
 
-// ➤ The whole message, as one string of Telegram HTML: a count line, then a
-// ➤ section per state worth reading one by one. Takes the file the nightly run
-// ➤ wrote and nothing else — no clock, no network, no disk — so the `mail`
-// ➤ command answers the instant it is typed.
+// ➤ The whole message, as one string of Telegram HTML: a count line, then a section per
+// ➤ state worth reading one by one. Takes the file the nightly run wrote and nothing else
+// ➤ — no clock, no network, no disk — so `mail` answers the instant it is typed.
 export function formatStatus(status) {
   // ➤ AN ARRAY, not merely something with a length: a string has a length too, so a status
   // ➤ file whose "applications" arrived as text would sail past this guard and die on the
@@ -71,10 +70,9 @@ export function formatStatus(status) {
   const KNOWN = new Set(STATES.flatMap(s => s.keys));
   const stray = apps.filter(a => !KNOWN.has(a.state));
   if (stray.length) out.push(`⚠️ ${stray.length} application(s) in an unknown state: ${[...new Set(stray.map(a => a.state))].join(', ')}`);
-  // ➤ A state nobody is in says nothing worth a line — "0 never arrived · 0
-  // ➤ ghosted" was most of the count and none of the information. The one
-  // ➤ exception is the interview: that is what all of this is for, so its
-  // ➤ count belongs there whatever it says.
+  // ➤ A state nobody is in says nothing worth a line — "0 never arrived · 0 ghosted" was
+  // ➤ most of the count and none of the information. The one exception is the interview:
+  // ➤ what all of this is for, so its count belongs there whatever it says.
   out.push(STATES.map(s => ({ s, n: of(s.keys).length })).filter(x => x.n || x.s.always)
     .map(({ s, n }) => `${s.dot} ${n} ${s.label}`).join(' · '));
 
@@ -93,9 +91,9 @@ export function formatStatus(status) {
       // ➤ Only when it is a real number: an application with an unreadable date
       // ➤ printed "(nulld)".
       const days = s.keys.includes('noreply') && typeof a.daysWaiting === 'number' ? ` (${a.daysWaiting}d)` : '';
-      // ➤ In English wherever there is an English version. The employer's own
-      // ➤ wording is kept in the file, so the posting is still findable on
-      // ➤ their site; what reaches the phone reads in one language.
+      // ➤ In English wherever there is an English version; the employer's own wording stays in
+      // ➤ the file, so the posting is still findable on their site, and what reaches the phone
+      // ➤ reads in one language.
       out.push(`#${a.id} ${esc(a.company)} - ${esc(a.titleEn || a.title)}${days}`);
     }
   }

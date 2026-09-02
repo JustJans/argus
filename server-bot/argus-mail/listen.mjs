@@ -51,9 +51,8 @@ export const gmailDate = d => `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDat
 // ➤ of a mailbox it holds a standing key to.
 export const searchFor = since => `after:${gmailDate(since)} -from:me`;
 
-// ➤ The verdicts you gave by hand with "no N", one JSON object per line.
-// ➤ Append-only: the file is the record of what you decided and when, and the
-// ➤ newest line for an id is the one that counts.
+// ➤ The verdicts you gave by hand with "no N", one JSON object per line, append-only: the
+// ➤ record of what you decided and when; the newest line for an id is the one that counts.
 export const VERDICTS_PATH = join(ROOT, 'data', 'application-verdicts.jsonl');
 
 function loadVerdicts() {
@@ -119,14 +118,13 @@ async function main() {
     .filter(m => m.kind && m.kind !== 'alert');
 
   const { links, ties, orphans } = linkOutcomes(outcomes, applications);
-  // ➤ Your own decisions go on top of what the mail says, never under it: this
-  // ➤ job rebuilds the file from scratch every night, so an answer you gave by
-  // ➤ hand would otherwise be wiped at midnight.
+  // ➤ Your own decisions go on top of what the mail says, never under it: this job rebuilds
+  // ➤ the file from scratch every night, so a hand-given answer would otherwise be wiped at
+  // ➤ midnight.
   const records = applyVerdicts(buildStatus(applications, links), loadVerdicts());
-  // ➤ THE TITLES ARE PUT INTO ENGLISH HERE, at build time, not when the message is printed:
-  // ➤ "mail" must answer instantly like "list" does, and it cannot wait on a translator.
-  // ➤ Done once a night and kept in the file; the original stays alongside so the posting is
-  // ➤ still findable on the employer's own site.
+  // ➤ THE TITLES ARE PUT INTO ENGLISH HERE, at build time: "mail" must answer instantly like
+  // ➤ "list" and cannot wait on a translator. Once a night, kept in the file, the original
+  // ➤ alongside so the posting is still findable on the employer's site.
   await Promise.all(records.map(async r => {
     const src = applications.find(a => a.id === r.id);
     const en = await translateTitle(r.title, `${src?.location || ''} ${src?.url || ''}`);
@@ -138,17 +136,16 @@ async function main() {
     generated: new Date().toISOString(),
     since: gmailDate(since),
     summary,
-    // ➤ Counted, not stored: an email that belongs to no application of
-    // ➤ yours is somebody else's business and there is no reason to keep it.
-    // ➤ A tie is worth knowing about (you can settle it); an orphan inside
+    // ➤ Counted, not stored: an email that belongs to no application of yours is somebody
+    // ➤ else's business. A tie is worth knowing about (you can settle it); an orphan inside
     // ➤ this window is simply mail that is not about your job search.
     unlinked: {
       ambiguous: ties.length,
       unrelated: orphans.length,
       // ➤ WHAT the tie was about, not only the count: "1 email fit more than one application"
-      // ➤ with no employer, no kind (refusal or invitation) and no application numbers is not
-      // ➤ something anybody can act on, and the rule that produces ties promises you can. Ids
-      // ➤ and kind only: no subject, no sender, no text.
+      // ➤ with no employer, no kind and no application numbers is not something anybody can act
+      // ➤ on, and the rule that produces ties promises you can. Ids and kind only: no subject,
+      // ➤ sender or text.
       cases: ties.map(t => ({
         kind: t.message?.kind || 'unknown',
         ids: (t.candidates || []).map(c => c.application?.id).filter(id => id != null),
@@ -171,8 +168,8 @@ async function main() {
   console.log(`  rejected:       ${summary.rejected}`);
   console.log(`  acknowledged:   ${summary.acknowledged}`);
   console.log(`  no reply:       ${summary.noreply}`);
-  // ➤ GHOSTED HAS TO BE ON THIS LIST, or the lines add up only while no application has yet
-  // ➤ passed the 60-day mark — and the first one to pass it goes missing from the summary
+  // ➤ GHOSTED HAS TO BE ON THIS LIST, or the lines add up only while no application has
+  // ➤ passed the 60-day mark — and the first to pass it goes missing from the summary
   // ➤ without a word.
   console.log(`  ghosted:        ${summary.ghosted}`);
   console.log(`  ambiguous, for you to settle: ${ties.length}`);

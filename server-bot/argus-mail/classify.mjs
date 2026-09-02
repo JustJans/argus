@@ -112,9 +112,9 @@ export const ALERT = /job alert|new jobs|jobs for you|recommended for you|nuevas
 // ➤ count in the full test at the end.
 export const ALERT_DECLARED = /job alert|new jobs|jobs for you|recommended for you|nuevas ofertas|ofertas para ti|empleos recomendados|vacatures voor jou|nieuwe vacatures|neue jobs|job digest|we found \d|hemos encontrado \d/;
 
-// ➤ Returns 'bounced' | 'rejected' | 'interview' | 'acknowledged' | 'alert' |
-// ➤ null. null means "not about an application", and it is the honest answer
-// ➤ far more often than any of the others.
+// ➤ Returns 'bounced' | 'rejected' | 'interview' | 'acknowledged' | 'alert' | null — null
+// ➤ meaning "not about an application", the honest answer far more often than any of the
+// ➤ others.
 export function classifyMessage({ subject = '', snippet = '', body = '', from = '' } = {}) {
   // ➤ The body is included: it found 3 outcomes whose wording sat past the
   // ➤ snippet's ~200 characters, and contradicted none.

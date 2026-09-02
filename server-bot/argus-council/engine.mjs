@@ -20,10 +20,10 @@ const ROOT = dirname(SERVERBOT);
 // ➤ Maximum time to wait for a judge to respond: 6 minutes.
 const JUDGE_TIMEOUT_MS = 6 * 60 * 1000;
 
-// ➤ Assembles the task for the judge: its instructions + the offer data, the body trimmed
-// ➤ to 6,000 characters. The body is attacker-controlled (anyone can post a job): any run
-// ➤ of triple quotes is collapsed so it cannot close the fence and inject instructions
-// ➤ into the judge (forcing a "show", reading local files).
+// ➤ Assembles the task for the judge: instructions + offer data, the body trimmed to 6,000
+// ➤ characters. The body is attacker-controlled: any run of triple quotes is collapsed so
+// ➤ it cannot close the fence and inject instructions (forcing a "show", reading local
+// ➤ files).
 function untrust(s) {
   return String(s || '').replace(/"{3,}/g, '""');
 }
@@ -49,10 +49,9 @@ export function buildJudgePrompt(judge, offer, body) {
 export function runJudge(judge, offer, body, opts = {}) {
   const model = opts.model || judge.model || 'sonnet';
   const prompt = buildJudgePrompt(judge, offer, body);
-  // ➤ Shared launcher: it also detects the case where claude complains on its
-  // ➤ NORMAL output (the spend-limit warning). Before, that text was parsed as
-  // ➤ if it were a verdict and written into the journal as the judge's
-  // ➤ reasoning — and the offer was then marked "already judged" for ever.
+  // ➤ Shared launcher: it also detects claude complaining on its NORMAL output (the
+  // ➤ spend-limit warning) — otherwise that text is parsed as a verdict, journalled as the
+  // ➤ judge's reasoning, and the offer is marked "already judged" for ever.
   return runClaudeCli(prompt, {
     tokenPath: join(SERVERBOT, 'claude-token.json'),
     cwd: ROOT,

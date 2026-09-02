@@ -9,10 +9,10 @@
 // ➤ one is what keeps the record from flattering itself.
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
-// ➤ NO GRACE PERIOD, DELIBERATELY. Holding an application younger than three days in a
-// ➤ state of its own bought nothing: every automated receipt in the real mailbox arrived
-// ➤ within the same HOUR of applying, so an application with no receipt is already saying
-// ➤ something on day zero. The age sits next to it in the report anyway.
+// ➤ NO GRACE PERIOD, DELIBERATELY: holding an application younger than three days in a
+// ➤ state of its own bought nothing — every automated receipt in the real mailbox arrived
+// ➤ within the same HOUR, so no receipt is already saying something on day zero. The age
+// ➤ sits next to it in the report anyway.
 
 // ➤ WHEN WAITING BECOMES AN ANSWER: two months of nothing is a no that nobody
 // ➤ bothered to write. Counted from the LAST thing that happened, not from the
@@ -70,9 +70,9 @@ export function buildStatus(applications, links, { today = new Date() } = {}) {
 
   return applications.map(a => {
     const mine = (byApp.get(a.id) || []).slice().sort((x, y) => new Date(x.message.date) - new Date(y.message.date));
-    // ➤ linkOutcomes leaves the classification on the MESSAGE, not on the link.
-    // ➤ Reading only one of the two made every test pass on a hand-built
-    // ➤ fixture while the real pipeline produced no states at all.
+    // ➤ linkOutcomes leaves the classification on the MESSAGE, not on the link; reading only
+    // ➤ one of the two made every test pass on a hand-built fixture while the real pipeline
+    // ➤ produced no states at all.
     const kinds = mine.map(l => l.kind || l.message?.kind).filter(Boolean);
     const applied = new Date(a.ts);
     const daysWaiting = isNaN(applied) ? null : Math.floor((now - applied) / 86_400_000);

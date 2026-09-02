@@ -1,16 +1,15 @@
 // ➤ The three text helpers every module needs, in one home: accent folding and the
-// ➤ title-key normalisation shared by scan and housekeep, so the two ends cannot drift
-// ➤ apart.
+// ➤ title-key normalisation shared by scan and housekeep, so the two ends cannot drift.
 
-// ➤ Accents off, case kept: "Électromécanicien" → "Electromecanicien". For the
-// ➤ places where case still carries meaning (a regex written in capitals, a
-// ➤ company name about to be capitalised word by word).
+// ➤ Accents off, case kept ("Électromécanicien" → "Electromecanicien"), for where case
+// ➤ still carries meaning: a regex written in capitals, a company name about to be
+// ➤ capitalised word by word.
 export const unaccent = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
 
-// ➤ Accents off AND lower case: the comparison form for everything that
-// ➤ matches words — filter terms, veto chips, ESCO labels, mail phrases. Must
-// ➤ be applied to BOTH sides of a comparison, or accented terms silently stop
-// ➤ matching accented text and a filter opens instead of closing.
+// ➤ Accents off AND lower case: the comparison form for everything that matches words —
+// ➤ filter terms, veto chips, ESCO labels, mail phrases. Applied to BOTH sides, or
+// ➤ accented terms silently stop matching accented text and a filter opens instead of
+// ➤ closing.
 export const fold = s => unaccent(s).toLowerCase();
 
 // ➤ A title reduced to what identifies the ROLE, for telling a re-post from a new vacancy:

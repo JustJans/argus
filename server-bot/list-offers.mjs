@@ -41,10 +41,9 @@ export function pendingOffers() {
   const procIdx = procLine === -1 ? -1 : text.indexOf(lines[procLine]);
   const section = text.slice(pendIdx, procIdx === -1 ? text.length : procIdx);
   const offers = [];
-  // ➤ Walks line by line through the format "- [ ] link | company | title | [location] |
-  // ➤ [y:years] | [s:salary] | [#number]". Instead of a single brittle formula, it splits on
-  // ➤ the bars and CLASSIFIES each extra field by its shape, so an offer without a location
-  // ➤ cannot show "y:2" as if it were the city.
+  // ➤ Walks the format "- [ ] link | company | title | [location] | [y:years] | [s:salary] |
+  // ➤ [#number]": it splits on the bars and CLASSIFIES each extra field by its shape, so an
+  // ➤ offer without a location cannot show "y:2" as if it were the city.
   for (const m of section.matchAll(/^- \[ \] (\S+)\s*\|\s*([^|\n]+?)\s*\|\s*([^|\n]+?)((?:\s*\|[^\n]*)?)$/gm)) {
     const offer = { url: m[1], company: m[2].trim(), title: m[3].trim(), location: '', id: null, years: null, salary: null };
     // ➤ The remaining fields (if any), one by one: #number, y:years,
@@ -62,9 +61,8 @@ export function pendingOffers() {
   return offers;
 }
 
-// ➤ This block only runs when you launch this file directly from the
-// ➤ terminal (not when another script uses it internally): it prints each offer
-// ➤ with its number, company, title and link, or reports if none are left.
+// ➤ Only when this file is launched directly from the terminal: prints each offer with its
+// ➤ number, company, title and link, or says none are left.
 if (process.argv[1] && /(^|[\\/])list-offers\.mjs$/.test(process.argv[1])) {
   const offers = pendingOffers();
   if (offers.length === 0) {

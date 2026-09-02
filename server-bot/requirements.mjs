@@ -63,7 +63,7 @@ function profileRegex(list, fallback) {
 // ➤ The word "years" in the 6 languages. The closing \b is added where it is
 // ➤ used, so French "an(s)" can't fire inside "analyst"/"and".
 // ➤ The Catalan singular "any" is left out and the plural made strict ("anys"): it
-// ➤ collides with the English "any" ("3 any of the following").
+// ➤ collides with the English "any".
 const YEAR = '(?:years?|yrs?|años?|anys|ans?|jahren?|jaar|jaren)';
 
 // ➤ "Experience" in the 6 languages: a number only counts as a requirement if
@@ -118,9 +118,8 @@ const NUM_WORDS = {
   twelve: 12, doce: 12, dotze: 12, douze: 12, 'zwölf': 12, zwolf: 12, twaalf: 12,
   thirteen: 13, trece: 13, fourteen: 14, catorce: 14, fifteen: 15, quince: 15,
 };
-// ➤ The range separators (the same as YEARS_RE) and the two alternations:
-// ➤ ALL the words (for ranges) and only those of 3+ (the ones that discard on
-// ➤ their own). Sorted from longest to shortest to match well.
+// ➤ The range separators (same as YEARS_RE) and the two alternations: ALL the words (for
+// ➤ ranges) and only those of 3+ (the ones that discard on their own), longest first.
 const _numKeys = Object.keys(NUM_WORDS).sort((a, b) => b.length - a.length);
 const NUM_ALL = _numKeys.join('|');
 const NUM_BIG = _numKeys.filter(w => NUM_WORDS[w] >= 3).join('|');
@@ -141,10 +140,10 @@ function normalizeSpelledYears(t) {
   return out;
 }
 
-// ➤ The rule: if it demands it, drop it; if it says nothing or says it is NOT required,
-// ➤ keep it — silence benefits the candidate. These four guards are checked in the
-// ➤ number's own SENTENCE, so a "valorable" elsewhere cannot cancel a real requirement.
-// ➤ (1) NEGATED: "you don't need 5 years", "brauchen keine 5 Jahre".
+// ➤ The rule: if it demands it, drop it; if it says nothing or says NOT required, keep it
+// ➤ — silence benefits the candidate. Four guards, checked in the number's own SENTENCE so
+// ➤ a "valorable" elsewhere cannot cancel a real requirement. (1) NEGATED: "you don't need
+// ➤ 5 years", "brauchen keine 5 Jahre".
 const NEG_YEARS = /\b(?:don'?t|doesn'?t|do not|does not|no|not|never|without|sin|keine?n?|nicht|niet|geen|pas)\b[^.!?;]{0,40}\b(?:need\w*|requir\w*|requier\w*|requerid\w*|necessary|necesari\w*|necesit\w*|mandatory|compulsory|obligatori\w*|imprescindible|verplicht|exig\w*|erforderlich|brauch\w*|besoin|nodig|vereist)\b|\b(?:brauch\w*|necesit\w*|need\w*)\b[^.!?;]{0,10}\b(?:keine?|geen|niet|no)\b|no importa|da igual (?:si|cu[áa]nt)|whether you have|not a requirement/i;
 // ➤ (2) SOFTENED: "ideally 4 years", "se valoran 5 años" — desirable, not a floor.
 const SOFT_YEARS = /preferred|preferably|ideally|idealerweise|nice to have|a plus|an asset|bonus|desirable|deseable|valorable|se valoran?|von vorteil|w[üu]nschenswert|bij voorkeur|een pr[ée]|pluspunt|de pr[ée]f[ée]rence|souhait|not essential|optiona?l|opcional|facultativ\w*|freiwillig|no (?:es )?(?:imprescindible|excluyente)/i;
@@ -183,15 +182,13 @@ function guardZone(t, cs, ce, idx) {
   return zone;
 }
 
-// ➤ Internal engine: goes through the text and returns EACH years requirement
-// ➤ it finds, along with its context snippet (to be able to look at WHAT those
-// ➤ years are asked for in, not just how many).
+// ➤ Internal engine: returns EACH years requirement found in the text with its context
+// ➤ snippet, to look at WHAT those years are asked in, not just how many.
 function collectYearHits(text) {
   if (!text) return [];
-  // ➤ Lowercases the whole text, unifies spaces and translates years written as words to
-  // ➤ digits ("vijf jaar" → "5 jaar"), so the rest of the detector sees them the same as "5
-  // ➤ jaar". Typographic apostrophes fold first: NEG_YEARS's "don'?t" can't see U+2019, and
-  // ➤ "You don’t need 5 years" must not read as a firm 5-year requirement.
+  // ➤ Lowercases, unifies spaces and translates years written as words to digits ("vijf
+  // ➤ jaar" → "5 jaar"). Typographic apostrophes fold first: NEG_YEARS's "don'?t" can't see
+  // ➤ U+2019, and "You don’t need 5 years" must not read as a firm requirement.
   const t = normalizeSpelledYears(String(text).replace(/[’‘]/g, "'").toLowerCase().replace(/\s+/g, ' '));
   const hits = [];
   let m;
@@ -226,8 +223,7 @@ function collectYearHits(text) {
       // ➤ "contrato de / contract van" right before? It's the DURATION of the
       // ➤ position, not an experience requirement → doesn't count.
       if (DURATION_BEFORE.test(before)) continue;
-      // ➤ "more than 3 years" / "más de 3 años" means 4+, not 3, so the number
-      // ➤ goes up by one (#372: "más de 3" slipped under a max of 3). Company
+      // ➤ "more than 3 years" / "más de 3 años" means 4+, so the number goes up by one. Company
       // ➤ boasts with "for/with/on over" are already killed by NEG.
       const strict = /(more than|más de|mas de|plus de|mehr als|meer dan|over)\s*$/.test(before);
       hits.push({ n: strict ? n + 1 : n, ctx });
@@ -236,18 +232,17 @@ function collectYearHits(text) {
   return hits;
 }
 
-// ➤ CLASSIC FUNCTION: takes the text of an offer and returns the years of
-// ➤ experience it asks for (the LOWEST if there are several), or "nothing"
-// ➤ (null) if it's not clear — and in case of doubt the offer is KEPT.
+// ➤ CLASSIC FUNCTION: the years of experience an offer asks for (the LOWEST if several),
+// ➤ or null when unclear — and in doubt the offer is KEPT.
 export function extractRequiredYears(text) {
   const hits = collectYearHits(text);
   return hits.length ? Math.min(...hits.map(h => h.n)) : null;
 }
 
-// ➤ Fields the candidate can defend with their CV. Automation/PLC is
-// ➤ deliberately NOT here: the search welcomes those roles but they have zero
-// ➤ years in them, so "2 años en un puesto similar" on a PLC job disqualifies
-// ➤ them (#527). The stems cover maritime/marítimo/maritiem/maritim in one go.
+// ➤ Fields the candidate can defend with their CV. Automation/PLC is deliberately NOT
+// ➤ here: those roles are welcome but they have zero years in them, so "2 años en un
+// ➤ puesto similar" on a PLC job disqualifies them. The stems cover
+// ➤ maritime/marítimo/maritiem/maritim in one go.
 export const USER_FIELDS = profileRegex(_SEARCH.fields, /mooring|amarre|offshore|marin[eo]|mar[ií]tim|maritiem|naval|orcaflex|subsea|\briser|floating|fpso|flng|umbilical|seabed|nearshore|metocean|hydrograph|hidrogr[áa]f|oceanogr[áa]f|oceanograph|survey|\bgis\b|aquacultur|acuicultur|coastal|costero/i);
 
 // ➤ Priority terms that EXEMPT an offer from the years-cap and degree cuts; marine default = orcaflex.
@@ -279,8 +274,8 @@ function multiYearScreen(text, maxYears) {
     while (cs > 0 && !/[.!?;]/.test(t[cs - 1])) cs--;
     while (ce < t.length && !/[.!?;]/.test(t[ce])) ce++;
     // ➤ Company boasts too: "Thanks to our many years of experience, we are a leading
-    // ➤ provider…" must not drop a junior offer — this path consults the boast list (NEG) like
-    // ➤ the numbered path, on the whole sentence.
+    // ➤ provider…" must not drop a junior offer — this path consults the boast list (NEG) on
+    // ➤ the whole sentence, like the numbered path.
     if (NEG.test(t.slice(cs, ce))) continue;
     const zone = guardZone(t, cs, ce, m.index);
     if (NEG_YEARS.test(zone) || SOFT_YEARS.test(zone)) continue;
@@ -290,10 +285,10 @@ function multiYearScreen(text, maxYears) {
   return null;
 }
 
-// ➤ THE VERDICT: how many years they ask for is not enough — you have to look at IN WHAT.
-// ➤ More years than the threshold → out; 1-2 years but "in a similar role" or in a
-// ➤ technology the user has at zero, with neither context nor title in their fields → out
-// ➤ too (they can't back them up); generic years → kept; no clear years → kept.
+// ➤ THE VERDICT: how many years is not enough — look at IN WHAT. More than the threshold →
+// ➤ out; 1-2 years but "in a similar role" or in a technology the user has at zero, with
+// ➤ neither context nor title in their fields → out (they can't back them up); generic
+// ➤ years → kept; no clear years → kept.
 export function experienceScreen(text, title, maxYears) {
   const hits = collectYearHits(text);
   // ➤ "several/mehrjährige years" is checked ALWAYS, not only when no number appears: "1
@@ -328,9 +323,8 @@ const DEGREE_WORD = /\b(?:degree|master'?s?|bachelor'?s?|m\.?sc|b\.?sc|b\.?eng|d
 // ➤ whole majors (Maschinenbau, Werktuigbouwkunde, Bauingenieur, Chemie, Raumfahrt) are
 // ➤ spelled out.
 const GATED_DEGREE = profileRegex(_SEARCH.degrees_excluded, /[eé]l[eé][ck]tr[io]|electr[óo]nic|electromechanic|electromec[áa]nic|mechanical|m[eé]c[áa]ni[ckq]|maschinenbau|werktuigbouw|mechatronic|m[eé]catr[óo]ni[ckq]|aerospace|aeroespacial|a[ée]ronauti[ckq]|a[ée]rospatial|raumfahrt|ruimtevaart|luftfahrt|chemical|chemistry|chemie\b|qu[íi]mic|chimi|civil engineer|g[ée]nie civil|bauingenieur|civiele techniek|computer scien|inform[áa]ti[ckq]|industrial engineer/i);
-// ➤ Fields where the user DOES have a degree or that save the offer ("marine or
-// ➤ related"): if they appear near the requested degree, it's kept (the user fits
-// ➤ there).
+// ➤ Fields where the user DOES have a degree, or that save the offer ("marine or
+// ➤ related"): near the requested degree, the offer is kept.
 const USER_DEGREE_OK = profileRegex(_SEARCH.degrees_ok, /marin[eo]|mar[ií]tim|maritiem|naval|offshore|ocean|oceano|metocean|hydro|hidro|\bgeo|environ|\bambient|survey|\bgis\b|coastal|costero|nautic|n[áa]utic/i);
 
 // ➤ For each "degree" word, read the ~60 chars after it (where the majors are listed): a
@@ -364,7 +358,7 @@ const DEG_THIRD = /\b(?:our|nuestr[oa]s?|unser\w*|notre|ons|onze)\s+(?:founder\w
 // ➤ No master's held, so a firmly required one always discards — the title exemption
 // ➤ covers unrelated MAJORS, not a study level. Saved if the sentence also accepts a
 // ➤ bachelor, or on the usual guards. Only "máster" or "master + degree word" count: the
-// ➤ accent-folded form alone also hits the English word ("Harbour Master").
+// ➤ folded form alone hits "Harbour Master".
 const MASTER_DEGREE = /\bmaster'?s?\s+(?:degree|diploma)|\bmaster\s+of\s+(?:science|engineering|arts)|\bmaster\s+(?:in|en)\s+(?:\w+\s+)?(?:engineering|science|ingenier|ciencia)|\bmsc\b|\bm\.\s?sc\b|\bm[áa]ster\s+(?:en|in|de|of)\b|\bmáster\b|masterabschluss|masterstudium|masteropleiding/gi;
 const BACHELOR_ALT = /\bbachelor|\bb\.?\s?sc\b|\bb\.?eng\b|\bgrado\b|licenciatur|\bhbo\b|undergraduate|bachiller/i;
 
@@ -388,10 +382,9 @@ function masterRequired(t) {
 
 export function degreeScreen(text, title) {
   const ttl = String(title || '');
-  // ➤ Typographic apostrophes fold to ASCII first: a real Heerema posting wrote
-  // ➤ "A Master's degree" with U+2019 and the master's rule — the ONE rule that
-  // ➤ pierces the automation-title exemption below — never matched it, so the
-  // ➤ offer sailed through to the phone.
+  // ➤ Typographic apostrophes fold to ASCII first: a real posting wrote "A Master's degree"
+  // ➤ with U+2019 and the master's rule — the ONE rule that pierces the automation-title
+  // ➤ exemption below — never matched it.
   const t0 = String(text || '').replace(/[’‘]/g, "'").toLowerCase().replace(/\s+/g, ' ');
   // ➤ Order matters: the master's rule goes FIRST and pierces every title exemption, own
   // ➤ field included (a "Marine Surveyor" wearing "Education: Master's Degree in Naval
@@ -431,16 +424,15 @@ export function degreeScreen(text, title) {
   return false;
 }
 
-// ➤ Pulls ONLY the offer's description out of an Adzuna page (it lives in <section
-// ➤ class="adp-body">). The rest of the page is menus and related ads in the country's
-// ➤ language, which would make the body-language check useless. Returns '' if the marker
-// ➤ is absent — the caller then skips the check.
+// ➤ Pulls ONLY the offer's description out of an Adzuna page (<section class="adp-body">);
+// ➤ the rest is menus and related ads in the country's language, which would make the
+// ➤ body-language check useless. Returns '' without the marker — the caller then skips the
+// ➤ check.
 export function extractAdzunaJd(html) {
   const s = String(html || '');
-  // ➤ Note the `[^<>]` (not `[^>]`) in every tag pattern: a tag is read only up to the next
-  // ➤ angle bracket of ANY kind, so a stray "<" in the page — an unescaped bracket typed
-  // ➤ into the ad, a tag never closed — cannot let the pattern run past the tag and swallow
-  // ➤ what follows, handing the years and degree checks a cut or wrong body.
+  // ➤ Note `[^<>]` (not `[^>]`) in every tag pattern: a tag is read only up to the next
+  // ➤ angle bracket of ANY kind, so a stray "<" in the page cannot let the pattern run past
+  // ➤ the tag and hand the years and degree checks a cut or wrong body.
   const open = s.match(/<section[^<>]*\bclass\s*=\s*["']([^"']*\badp-body\b[^"']*)["'][^<>]*>/i);
   if (!open) return '';
   // ➤ Count nesting instead of stopping at the first </section>, or a nested one truncates

@@ -13,18 +13,18 @@ import { readFileSync, writeFileSync, existsSync, chmodSync, copyFileSync } from
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
-// ➤ Write a file that holds personal data (CV, profile, saved answers) and lock
-// ➤ it to owner-only (0600) so another local user on a shared box can't read it.
-// ➤ chmod is a harmless no-op on systems without POSIX permissions (e.g. Windows).
+// ➤ Write a file holding personal data (CV, profile, saved answers) locked to owner-only
+// ➤ (0600), so another local user on a shared box can't read it. chmod is a harmless no-op
+// ➤ without POSIX permissions (Windows).
 function writePrivate(path, data) {
   writeFileSync(path, data, 'utf-8');
   try { chmodSync(path, 0o600); } catch { /* not POSIX — ignore */ }
 }
 
 // ➤ Keep the old version before replacing a document you could not retype from memory:
-// ➤ exactly ONE backup (<file>.bak), enough to undo an accident without piling up copies
-// ➤ of a private file. Best-effort — if the backup fails the setup carries on, because
-// ➤ refusing to save the CV you just pasted would be worse.
+// ➤ exactly ONE backup (<file>.bak), enough to undo an accident without piling up copies.
+// ➤ Best-effort — refusing to save the CV you just pasted would be worse than a failed
+// ➤ backup.
 function backupBeforeOverwrite(path) {
   try {
     if (!existsSync(path)) return;
@@ -35,9 +35,8 @@ function backupBeforeOverwrite(path) {
 import {
   sendTelegram, sendTelegramMessage, deleteTelegramMessage, sendTelegramButtons, editTelegramMarkup, clearTelegramButtons, answerCallback, downloadTelegramFile,
 } from './notify.mjs';
-// ➤ Terms → ESCO occupations (free EU API, disk-cached). It is what turns a
-// ➤ CV's skills into the person's actual professional area(s) — an
-// ➤ accountant's, a salesman's, or both at once.
+// ➤ Terms → ESCO occupations (free EU API, disk-cached): what turns a CV's skills into the
+// ➤ person's actual professional area(s) — an accountant's, a salesman's, or both.
 import { occupationsForTerms } from './esco.mjs';
 import { fold } from './text.mjs';
 
@@ -81,10 +80,9 @@ const LANG_BLOCK = {
   it: ['italian', 'italiano', 'italien'],
   pt: ['portuguese', 'portugu[êe]s'],
 };
-// ➤ Degrees offered as buttons → the regex fragment written to degrees_excluded. Each
-// ➤ value carries the native spellings too: "mécanique" ends in -que,
-// ➤ "électrique"/"Elektrotechnik" open with é/elek, and the German and Dutch names for
-// ➤ whole majors have their own stems.
+// ➤ Degrees offered as buttons → the regex fragment written to degrees_excluded, native
+// ➤ spellings included: "mécanique" ends in -que, "électrique"/"Elektrotechnik" open with
+// ➤ é/elek, the German and Dutch names for whole majors have their own stems.
 const DEGREE_CATALOG = [
   { label: 'Mechanical', value: 'mechanical|m[eé]c[áa]ni[ckq]|maschinenbau|werktuigbouw' },
   { label: 'Electrical', value: '[eé]l[eé][ck]tr[io]|electr[óo]nic' },
@@ -192,9 +190,9 @@ function unglueDisplayText(line) {
 const NAME_ORG_WORDS = /(universi|instituto|institut|college|escuela|school|academ|colegio|fundaci|foundation|\bS\.?L\.?\b|\bS\.?A\.?\b|GmbH|B\.?V\.?\b|Ltd|Inc\b|Corp\b)/i;
 const foldLetters = s => fold(s).replace(/[^a-z]/g, '');
 
-// ➤ PDFs shout — CAMILA — and a signature should not. Only fully-uppercase
-// ➤ words are touched, capitalising each segment around apostrophes and
-// ➤ hyphens: CAMILA → Camila, O'NEILL → O'Neill, JOSÉ-MARÍA → José-María.
+// ➤ PDFs shout — CAMILA — and a signature should not: only fully-uppercase words are
+// ➤ touched, each segment around apostrophes and hyphens capitalised (O'NEILL → O'Neill,
+// ➤ JOSÉ-MARÍA → José-María).
 function tidyNameCase(name) {
   return String(name).split(' ').map(w => {
     if (!/^[\p{Lu}][\p{Lu}'.’-]+$/u.test(w)) return w;
@@ -211,10 +209,9 @@ export function cvFullName(cvText) {
   const text = String(cvText || '');
   const email = foldLetters((text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/) || [''])[0].split('@')[0]);
   const lines = text.split(/\r?\n/).map(l => unglueDisplayText(l.replace(/^#+\s*/, '').trim())).filter(Boolean).slice(0, 15);
-  // ➤ Candidates are single lines AND pairs of adjacent short lines, in line
-  // ➤ order. The pairs exist because designed CVs split the name across two
-  // ➤ lines — CAMILA on one, Alegre on the next (the field case) — and one
-  // ➤ word alone can never pass the two-word floor.
+  // ➤ Candidates are single lines AND pairs of adjacent short lines, in order: designed CVs
+  // ➤ split the name across two lines — CAMILA on one, Alegre on the next — and one word
+  // ➤ alone can never pass the two-word floor.
   const candidates = [];
   for (let i = 0; i < lines.length; i++) {
     candidates.push(lines[i]);
@@ -277,9 +274,8 @@ export function cvContact(cvText) {
 }
 
 // ➤ Pulls candidate skills out of the CV: section heading + keyword rules, no model, no
-// ➤ network — the route the open-source resume parsers take. The Skills block opens at an
-// ➤ H2 ("## Skills"), stays open across its sub-headings ("### Technical") and closes at
-// ➤ the next H2 — the shape almost every CV uses.
+// ➤ network. The Skills block opens at an H2 ("## Skills"), stays open across sub-headings
+// ➤ ("### Technical") and closes at the next H2 — the shape almost every CV uses.
 export function extractCvSkills(cvText) {
   const out = [];
   let inSkills = false;
@@ -290,9 +286,8 @@ export function extractCvSkills(cvText) {
       continue;
     }
     if (!inSkills) continue;
-    // ➜ Parenthesised asides go BEFORE the split, or a language line such as
-    // ➜ "English: C1 (some exam 7.0, awarding body 2023)" is torn in two by the
-    // ➜ comma and its tail survives as a fake skill.
+    // ➤ ➜ Parenthesised asides go BEFORE the split, or "English: C1 (some exam 7.0, awarding
+    // ➤ body 2023)" is torn in two by the comma and its tail survives as a fake skill.
     const body = line.replace(/^[-*]\s*/, '').replace(/\([^)]*\)/g, '').replace(/\*\*[^*]*:\*\*/, '').replace(/\*\*/g, '');
     for (const piece of body.split(/[,/;]/)) {
       const s = piece.replace(/\([^)]*\)/g, '').replace(/[()]/g, '').trim();
@@ -320,9 +315,8 @@ export function cvSuggestions(cvText) {
 }
 
 // ➤ Degree families by professional AREA, so an accountant is asked about Economics and
-// ➤ ADE, not Aerospace. Multilingual regexes in the style of DEGREE_CATALOG (which IS the
-// ➤ engineering area). Curated and small on purpose: the degrees offers in each area
-// ➤ actually name.
+// ➤ ADE, not Aerospace. Multilingual regexes like DEGREE_CATALOG (which IS the engineering
+// ➤ area). Curated and small: the degrees offers in each area actually name.
 const AREA_DEGREES = {
   business: [
     { label: 'Business Administration', value: "business admin|ADE\\b|betriebswirtschaft|BWL\\b|bedrijfskunde|administraci[óo]n de empresas|gestion d'entreprise" },
@@ -404,9 +398,9 @@ export async function cvProfileSuggestions(cvText, deps = {}) {
   return out;
 }
 
-// ➤ The one intake wrapper both CV paths share: an honest "working on it"
-// ➤ note while ESCO is consulted (a few seconds, once — answers are cached),
-// ➤ deleted when done. Falls back to the offline suggestions on any trouble.
+// ➤ The one intake wrapper both CV paths share: an honest "working on it" note while ESCO
+// ➤ is consulted (seconds, once — cached), deleted when done. Falls back to the offline
+// ➤ suggestions on any trouble.
 async function readCvForSuggestions(cvText) {
   const noteId = await sendTelegramMessage('Reading your CV — matching it against the EU occupation map takes a few seconds.', { silent: true });
   let suggest;
@@ -416,15 +410,13 @@ async function readCvForSuggestions(cvText) {
   return suggest;
 }
 
-// ➤ The options a question actually shows: the CV-picked degree families when
-// ➤ they exist, the shipped catalog otherwise. One resolver, used everywhere a
-// ➤ question's options are read, so the keyboard and the tap can never see
-// ➤ two different lists.
+// ➤ The options a question actually shows: the CV-picked degree families when they exist,
+// ➤ the shipped catalog otherwise. One resolver everywhere a question's options are read,
+// ➤ so the keyboard and the tap never see two different lists.
 export function optionsFor(q, s) {
   if (q.key === 'degrees_excluded') {
-    // ➤ Fresh suggestions first, then the options SAVED with the answers —
-    // ➤ that is what a settings edit runs on, long after the setup's state
-    // ➤ (and its suggest bag) is gone.
+    // ➤ Fresh suggestions first, then the options SAVED with the answers — what a settings
+    // ➤ edit runs on, long after the setup's state is gone.
     const opts = s?.suggest?.degreeOptions?.length ? s.suggest.degreeOptions
       : (s?.answers?.degree_options?.length ? s.answers.degree_options : null);
     if (opts) return { ...q, options: opts };
@@ -444,9 +436,9 @@ function saveState(s) {
 function clearState() {
   try { writePrivate(STATE_PATH, JSON.stringify({ active: false })); } catch { /* best-effort */ }
 }
-// ➤ The COMPLETED answers are the source of truth (data/onboarding-answers.json).
-// ➤ The profile.yml is generated FROM them, so editing one field regenerates
-// ➤ the file WITHOUT losing the others. null = the user hasn't set up yet.
+// ➤ The COMPLETED answers (data/onboarding-answers.json) are the source of truth:
+// ➤ profile.yml is generated FROM them, so editing one field regenerates the file without
+// ➤ losing the others. null = not set up yet.
 function loadAnswers() {
   try { return JSON.parse(readFileSync(ANSWERS_PATH, 'utf-8')); } catch { return null; }
 }
@@ -479,9 +471,9 @@ function buttonRows(q, selected) {
 async function askCurrent(s) {
   const q = s.mode === 'edit' ? Q_BY_KEY[s.editKey] : QUESTIONS[s.step];
   if (!q) return finish(s);
-  // ➤ Every TYPED question says on screen how to get out. While the setup is
-  // ➤ waiting for text your normal commands stop working — whatever you type is
-  // ➤ taken as the answer — so the way out has to be written where you're looking.
+  // ➤ Every TYPED question says on screen how to get out: while the setup waits for text
+  // ➤ your normal commands stop working — whatever you type is the answer — so the way out
+  // ➤ must be written where you're looking.
   let prompt = (q.kind === 'single' || q.kind === 'multi') ? q.prompt : `${q.prompt}\n\n(or type "cancel" to stop)`;
   // ➤ CV-informed defaults: the degrees list arrives pre-ticked — excluded — for every
   // ➤ family the CV shows no sign of, and the fields question carries the CV's own skills as
@@ -498,10 +490,9 @@ async function askCurrent(s) {
       ? "\n\nThese families come from your CV's own professional area, pre-ticked where it shows no such degree. Adjust if needed, then Done."
       : '\n\nPre-ticked from your CV: the degrees it shows no sign of. Adjust if needed, then Done.';
   }
-  // ➤ Typed questions with a CV-derived answer ready: the name from the CV's
-  // ➤ opening line, the contact from its own contact block, roles from the
-  // ➤ ESCO occupations of its area(s), fields from its own skills. One tap
-  // ➤ takes it; typing your own still wins.
+  // ➤ Typed questions with a CV-derived answer ready: the name from the CV's opening line,
+  // ➤ the contact from its contact block, roles from the ESCO occupations of its area(s),
+  // ➤ fields from its own skills. One tap takes it; typing still wins.
   const sug = q.key === 'contact' ? s.suggest?.contactText : s.suggest?.[q.key];
   const sugText = Array.isArray(sug) ? sug.join(', ') : String(sug || '');
   if ((q.key === 'name' || q.key === 'contact' || q.key === 'fields' || q.key === 'roles') && sugText && !s.answers[q.key]) {
@@ -512,9 +503,8 @@ async function askCurrent(s) {
     return;
   }
   // ➤ SEND FIRST, persist AFTER: a state saved before the prompt goes out would, on one
-  // ➤ failed Telegram send, point at a question nobody ever saw — and the next thing the
-  // ➤ user typed would be recorded as its answer. Failing before the save just re-asks the
-  // ➤ same question, which is harmless.
+  // ➤ failed Telegram send, point at a question nobody saw — and the next thing typed would
+  // ➤ be recorded as its answer. Failing before the save just re-asks the question.
   if (q.kind === 'single' || q.kind === 'multi') {
     const msgId = await sendTelegramButtons(prompt, buttonRows(qq, s.answers[q.key]));
     s.msgId = msgId;
@@ -563,9 +553,9 @@ export async function startOnboarding(force = false) {
   await askCurrent(s);
 }
 
-// ➤ A way out. Without this the only escape from the setup was answering all
-// ➤ twelve questions or hand-editing a state file over SSH — and every message
-// ➤ you typed meanwhile was being written into your profile.
+// ➤ A way out. Without it the only escape from the setup was answering all twelve
+// ➤ questions or hand-editing a state file over SSH — with every message typed meanwhile
+// ➤ written into the profile.
 export async function cancelOnboarding() {
   clearState();
   await sendTelegram('Setup cancelled. Nothing else was changed.');
@@ -596,10 +586,9 @@ function labelFor(key) {
   }[key] || key;
 }
 
-// ➤ Reads the contact answer by the SHAPE of each piece, not its position: the email is
-// ➤ the part with an @, the phone the part that is digits, and whatever remains is the
-// ➤ city — in any order, any of them alone. A positional read would put "Barcelona,
-// ➤ mail@x" city-first into the email slot.
+// ➤ Reads the contact answer by the SHAPE of each piece, not its position: the email has
+// ➤ an @, the phone is digits, whatever remains is the city — any order, any of them
+// ➤ alone. A positional read would put "Barcelona, mail@x" city-first into the email slot.
 export function parseContact(text) {
   const out = { email: '', phone: '', city: '' };
   const leftovers = [];
@@ -621,9 +610,9 @@ export function mergeContact(base, extra) {
   return { email: b.email || extra.email, phone: b.phone || extra.phone, city: b.city || extra.city };
 }
 
-// ➤ One road for the contact answer, typed or tapped: the [Use suggestion]
-// ➤ button feeds the CV's own contact line through here, so a CV missing a
-// ➤ piece gets the same honest "Missing: ..." round a typed answer gets.
+// ➤ One road for the contact answer, typed or tapped: the [Use suggestion] button feeds
+// ➤ the CV's own contact line through here, so a CV missing a piece gets the same honest
+// ➤ "Missing: ..." round.
 async function applyContactAnswer(s, value) {
   // ➤ "skip" moves on with whatever exists — sharing nothing is a valid
   // ➤ answer, and some people will not give a phone number.
@@ -640,8 +629,7 @@ async function applyContactAnswer(s, value) {
   const missing = ['email', 'phone', 'city'].filter(k => !parts[k]);
   // ➤ Say ONCE what was understood and what is absent — "just an email" must not march on in
   // ➤ silence, because the city it would lose is what the cover letters and the home-city
-  // ➤ search group run on. One round, never a nag: the second answer (or Skip) always moves
-  // ➤ on.
+  // ➤ group run on. One round, never a nag: the second answer (or Skip) always moves on.
   if (missing.length && !s.contactPending) {
     const got = ['email', 'phone', 'city'].filter(k => parts[k]);
     const msgId = await sendTelegramButtons(
@@ -663,10 +651,9 @@ async function applyContactAnswer(s, value) {
 export async function handleOnboardingText(text) {
   const s = loadState();
   if (!s || !s.active) return false;
-  // ➤ CANCEL IS CHECKED FIRST, before the question is even looked at — and
-  // ➤ before anything is stored. That is the whole point: while the setup runs
-  // ➤ every text you send is kept as an answer, so there has to be one word
-  // ➤ that never is.
+  // ➤ CANCEL IS CHECKED FIRST, before the question is even looked at and before anything is
+  // ➤ stored: while the setup runs every text you send is kept as an answer, so there has to
+  // ➤ be one word that never is.
   if (/^(cancel|cancelar)$/i.test(String(text || '').trim())) {
     await cancelOnboarding();
     return true;
@@ -677,9 +664,9 @@ export async function handleOnboardingText(text) {
   const value = String(text || '').trim();
   if (q.kind === 'contact') return applyContactAnswer(s, value);
   if (q.kind === 'cv') {
-    // ➤ Keep the previous CV before overwriting it. Your copy is not a git repo
-    // ➤ and nothing else holds this file, so without the backup a single
-    // ➤ mistyped message costs you the document every cover letter starts from.
+    // ➤ Keep the previous CV before overwriting it: your copy is not a git repo and nothing
+    // ➤ else holds this file, so without the backup one mistyped message costs the document
+    // ➤ every cover letter starts from.
     backupBeforeOverwrite(CV_PATH);
     writePrivate(CV_PATH, value + '\n');
     s.answers.cv = 'saved';
@@ -690,18 +677,18 @@ export async function handleOnboardingText(text) {
       s.answers[q.key] = 'saved';
     }
   } else {
-    // ➤ Short text answers (name, contact, roles, fields) are single-line by
-    // ➤ nature; collapse any pasted line breaks to spaces so they can't corrupt
-    // ➤ the generated YAML. (The CV above keeps its line breaks — it's a document.)
+    // ➤ Short text answers (name, contact, roles, fields) are single-line by nature: pasted
+    // ➤ line breaks collapse to spaces so they can't corrupt the generated YAML. (The CV keeps
+    // ➤ its line breaks — it's a document.)
     s.answers[q.key] = value.replace(/\s+/g, ' ');
   }
   await advance(s);
   return true;
 }
 
-// ➤ Extracts the text of a PDF. pdf-parse v2 (npm "pdf-parse") does the work
-// ➤ locally — no service, no key. Its "-- N of M --" page markers are noise in
-// ➤ a CV and are stripped. Exported so the tests can feed it a real PDF.
+// ➤ Extracts the text of a PDF locally with pdf-parse v2 — no service, no key. Its "-- N
+// ➤ of M --" page markers are noise in a CV and are stripped. Exported so the tests can
+// ➤ feed it a real PDF.
 export async function pdfText(buf) {
   const { PDFParse } = await import('pdf-parse');
   const parser = new PDFParse({ data: buf });
@@ -713,9 +700,9 @@ export async function pdfText(buf) {
   }
 }
 
-// ➤ Handles a DOCUMENT while the setup waits for the CV: users send the PDF they already
-// ➤ have, not pasted text. Only the CV question consumes files; anywhere else the document
-// ➤ is left unanswered and the question on screen still applies. Returns true if consumed.
+// ➤ Handles a DOCUMENT while the setup waits for the CV (people send the PDF they have).
+// ➤ Only the CV question consumes files; elsewhere the document is left unanswered and the
+// ➤ question on screen still applies. Returns true if consumed.
 export async function handleOnboardingDocument(doc) {
   const s = loadState();
   if (!s || !s.active) return false;
@@ -777,16 +764,16 @@ export async function handleOnboardingCallback(data, cbId, messageId = null) {
   if (!s || !s.active) { await answerCallback(cbId); return false; }
   const q = s.mode === 'edit' ? Q_BY_KEY[s.editKey] : QUESTIONS[s.step];
   // ➤ BOUND TO ITS MESSAGE, like the list pages and the review card: a tap on an
-  // ➤ already-closed question must not land on the CURRENT one (same o:N data, same button
-  // ➤ positions — re-ticking a finished degrees list would tick countries). A tap whose
-  // ➤ message is not the live question only gets a toast.
+  // ➤ already-closed question must not land on the CURRENT one (same o:N data, same
+  // ➤ positions — re-ticking a finished degrees list would tick countries). A tap on any
+  // ➤ other message only gets a toast.
   if (s.msgId != null && messageId != null && messageId !== s.msgId) {
     await answerCallback(cbId, 'That question is already closed — the active one is below.');
     return true;
   }
-  // ➤ The Skip button: one tap does what typing "skip" always did — move on
-  // ➤ without saving anything more. The optional question wears it, and so
-  // ➤ does the contact follow-up (whatever was recognised is already saved).
+  // ➤ The Skip button: one tap does what typing "skip" always did — move on without saving
+  // ➤ more. The optional question wears it, and so does the contact follow-up (whatever was
+  // ➤ recognised is already saved).
   if (data === 'skip' && (q?.kind === 'skip-text' || (q?.kind === 'contact' && s.contactPending))) {
     delete s.contactPending;
     await answerCallback(cbId);
@@ -846,10 +833,10 @@ export async function handleOnboardingCallback(data, cbId, messageId = null) {
 
 // ➤ Moves to the next step (setup) or ends the single edit, then persists.
 async function advance(s) {
-  // ➤ The finished question loses its keyboard FIRST: dead buttons left on
-  // ➤ old questions were being re-tapped, and their o:N landed on the next
-  // ➤ question's options (the binding above now refuses those taps; this
-  // ➤ removes the temptation). Best-effort — the binding is the guarantee.
+  // ➤ The finished question loses its keyboard FIRST: dead buttons on old questions were
+  // ➤ being re-tapped, their o:N landing on the next question's options (the binding above
+  // ➤ refuses those taps; this removes the temptation). Best-effort — the binding is the
+  // ➤ guarantee.
   if (s.msgId != null) {
     try { await clearTelegramButtons(s.msgId); } catch { /* cosmetic */ }
     s.msgId = null;
@@ -873,9 +860,9 @@ async function finish(s) {
   saveAnswers(s.answers);
   writeProfile(s.answers);
   clearState();
-  // ➤ If neither the job titles nor the fields gave us anything, the profile
-  // ➤ cannot filter and the list will stay empty. Say so now, while the user is
-  // ➤ still here, instead of leaving them to wonder for a week.
+  // ➤ If neither the job titles nor the fields gave anything, the profile cannot filter and
+  // ➤ the list will stay empty: say so now, while the user is still here, instead of leaving
+  // ➤ them to wonder for a week.
   const usable = splitList(s.answers.roles).length || splitList(s.answers.fields).length;
   await sendTelegram(usable
     ? 'Setup complete. Your profile is saved. Type "search" to find offers, or "settings" to edit anything.'
@@ -904,7 +891,7 @@ function quote(s) {
 function splitList(text) {
   return String(text || '').split(',').map(s => s.trim()).filter(Boolean);
 }
-// ➤ Turn a plain word the user typed into a regex fragment that matches it LITERALLY. The
+// ➤ Turn a plain word the user typed into a regex fragment that matches it LITERALLY: the
 // ➤ "fields" answer is free text ("C++", "R&D") that later becomes a regex; unescaped,
 // ➤ "C++" is invalid and "(a+)+$" a catastrophic-backtracking one. (The hand-authored
 // ➤ marine defaults keep their regex power — they never pass here.)
@@ -949,14 +936,13 @@ export function buildProfileYaml(a) {
   // ➤ First segment only: the search's home-city group wants "Sant Cugat",
   // ➤ not "Sant Cugat, Barcelona" — the full string keeps riding `location`.
   const homeCity = String(cCity || '').split(',')[0].trim();
-  // ➤ The phrases sent to the job boards: the roles the user is after, plus
-  // ➤ their fields, so the stream of offers is THEIRS and not the example one.
-  // ➤ Roles first (they are the strongest signal), fields after, de-duplicated.
+  // ➤ The phrases sent to the job boards: the user's roles plus their fields, so the stream
+  // ➤ of offers is THEIRS and not the example one — roles first (the strongest signal),
+  // ➤ fields after, de-duplicated.
   const queries = [...new Set([...roles, ...fields].map(s => s.toLowerCase()))].slice(0, 8);
-  // ➤ The geography to keep: the chosen countries plus the home city.
-  // ➤ Case-insensitively unique: "Remote" the country and "remote" the way of
-  // ➤ working are the same entry to the filter, and writing both put the word in
-  // ➤ the file twice.
+  // ➤ The geography to keep: the chosen countries plus the home city, case-insensitively
+  // ➤ unique — "Remote" the country and "remote" the way of working are one entry to the
+  // ➤ filter, and writing both put the word in the file twice.
   const allowLocations = [...new Map([
     // ➤ Name AND native spellings: the allow gate compares substrings with no translation, and
     // ➤ offers name their country the way the posting's own language does.

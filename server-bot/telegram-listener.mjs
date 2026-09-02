@@ -51,9 +51,8 @@ import { pendingOffers } from './list-offers.mjs';
 // ➤ The "live list": deletes the previous list and re-sends the updated one to the
 // ➤ bottom of the chat every time it changes (after list/seen/no/applied).
 import { refreshList } from './live-list.mjs';
-// ➤ The PDF cover-letter generator (the "cover N" command).
-// ➤ The one-time setup / settings flow (CV + profile questions, some with
-// ➤ buttons). It writes config/profile.yml + cv.md.
+// ➤ The PDF cover-letter generator (cover N), and the one-time setup / settings flow (CV +
+// ➤ profile questions, some with buttons), which writes config/profile.yml + cv.md.
 import {
   startOnboarding, startSettings, handleOnboardingText, handleOnboardingCallback, handleOnboardingDocument, onboardingActive,
 } from './onboarding.mjs';
@@ -75,18 +74,17 @@ const OFFSET_PATH = join(SCRIPT_DIR, 'telegram-offset.json');
 // ➤ alive; anyone who finds it fresher than ALIVE_STALE_MS yields instead of
 // ➤ starting a second poller. (.gitignore's server-bot/*.json rule covers it.)
 const ALIVE_PATH = join(SCRIPT_DIR, 'listener-alive.json');
-// ➤ How long Telegram may hold each getUpdates open. 50 is the value the Bot
-// ➤ API docs use in their own long-polling example: under common 60s proxy
-// ➤ timeouts, and the request still returns the instant an update arrives.
+// ➤ How long Telegram may hold each getUpdates open: 50 is the Bot API docs' own
+// ➤ long-polling example — under common 60 s proxy timeouts, and the request still returns
+// ➤ the instant an update arrives.
 const POLL_SECONDS = 50;
 const HEARTBEAT_MS = 30_000;
-// ➤ Three missed heartbeats. A crashed listener is replaced within ~90s plus
-// ➤ the watchdog's minute; a live one doing a long "search" is never usurped,
-// ➤ because the heartbeat timer keeps beating between awaits.
+// ➤ Three missed heartbeats: a crashed listener is replaced within ~90 s plus the
+// ➤ watchdog's minute; a live one doing a long "search" is never usurped, because the
+// ➤ heartbeat keeps beating between awaits.
 const ALIVE_STALE_MS = 90_000;
-// ➤ Planned self-restart, taken only on an idle cycle so nothing is dropped.
-// ➤ Bounds any slow leak to six hours; the watchdog brings a fresh listener
-// ➤ within a minute.
+// ➤ Planned self-restart, taken only on an idle cycle so nothing is dropped: bounds any
+// ➤ slow leak to six hours; the watchdog brings a fresh listener within a minute.
 const RECYCLE_MS = 6 * 60 * 60 * 1000;
 
 // ➤ Reads a data file (JSON format); if it doesn't exist or is corrupt,
@@ -95,9 +93,9 @@ function loadJson(path, fallback) {
   try { return JSON.parse(readFileSync(path, 'utf-8')); } catch { return fallback; }
 }
 
-// ➤ Is that process still running? Signal 0 delivers nothing, it only checks.
-// ➤ EPERM means "exists but is not yours" — alive. `kill` is injectable so the
-// ➤ tests can stage live/dead/foreign pids without real processes.
+// ➤ Is that process still running? Signal 0 delivers nothing, it only checks; EPERM means
+// ➤ "exists but is not yours" — alive. `kill` is injectable so tests can stage
+// ➤ live/dead/foreign pids.
 export function pidAlive(pid, kill = process.kill.bind(process)) {
   try { kill(pid, 0); return true; }
   catch (e) { return e?.code === 'EPERM'; }
@@ -167,9 +165,9 @@ function runNode(script, args) {
   });
 }
 
-// ➤ Help text: the reply when a message matches no command. HTML formatting: <b> header,
-// ➤ <code> commands (they stand out and copy with one tap). No user data goes in, so the
-// ➤ raw tags are safe.
+// ➤ Help text: the reply when a message matches no command. HTML: <b> header, <code>
+// ➤ commands (they stand out and copy with one tap); no user data goes in, so the raw tags
+// ➤ are safe.
 const HELP =
   '<b>Argus — commands</b>\n' +
   '<i>N = the number shown next to each offer, e.g. #675</i>\n' +
@@ -214,9 +212,9 @@ export async function flipListPage(data, messageId, cbId, deps = {}) {
   }
   const total = st.pages.length;
   const n = Math.min(Math.max(parseInt(m[1], 10), 1), total);
-  // ➤ Answer FIRST: the button's spinner dies the instant the tap is seen and
-  // ➤ the page swaps in right behind it. The other order left the button
-  // ➤ "loading" for the whole edit round-trip.
+  // ➤ Answer FIRST: the button's spinner dies the instant the tap is seen and the page swaps
+  // ➤ in right behind it; the other order left the button "loading" for the whole edit
+  // ➤ round-trip.
   await d.answer(cbId);
   await d.editButtons(messageId, st.pages[n - 1], d.keyboard(n, total), { html: true });
   return true;
@@ -246,9 +244,9 @@ export function seenReply(ids, out) {
   if (marked.length && missing.length) return `Marked as seen: ${tag(marked)}. Not found (already gone): ${tag(missing)}.`;
   if (marked.length) return `Marked as seen: ${tag(marked)}.`;
   // ➤ "ALREADY GONE" IS ALSO A CLAIM ABOUT YOUR LIST, and false when the write simply failed
-  // ➤ — a full disk, a read-only folder, the program killed: the offer is still pending, and
-  // ➤ told it is gone you stop chasing it. Output that looks like a crash rather than an
-  // ➤ answer is reported as such.
+  // ➤ (a full disk, a read-only folder, the program killed): the offer is still pending, and
+  // ➤ told it is gone you stop chasing it. Output that looks like a crash is reported as
+  // ➤ such.
   if (/[A-Za-z]*Error[:\s]|EACCES|EPERM|ENOSPC|ENOTDIR|^\s+at .+:\d+/m.test(text)) {
     return `Could not mark ${tag(missing)}: the list could not be written. Nothing was changed — try again.`;
   }
@@ -276,10 +274,9 @@ async function recordApplicationState(n, state, reason) {
   const rec = { ts: new Date().toISOString(), id: n, state, reason: reason || '' };
   writeFileSync(join(ROOT, 'data', 'application-verdicts.jsonl'), JSON.stringify(rec) + '\n', { flag: 'a' });
   console.log(`[${rec.ts}] application #${n} → ${state} → ${app.title} — ${app.company}`);
-  // ➤ ESCAPED. The title and the company come from a job portal and the reason is what you
-  // ➤ typed — none of it is ours. Sent as HTML without escaping, a title carrying "<" or "&"
-  // ➤ makes Telegram refuse the whole message, so the confirmation that the application was
-  // ➤ closed never arrives while the file has already changed.
+  // ➤ ESCAPED. The title and company come from a job portal and the reason is what you typed
+  // ➤ — none of it is ours. Sent as HTML unescaped, a "<" or "&" makes Telegram refuse the
+  // ➤ whole message, so the confirmation never arrives while the file has already changed.
   const said = state === 'interview'
     ? `Interview recorded for #${n}: ${esc(app.title)} — ${esc(app.company)}. It shows in <code>mail</code> now.`
     : `Closed #${n}: ${esc(app.title)} — ${esc(app.company)}. It now shows as rejected in <code>mail</code>.`;
@@ -328,32 +325,31 @@ async function rejectWithReason(n, reason, { quiet = false } = {}) {
   return { found: true, gone, recTs: rec.ts };
 }
 
-// ➤ Launches the full scanner (scan.mjs, the same one that runs on its own every 2h) and
-// ➤ WAITS for it to finish, returning everything it prints. Generous timeout
-// ➤ (10 min) because it queries many portals. It's a task separate from the bot.
+// ➤ Launches the full scanner (scan.mjs, the same one that runs every 2 h) and WAITS for
+// ➤ it, returning everything it prints. Generous timeout (10 min): it queries many
+// ➤ portals.
 function runScan() {
   return new Promise(resolve => {
     execFile(process.execPath, [join(SCRIPT_DIR, 'scan.mjs')],
-      // ➤ ARGUS_SKIP_LIST_REFRESH: tells the scanner NOT to refresh the list
-      // ➤ itself; this listener refreshes it at the end of forceScan(), so that
-      // ➤ the list ends up BELOW the "Search finished" message (at the bottom of the chat).
+      // ➤ ARGUS_SKIP_LIST_REFRESH tells the scanner NOT to refresh the list; this listener
+      // ➤ refreshes it at the end of forceScan(), so the list ends up BELOW the "Search
+      // ➤ finished" message.
       { cwd: ROOT, timeout: 10 * 60 * 1000, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, ARGUS_SKIP_LIST_REFRESH: '1' } },
       (err, stdout, stderr) => resolve((stdout || '') + (stderr || '')));
   });
 }
 
 // ➤ The "cover N" command: checks the offer exists, says it has started, and HANDS THE
-// ➤ WORK TO A SEPARATE PROGRAM — cover-letter.mjs sends you the PDF itself. Waiting here
-// ➤ would cost everything else: Claude takes minutes, this listener runs under a lock, and
-// ➤ for those minutes "seen", "list" and "no" would do nothing at all.
+// ➤ WORK TO A SEPARATE PROGRAM — cover-letter.mjs sends the PDF itself. Waiting here would
+// ➤ cost everything else: Claude takes minutes, this listener runs under a lock, and
+// ➤ "seen", "list" and "no" would do nothing meanwhile.
 async function coverCommand(n) {
   const off = pendingOffers().find(o => o.id === n);
   if (!off) {
     return sendTelegram(`There's no pending offer with the number #${n}. The numbers appear next to each offer in the list.`);
   }
-  // ➤ The "Generating..." note is sent FIRST so its id can travel with the
-  // ➤ child, which deletes it once the letter (or the failure) has arrived —
-  // ➤ the same clean-up the mail report does.
+  // ➤ The "Generating..." note is sent FIRST so its id can travel with the child, which
+  // ➤ deletes it once the letter (or the failure) has arrived — the mail report's clean-up.
   const progressId = await sendTelegramMessage(`Generating the cover letter for #${n}: ${off.title} — ${off.company}.`);
   // ➤ detached + unref + ignored streams: the child outlives this process, so
   // ➤ the lock is released the moment we finish, not when the letter is written.
@@ -363,10 +359,9 @@ async function coverCommand(n) {
   child.unref();
 }
 
-// ➤ The "search" command: launches a job search RIGHT now (without waiting for the
-// ➤ automatic scan every 2h). It notifies you when it starts; the scanner itself
-// ➤ sends you the new offers if there are any; and when it finishes it confirms how many
-// ➤ came up. It may take a couple of minutes.
+// ➤ The "search" command: a job search RIGHT now, without waiting for the 2 h scan. It
+// ➤ says it started, the scanner itself sends any new offers, and at the end it confirms
+// ➤ how many came up. A couple of minutes.
 async function forceScan() {
   await sendTelegram('Searching for new offers. This may take a few minutes.');
   const out = await runScan();
@@ -379,15 +374,13 @@ async function forceScan() {
     if (n === 0) await sendTelegram('Search finished. No new offers.');
     else await sendTelegram(`Search finished. ${n} new offer(s), sent.`);
   }
-  // ➤ And NOW yes, the list at the bottom: after the confirmation. (The scanner
-  // ➤ didn't refresh it because we launched it with ARGUS_SKIP_LIST_REFRESH.) That way the
-  // ➤ list stays as the last message, whether you triggered it (search) or there were no new ones.
+  // ➤ And NOW the list at the bottom, after the confirmation (the scanner was launched with
+  // ➤ ARGUS_SKIP_LIST_REFRESH), so the list stays the last message whether or not anything
+  // ➤ new came up.
   await refreshList({ markSeen: true });
 }
 
-// ➤ Record of SENT applications (the "applied N" command): history in
-// ➤ data/applications.jsonl (the bot's own file; the applications.md from the
-// ➤ original system is left untouched — it's from another flow and has been idle since May).
+// ➤ Record of SENT applications ("applied N"): data/applications.jsonl, the bot's own file.
 const APPLIED_PATH = join(ROOT, 'data', 'applications.jsonl');
 
 // ➤ The "applied N" command: records the application with date and data and removes the
@@ -466,10 +459,10 @@ function reviewDeps() {
   };
 }
 
-// ➤ "undo 845" (or a bare "undo" for the last card decision) → the offer
-// ➤ comes back to pending and the record its decision wrote (feedback or
-// ➤ application) is removed, so a slip of the finger leaves no trace. Works
-// ➤ for typed decisions too: any offer hidden with the "| visto" tag.
+// ➤ "undo 845" (or a bare "undo" for the last card decision): the offer comes back to
+// ➤ pending and the record its decision wrote (feedback or application) is removed, so a
+// ➤ slip of the finger leaves no trace. Works for typed decisions too — any offer hidden
+// ➤ with the "| visto" tag.
 async function undoCommand(t) {
   const st = loadJson(REVIEW_STATE_PATH, null);
   const mNum = t.match(/(\d+)/);
@@ -552,9 +545,8 @@ async function mailCommand() {
 // ➤ the bare "no" that asks which offer you meant. Every command is
 // ➤ case-insensitive and offer numbers are accepted with or without "#".
 const COMMANDS = [
-  // ➤ Every command is case-insensitive, and offer numbers are accepted with
-  // ➤ or without the hash ("#412" or "412").
-  // ➤ Is it "help" (or "/help")? → show the list of commands.
+  // ➤ Every command is case-insensitive, and offer numbers are accepted with or without the
+  // ➤ hash ("#412" or "412"). "help" (or "/help") → the list of commands.
   { match: /^\/?help$/i, run: async (t) => {
     await sendTelegram(HELP, { html: true });
   } },
@@ -589,10 +581,10 @@ const COMMANDS = [
     const n = parseInt(t.match(/(\d+)/)[1], 10);
     await coverCommand(n);
   } },
-  // ➤ Is it "list"? → send the pending offers grouped by country. (Per-offer buttons ON THE
-  // ➤ LIST are vetoed — under a 25-offer message no button can say which offer it belongs
-  // ➤ to; the buttons live on the review CARD, one offer per message. The list itself keeps
-  // ➤ only navigation and the review entry.)
+  // ➤ "list" → the pending offers grouped by country. Per-offer buttons ON THE LIST are
+  // ➤ vetoed — under a 25-offer message no button can say which offer it belongs to; they
+  // ➤ live on the review CARD, one offer per message. The list keeps only navigation and the
+  // ➤ review entry.
   { match: /^list$/i, run: async (t) => {
     // ➤ "list" refreshes the live list: deletes the previous one and re-sends the pending
     // ➤ offers to the bottom of the chat (if there are none, it says "No pending offers"). AND
@@ -617,21 +609,19 @@ const COMMANDS = [
     const m = t.match(/^applied[\s,:]*#?(\d+)[\s,.:—-]*(.*)$/i);
     const n = parseInt(m[1], 10);
     await markApplied(n);
-    // ➤ "applied N" ignores anything typed after the number, and that silence
-    // ➤ once filed an application-sent-in-hope as a normal one. It still is a
-    // ➤ normal application — but say so, and point at the command that keeps
-    // ➤ the nuance.
+    // ➤ "applied N" ignores anything typed after the number, and that silence once filed an
+    // ➤ application-sent-in-hope as a normal one. It still is one — but say so, and point at
+    // ➤ the command that keeps the nuance.
     if (m[2].trim()) {
       // ➤ WITH html:true, and the typed note escaped: this message is built out of <code> tags,
-      // ➤ and without a parse mode the tags arrive as literal text in the middle of the
-      // ➤ sentence.
+      // ➤ and without a parse mode they arrive as literal text mid-sentence.
       await sendTelegram(`Note: "${esc(m[2].trim())}" was not saved — <code>applied</code> only reads the number.\nIf you meant you fall short of it, use <code>longshot ${n} ${esc(m[2].trim())}</code> instead.`, { html: true });
     }
   } },
-  // ➤ "interview 749 friday 9am" — an interview arranged where the inbox cannot
-  // ➤ see it: a phone call, LinkedIn, or a Calendar event you created yourself
-  // ➤ (its invite mail comes FROM you, and mail reading skips your own). The
-  // ➤ trailing text is an optional note, kept with the record.
+  // ➤ "interview 749 friday 9am" — an interview arranged where the inbox cannot see it: a
+  // ➤ phone call, LinkedIn, or a Calendar event you created yourself (its invite mail comes
+  // ➤ FROM you, and mail reading skips your own). The trailing text is an optional note,
+  // ➤ kept with the record.
   { match: /^interview[\s,:]*#?\d+/i, run: async (t) => {
     const m = t.match(/^interview[\s,:]*#?(\d+)[\s,.:—-]*(.*)$/i);
     const n = parseInt(m[1], 10);
@@ -663,10 +653,9 @@ const COMMANDS = [
   } },
 ];
 
-// ➤ The listener's "brain": takes the text of one of your messages, works out which
-// ➤ The listener's "brain": takes the text of one of your messages, finds the
-// ➤ first command in the table that matches it and runs that one action. If
-// ➤ nothing fits, it sends the help text.
+// ➤ The listener's "brain": takes the text of one of your messages, finds the first
+// ➤ command in the table that matches it and runs that one action. If nothing fits, it
+// ➤ sends the help text.
 async function handle(text) {
   const t = text.trim();
   console.log(`[${new Date().toISOString()}] cmd: ${t.slice(0, 100)}`);
@@ -724,13 +713,12 @@ async function main({ pollSeconds = 0 } = {}) {
       if (!binder) return 0; // code set, tap not seen yet — leave the queue untouched
       cfg.chat_id = String(binder.message.chat.id);
       delete cfg.link_code;
-      // ➤ Atomic like every other state file: a crash mid-write here would leave invalid JSON in
-      // ➤ the ONE file holding the token, and the bot would go mute until the setup is run
-      // ➤ again.
+      // ➤ Atomic like every other state file: a crash mid-write would leave invalid JSON in the
+      // ➤ ONE file holding the token, and the bot would go mute until the setup is run again.
       writeFileAtomic(CFG_PATH, JSON.stringify(cfg, null, 2) + '\n');
-      // ➤ Position BEFORE the linking message, not after it: this same tick then PROCESSES that
-      // ➤ message. Pressing START on the t.me link is one tap that links the chat AND begins the
-      // ➤ profile questions — the /start must not be swallowed by the greeting.
+      // ➤ Position BEFORE the linking message, not after: this same tick then PROCESSES it.
+      // ➤ Pressing START on the t.me link is one tap that links the chat AND begins the profile
+      // ➤ questions — the /start must not be swallowed by the greeting.
       writeFileAtomic(OFFSET_PATH, JSON.stringify({ offset: binder.update_id }));
       await sendTelegram('Connected.');
       console.log(`chat_id ${cfg.chat_id} learned from the first message and saved.`);
@@ -738,9 +726,9 @@ async function main({ pollSeconds = 0 } = {}) {
       // ➤ handles the message that did the linking.
     } catch { return 0; /* no network: the next pass tries again */ }
   }
-  // ➤ Not configured yet: nothing to do. It says so only when a person ran it
-  // ➤ by hand — from the schedule, stdout is not a terminal and silence is
-  // ➤ correct, or the log would gain one identical line per pass for ever.
+  // ➤ Not configured yet: nothing to do. Said only when a person ran it by hand — from the
+  // ➤ schedule, stdout is not a terminal and silence is correct, or the log would gain one
+  // ➤ identical line per pass for ever.
   if (!cfg?.bot_token || !cfg?.chat_id) {
     if (process.stdout.isTTY && !saidNotConfigured) {
       saidNotConfigured = true;
@@ -772,18 +760,17 @@ async function main({ pollSeconds = 0 } = {}) {
     }
     return 0;
   }
-  // ➤ The long poll: with pollSeconds > 0 this fetch simply sits open until
-  // ➤ something arrives (or the window closes empty) — that wait is Telegram's
-  // ➤ push channel, not lost time. The abort guard stays 15s PAST the window,
-  // ➤ so it only fires when the connection itself has died.
+  // ➤ The long poll: with pollSeconds > 0 this fetch sits open until something arrives (or
+  // ➤ the window closes empty) — Telegram's push channel, not lost time. The abort guard
+  // ➤ stays 15 s PAST the window, so it only fires when the connection itself has died.
   const res = await fetch(
     `${TG_API}/bot${cfg.bot_token}/getUpdates?offset=${state.offset}&timeout=${pollSeconds}`,
     { signal: AbortSignal.timeout(pollSeconds * 1000 + 15_000) },
   );
   const j = await res.json().catch(() => null);
-  // ➤ 409 means another process is consuming getUpdates RIGHT NOW (a second
-  // ➤ listener, or a diagnose pass). Thrown, not swallowed: the loop counts it
-  // ➤ and walks away after a streak, leaving the queue to the other consumer.
+  // ➤ 409 means another process is consuming getUpdates RIGHT NOW (a second listener, or a
+  // ➤ diagnose pass). Thrown, not swallowed: the loop counts it and walks away after a
+  // ➤ streak, leaving the queue to the other consumer.
   if (!j?.ok) {
     if (j?.error_code === 409) throw new Error('409: another process is polling getUpdates');
     return 0;
@@ -811,9 +798,9 @@ async function main({ pollSeconds = 0 } = {}) {
     if (cb) {
       if (String(cb.message?.chat?.id) !== String(cfg.chat_id)) continue; // your chat only
       try {
-        // ➤ Review-card taps first, page turns second, everything else to the
-        // ➤ onboarding. Each handler answers false only for data that is not
-        // ➤ its own, so the chain never eats a foreign tap.
+        // ➤ Review-card taps first, page turns second, everything else to the onboarding. Each
+        // ➤ handler answers false only for data that is not its own, so the chain never eats a
+        // ➤ foreign tap.
         if (await handleVetoCallback(cb.data, cb.message?.message_id, cb.id, vetoTapDeps())) continue;
         if (await handleReviewCallback(cb.data, cb.message?.message_id, cb.id, reviewDeps())) continue;
         if (await flipListPage(cb.data, cb.message?.message_id, cb.id)) continue;
@@ -898,9 +885,9 @@ async function runForever() {
       console.log(`[${new Date().toISOString()}] routine recycle after ${Math.round((Date.now() - born) / 3600_000)}h; the schedule restarts it.`);
       return;
     }
-    // ➤ Pace the fast-return paths (not configured, no network, 409): without
-    // ➤ a long poll to sit in, the loop would spin. Five seconds keeps the
-    // ➤ setup flow snappy without hammering anything.
+    // ➤ Pace the fast-return paths (not configured, no network, 409): without a long poll to
+    // ➤ sit in, the loop would spin. Five seconds keeps the setup flow snappy without
+    // ➤ hammering anything.
     if (Date.now() - passStart < 2000) await new Promise(r => setTimeout(r, 5000));
   }
 }

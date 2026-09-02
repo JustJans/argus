@@ -19,9 +19,8 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 export const OAUTH_PATH = join(SCRIPT_DIR, 'gmail-oauth.json');
 export const TOKEN_PATH = join(SCRIPT_DIR, 'gmail-token.json');
 
-// ➤ The ONLY scope this bot ever asks for. Read-only, enforced by Google.
-// ➤ Changing this line is changing what the bot is allowed to do, so a test
-// ➤ pins it: nothing else may appear here without someone meaning it.
+// ➤ The ONLY scope this bot ever asks for: read-only, enforced by Google. A test pins this
+// ➤ line — nothing else may appear here without someone meaning it.
 export const SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
 
 export const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -34,10 +33,10 @@ function loadJson(path) {
   try { return JSON.parse(readFileSync(path, 'utf-8')); } catch { return null; }
 }
 
-// ➤ Is there anything to read the mailbox WITH? Both halves are needed: the
-// ➤ client that identifies the app, and the token that says you allowed it.
-// ➤ Everything that touches mail asks this first, so that a bot without Gmail
-// ➤ set up says so plainly instead of failing somewhere deeper.
+// ➤ Is there anything to read the mailbox WITH? Both halves are needed: the client that
+// ➤ identifies the app and the token that says you allowed it. Everything that touches
+// ➤ mail asks this first, so a bot without Gmail says so plainly instead of failing
+// ➤ deeper.
 export function gmailConfigured() {
   return !!(loadJson(OAUTH_PATH)?.client_id && loadJson(TOKEN_PATH)?.refresh_token);
 }
@@ -49,9 +48,9 @@ export function saveToken(obj, path = TOKEN_PATH) {
   try { chmodSync(path, 0o600); } catch { /* not POSIX — ignore */ }
 }
 
-// ➤ Swaps the long-lived refresh token for a short-lived access token. This is
-// ➤ the only POST in the file, it goes to Google's token endpoint and not to
-// ➤ the mail API, and it carries no message id — it cannot touch a message.
+// ➤ Swaps the long-lived refresh token for a short-lived access token: the only POST in
+// ➤ the file, to Google's token endpoint and not the mail API, carrying no message id — it
+// ➤ cannot touch a message.
 export async function accessToken({ oauth = loadJson(OAUTH_PATH), token = loadJson(TOKEN_PATH), fetchImpl = fetch } = {}) {
   if (!oauth?.client_id) throw new Error(`no client_id: fill ${OAUTH_PATH}`);
   if (!token?.refresh_token) throw new Error(`not authorised yet: run gmail-auth.mjs`);
@@ -60,9 +59,9 @@ export async function accessToken({ oauth = loadJson(OAUTH_PATH), token = loadJs
     refresh_token: token.refresh_token,
     grant_type: 'refresh_token',
   });
-  // ➤ A Desktop client created with PKCE needs no secret here (Google marks
-  // ➤ client_secret optional for installed apps). If one was ever configured,
-  // ➤ it is sent; if not, the exchange works without it.
+  // ➤ A Desktop client created with PKCE needs no secret here (Google marks client_secret
+  // ➤ optional for installed apps): sent if configured, otherwise the exchange works without
+  // ➤ it.
   if (oauth.client_secret) body.set('client_secret', oauth.client_secret);
 
   const res = await fetchImpl(TOKEN_ENDPOINT, {
@@ -73,9 +72,9 @@ export async function accessToken({ oauth = loadJson(OAUTH_PATH), token = loadJs
   });
   const j = await res.json().catch(() => null);
   if (!j?.access_token) {
-    // ➤ invalid_grant means the refresh token is dead: revoked, or the Gmail
-    // ➤ password changed (Google kills Gmail-scoped tokens on a password
-    // ➤ change). Say which, because the fix is to re-run the auth script.
+    // ➤ invalid_grant means the refresh token is dead — revoked, or the Gmail password changed
+    // ➤ (Google kills Gmail-scoped tokens on a password change). Say which: the fix is to
+    // ➤ re-run the auth script.
     const why = j?.error === 'invalid_grant'
       ? 'the saved authorisation is no longer valid (revoked, or the account password changed). Re-run gmail-auth.mjs'
       : (j?.error_description || j?.error || `HTTP ${res.status}`);
@@ -87,10 +86,9 @@ export async function accessToken({ oauth = loadJson(OAUTH_PATH), token = loadJs
 // ➤ THE ONLY DOOR. Every read goes through here and the verb is written in,
 // ➤ not passed in: there is deliberately no way for a caller to choose it.
 async function get(path, params, token, fetchImpl = fetch) {
-  // ➤ params is a list of [key, value] pairs, not an object, because Gmail
-  // ➤ expects metadataHeaders repeated once per header and an object can only
-  // ➤ hold the key once — asking for From, Subject and Date would silently
-  // ➤ come back with only the last one.
+  // ➤ params is a list of [key, value] pairs, not an object: Gmail expects metadataHeaders
+  // ➤ repeated once per header, and an object holds a key once — asking for From, Subject
+  // ➤ and Date would silently return only the last.
   const url = `${API}${path}?${new URLSearchParams(params || [])}`;
   const res = await fetchImpl(url, {
     method: 'GET',
@@ -126,9 +124,9 @@ export async function listMessageIds(query, { max = 50, token, fetchImpl = fetch
   return ids.slice(0, max);
 }
 
-// ➤ Walks the nested structure Gmail returns and decodes every part of one
-// ➤ type. A list, not one string, because a message can carry the same type
-// ➤ more than once (a reply quoting the mail before it).
+// ➤ Walks the nested structure Gmail returns and decodes every part of one type — a list,
+// ➤ because a message can carry the same type more than once (a reply quoting the mail
+// ➤ before it).
 function collect(part, mimeType, out = []) {
   if (!part) return out;
   if (part.mimeType === mimeType && part.body?.data) {
@@ -152,10 +150,9 @@ const HTML_TO_TEXT = {
   ],
 };
 
-// ➤ The words of a message, wherever they are. PLAIN TEXT WINS when there is any. THE HTML
-// ➤ FALLBACK IS THE POINT: on the real mailbox 51 of 116 messages carry no text
-// ➤ alternative — 44% that would otherwise be judged on the subject and two lines of
-// ➤ snippet.
+// ➤ The words of a message, wherever they are. PLAIN TEXT WINS when there is any; THE HTML
+// ➤ FALLBACK IS THE POINT — on the real mailbox 51 of 116 messages (44%) carry no text
+// ➤ alternative and would be judged on the subject and two lines of snippet.
 export function messageText(payload) {
   const plain = collect(payload, 'text/plain').join('\n').trim();
   if (plain) return plain;
@@ -163,16 +160,15 @@ export function messageText(payload) {
   return html ? convert(html, HTML_TO_TEXT) : '';
 }
 
-// ➤ How much of a message is enough to tell a rejection from an invitation: the verdict is
-// ➤ in the opening, the rest is signature, legal and footer. Converted HTML runs much
-// ➤ longer than a text alternative, and at 4,000 characters 15 of 116 messages were cut
-// ➤ off mid-message.
+// ➤ How much of a message tells a rejection from an invitation: the verdict is in the
+// ➤ opening, the rest is signature, legal and footer. Converted HTML runs far longer than
+// ➤ a text alternative — at 4,000 characters 15 of 116 messages were cut mid-message.
 export const BODY_LIMIT = 20_000;
 
 // ➤ One message: sender, subject, date and the opening of the text. NOTHING HERE IS EVER
-// ➤ WRITTEN TO DISK — the body is matched against your applications in memory and dropped;
-// ➤ what survives is the kind of message and its date. Reading the body found 3 outcomes
-// ➤ the ~200-character snippet missed and changed no verdict it already had.
+// ➤ WRITTEN TO DISK — the body is matched in memory and dropped; only the kind of message
+// ➤ and its date survive. Reading the body found 3 outcomes the snippet missed and changed
+// ➤ no existing verdict.
 export async function messageSummary(id, { token, fetchImpl = fetch } = {}) {
   const t = token || await accessToken({ fetchImpl });
   const j = await get(`/messages/${encodeURIComponent(id)}`, [['format', 'full']], t, fetchImpl);

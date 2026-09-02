@@ -36,10 +36,9 @@ function readJsonl(path) {
   return out;
 }
 
-// ➤ Builds the "user's real decision" map per offer. Returns two indexes:
-// ➤ one by URL and one by id (both point to 'show' | 'hide' | 'seen').
-// ➤ Precedence when building: applied(show) overrides rejected(hide) overrides
-// ➤ seen(seen) — a submitted application wins over any other mark.
+// ➤ The "user's real decision" map per offer, as two indexes (by URL and by id) pointing
+// ➤ to 'show' | 'hide' | 'seen'. Precedence: applied(show) over rejected(hide) over seen —
+// ➤ a submitted application wins over any other mark.
 export function buildUserDecisions({ applied = [], feedback = [], pipelineText = '' } = {}) {
   const byUrl = new Map();
   const byId = new Map();
@@ -103,8 +102,8 @@ function main() {
       if (d) { rec.userDecision = d; filled++; }
     }
     // ➤ SAFETY: this rewrites the WHOLE journal from the lines it managed to parse, so any
-    // ➤ line it could not read would be silently deleted. A journal is history: we refuse to
-    // ➤ shrink it.
+    // ➤ unreadable line would be silently deleted. A journal is history: we refuse to shrink
+    // ➤ it.
     const onDisk = readFileSync(JOURNAL_PATH, 'utf-8').split('\n').filter(l => l.trim()).length;
     if (records.length < onDisk) {
       console.error(`Refusing to rewrite the journal: ${onDisk} lines on disk but only ${records.length} readable. Nothing was changed.`);

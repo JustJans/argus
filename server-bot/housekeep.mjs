@@ -76,10 +76,10 @@ export function normUrl(u) {
     .replace(/^(https?:\/\/[^/]*adzuna\.[a-z.]+)\/land\/ad\/(\d+)$/, '$1/details/$2');
 }
 
-// ➤ Housekeep DELETES [x] lines from the pipeline rather than hiding them. So the same
-// ➤ offer doesn't sneak back in as "new" on the next scan, before deleting it makes sure
-// ➤ its URL is in data/scan-history.tsv (the scanner's anti-repeat memory). The "| visto"
-// ➤ lines (the user's decisions) don't pass through here: they're kept.
+// ➤ Housekeep DELETES [x] lines rather than hiding them, so before deleting it makes sure
+// ➤ the URL is in data/scan-history.tsv (the scanner's anti-repeat memory) — or the same
+// ➤ offer sneaks back as "new" on the next scan. The "| visto" lines (the user's
+// ➤ decisions) are kept.
 const SCAN_HISTORY_PATH = join(ROOT, 'data', 'scan-history.tsv');
 function ensureInHistory(offers, why) {
   const known = new Set();
@@ -108,9 +108,9 @@ function ensureInHistory(offers, why) {
 export function rewritePipelineWithout(linesToDrop, path = PIPELINE_PATH) {
   const drop = new Set(linesToDrop.map(l => l.trim()).filter(Boolean));
   // ➤ Read and write INSIDE the lock. Re-reading late stops this from overwriting a change
-  // ➤ made while the HTTP checks ran; the lock stops the reverse — a "seen" arriving between
-  // ➤ this read and this write being erased (eight concurrent read-modify-writes kept 200
-  // ➤ lines of 1,600). Held for these two lines, not for the minutes before.
+  // ➤ made during the HTTP checks; the lock stops the reverse — a "seen" arriving between
+  // ➤ this read and write being erased (eight concurrent read-modify-writes kept 200 lines
+  // ➤ of 1,600). Held for these two lines only.
   return withFileLock(path, () => {
     const fresh = readFileSync(path, 'utf-8').split('\n');
     const kept = fresh.filter(l => !drop.has(l.trim()));
@@ -140,11 +140,11 @@ export function looksLikeAnOutage(pendingCount, deadCount) {
 }
 
 
-// ➤ The key that decides two postings are THE SAME job — and therefore that
-// ➤ one of them gets deleted. Exported so the rule can be tested: it already
-// ➤ went wrong once (see below) and nothing stopped it coming back.
+// ➤ The key that decides two postings are THE SAME job — and therefore that one gets
+// ➤ deleted. Exported so the rule can be tested: it went wrong once and nothing stopped it
+// ➤ coming back.
 export function fuzzyKey(company, title) {
-  // ➤ The gender-tag separator can be a space: "(x w m)". The same titleKey the scanner's
+  // ➤ The gender-tag separator can be a space ("(x w m)"). The same titleKey the scanner's
   // ➤ roleKey uses (text.mjs): one normalisation, so a re-post the scan recognises, the
   // ➤ cleanup does too.
   const norm = titleKey;
@@ -153,9 +153,8 @@ export function fuzzyKey(company, title) {
   const c = norm(company)
     .replace(/\s+(?:group|holding|nederland|netherlands|belgium|belgi[eë]|espa[ñn]a|france|deutschland|bv|b\.v\.|nv|n\.v\.|sa|s\.a\.|sl|s\.l\.|gmbh|ag|ltd|limited|inc|srl|spa)\b.*$/i, '')
     .trim() || '';
-  // ➤ An unnamed advertiser gives this key nothing to say — same rule as the
-  // ➤ scanner's roleKey, imported so the two ends cannot drift: two anonymous
-  // ➤ ads sharing a title are NOT one vacancy, and one was being deleted.
+  // ➤ An unnamed advertiser gives this key nothing to say — the scanner's rule, imported so
+  // ➤ the two ends cannot drift: two anonymous ads sharing a title are NOT one vacancy.
   if (NOT_AN_EMPLOYER.has(c)) return '';
   return `${c}::${norm(title)}`;
 }
@@ -177,9 +176,8 @@ async function fetchJsonQuick(url, opts = {}) {
   }
 }
 
-// ➤ Is an Oracle-portal offer dead? Instead of looking at the page
-// ➤ (which always answers "all good"), it asks its data service directly:
-// ➤ if the offer no longer appears there, it's dead.
+// ➤ Is an Oracle-portal offer dead? The page always answers "all good", so it asks the
+// ➤ data service directly: no longer listed there, dead.
 async function isDeadOracle(url) {
   // ➤ Checks the URL is from Oracle and extracts the portal and the offer number.
   const m = url.match(/^https:\/\/([^/]+oraclecloud\.com)\/hcmUI\/CandidateExperience\/[^/]+\/sites\/([^/]+)\/requisitions\/preview\/(\d+)/);
@@ -192,10 +190,10 @@ async function isDeadOracle(url) {
   } catch { return false; }
 }
 
-// ➤ Same for Workday: it asks its data service; if it answers "doesn't exist" (404 or 403)
-// ➤ or brings no offer detail, then it's closed. Verified live: Workday answers 403
-// ➤ "permission denied" for WITHDRAWN offers (a real browser gets the 403 too) and plain
-// ➤ 200 for live ones, so a 403 here means dead, not blocked.
+// ➤ Same for Workday: its data service answering "doesn't exist" (404 or 403) or no offer
+// ➤ detail means closed. Verified live: Workday answers 403 "permission denied" for
+// ➤ WITHDRAWN offers (a real browser too) and 200 for live ones, so a 403 here means dead,
+// ➤ not blocked.
 async function isDeadWorkday(url) {
   // ➤ Checks the URL is from Workday and extracts company, data center and path.
   const m = url.match(/^https:\/\/([^.]+)\.(wd\d+)\.myworkdayjobs\.com\/en-US\/([^/]+)(\/.+)$/);
@@ -209,10 +207,9 @@ async function isDeadWorkday(url) {
   } catch { return false; }
 }
 
-// ➤ Is an Adzuna offer dead? Pipeline URLs come as /details/{id} OR as /land/ad/{id}, and
-// ➤ that second form is a redirect to an external board that answers 200 forever. So it
-// ➤ always checks /details/{id}, which is the truth: verified live, a dead ad gives 404
-// ➤ and a live one 200.
+// ➤ Is an Adzuna offer dead? Pipeline URLs come as /details/{id} or as /land/ad/{id}, a
+// ➤ redirect to an external board that answers 200 forever — so it always checks
+// ➤ /details/{id}: verified live, a dead ad gives 404 and a live one 200.
 async function isDeadAdzuna(url) {
   // ➤ Checks the URL is from Adzuna (in either of its two formats) and pulls out country and identifier.
   const m = url.match(/^https:\/\/www\.adzuna\.([a-z.]+)\/(?:details|land\/ad)\/(\d+)/);
@@ -236,9 +233,9 @@ async function isDeadLinkedIn(url) {
   } catch { return false; }
 }
 
-// ➤ The final judge: decides whether an offer is dead. It first tries each
-// ➤ portal's specific method and, if the URL is from none of them, it downloads
-// ➤ the page and analyzes it generically. It's conservative: when in doubt, kept.
+// ➤ The final judge of dead or alive: each portal's specific method first; a URL from none
+// ➤ of them gets the page downloaded and read generically. Conservative: when in doubt,
+// ➤ kept.
 async function isLikelyDead(url) {
   const oracle = await isDeadOracle(url);
   if (oracle !== null) return oracle;
@@ -256,9 +253,8 @@ async function isLikelyDead(url) {
     let body = '';
     try { body = (await res.text()).slice(0, 20_000); } catch { /* body unreadable: the status and final URL still speak */ }
     clearTimeout(timer);
-    // ➤ Classifier verdict + anti-false-dead second opinion: if the "expired" comes only from
-    // ➤ a phrase in the text and the page still has an apply button, it's considered live (see
-    // ➤ scan.mjs).
+    // ➤ Classifier verdict + anti-false-dead second opinion: an "expired" that comes only from
+    // ➤ a phrase, with an apply button still on the page, counts as live (see scan.mjs).
     const { result, reason } = overrideDeadIfApply(
       classifyLiveness({ status: res.status, finalUrl: res.url, bodyText: body }), body);
     // ➤ Only marks it dead if the analysis says "expired" and there was enough content to trust it.
@@ -269,20 +265,19 @@ async function isLikelyDead(url) {
 }
 
 // ➤ ── Re-fetching the offers' text ─────────────────────────────────────────
-// ➤ The years-of-experience filter needs the full text of each offer, and the
-// ➤ list only stores the URL: these functions recover it.
-// ➤ Browser identification: the bot presents itself as a normal Chrome so sites don't reject it.
+// ➤ The years filter needs the full text of each offer and the list only stores the URL:
+// ➤ these functions recover it. UA: the bot presents itself as a normal Chrome so sites
+// ➤ don't reject it.
 const DESC_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36';
 
-// ➤ Polite download: a gap between requests to the same portal and, on a 429, wait and
-// ➤ retry. Still limited → "I don't know", never "dead". THE RULE: never conclude anything
-// ➤ from a 429 — a throttled Adzuna once read as "alive" and a dead offer reached the
-// ➤ phone. Tomorrow's cron retries with fresh quota.
+// ➤ Polite download: a gap between requests to the same portal, and on a 429 wait and
+// ➤ retry; still limited → "I don't know", never "dead". THE RULE: never conclude anything
+// ➤ from a 429 — tomorrow's cron retries with fresh quota.
 const HOST_GAP_MS = { 'adzuna': 1500, 'linkedin': 1200 };
 // ➤ Slot allocator, not a last-request timestamp: under 5-way concurrency every waiter
-// ➤ would compute its wait from the same stale timestamp, wake at the same moment and fire
-// ➤ together — bursts that provoke the very 429s whose "inconclusive → keep" verdict lets
-// ➤ dead offers survive the daily check.
+// ➤ would compute its wait from the same stale timestamp and fire together — bursts that
+// ➤ provoke the very 429s whose "inconclusive → keep" verdict lets dead offers survive the
+// ➤ daily check.
 const hostNext = new Map();    // per host: when the NEXT request may fire
 const hostFloor = new Map();   // per host: floor imposed by a 429 penalty
 async function politeFetch(hostKey, url, opts = {}) {
@@ -313,10 +308,10 @@ async function politeFetch(hostKey, url, opts = {}) {
   return null; // still rate-limited → inconclusive
 }
 
-// ➤ Recovers an offer's full text from its URL alone, by portal (Workday, Oracle, LinkedIn
-// ➤ or Adzuna); if it can't, it returns empty and the offer is kept unfiltered. Adzuna
-// ➤ URLs where the CLEAN description (without menus) was obtained: only on those is it
-// ➤ safe to check the body language.
+// ➤ Recovers an offer's full text from its URL alone, by portal; if it can't, empty, and
+// ➤ the offer is kept unfiltered. adzunaJdClean: the Adzuna URLs where the CLEAN
+// ➤ description (without menus) was obtained — only there is the body language safe to
+// ➤ check.
 const adzunaJdClean = new Set();
 
 async function fetchDescriptionByUrl(url) {
@@ -345,9 +340,8 @@ async function fetchDescriptionByUrl(url) {
       const res = await politeFetch('linkedin', `https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/${m[1]}`);
       return res && res.ok ? stripHtml(await res.text()) : '';
     }
-    // ➤ Is it from Adzuna? Download the details page itself and try to extract the CLEAN
-    // ➤ region of the description (adp-body). If obtained, the URL is noted in adzunaJdClean:
-    // ➤ with clean text the body LANGUAGE can also be checked.
+    // ➤ Adzuna: download the details page and extract the CLEAN region (adp-body); if
+    // ➤ obtained, the URL is noted in adzunaJdClean so the body LANGUAGE can be checked too.
     if (/(^|\.)adzuna\.[a-z.]+\//.test(url)) {
       const res = await politeFetch('adzuna', url, { redirect: 'follow' });
       if (!res || !res.ok) return '';
@@ -371,8 +365,7 @@ async function fetchDescriptionByUrl(url) {
 async function parallel(tasks, limit) {
   let i = 0;
   // ➤ ERROR ISOLATION: a single throwing task must not abort its whole worker, or one bad
-  // ➤ link could cut a sweep short and make the remaining offers look like they simply were
-  // ➤ not there.
+  // ➤ link cuts a sweep short and the remaining offers look like they were never there.
   async function next() {
     while (i < tasks.length) {
       const task = tasks[i++];
@@ -399,9 +392,8 @@ async function main() {
     if (lines[i].startsWith('## ') && inPending) inPending = false;
     if (!inPending) continue;
     // ➤ Splits the offer line: link | company | title | [location] | [y:N] | [s:salary] | #id.
-    // ➤ THE LOCATION IS READ TOO, so the weekly re-check can apply the geography rule: it is
-    // ➤ the first trailing field that is not one of the tagged ones, which is exactly how the
-    // ➤ scanner writes it.
+    // ➤ The location is read too — the first trailing field that is not a tagged one, exactly
+    // ➤ as the scanner writes it — so the weekly re-check can apply the geography rule.
     const m = lines[i].match(/^- \[ \] (\S+)\s*\|\s*([^|\n]+?)\s*\|\s*([^|\n]+?)(\s*\|[^\n]*)?$/);
     if (!m) continue;
     const trailing = (m[4] || '').split('|').map(s => s.trim()).filter(Boolean);
@@ -443,9 +435,9 @@ async function main() {
     return;
   }
 
-  // ➤ From here on, the full WEEKLY CLEANUP, in 4 steps.
-  // ➤ Step 0: re-applies the CURRENT title and location filters to what's already
-  // ➤ saved, in case the rules have changed since the offer came in.
+  // ➤ From here on, the full WEEKLY CLEANUP, in 4 steps. Step 0: re-applies the CURRENT
+  // ➤ title and location filters to what's already saved, in case the rules changed since
+  // ➤ the offer came in.
   const filteredIdx = new Set();
   let config = {};
   if (existsSync(PORTALS_PATH)) {
@@ -464,10 +456,9 @@ async function main() {
     // ➤ The company blacklist is also re-applied here: if you veto a
     // ➤ company, its already-saved offers fall in the next cleanup.
     const companyOk = buildCompanyFilter(companyFilterWith(config.company_filter, vetoes));
-    // ➤ GEOGRAPHY IS CHECKED ON BOTH HALVES, like the scanner: the offer's LOCATION, so a
-    // ➤ country you switched off after the offer arrived does not keep it in your list, and
-    // ➤ the TITLE as well, because multi-location postings hide the country there ("Graduate
-    // ➤ Programme - Qatar").
+    // ➤ GEOGRAPHY IS CHECKED ON BOTH HALVES, like the scanner: the LOCATION, so a country
+    // ➤ switched off after the offer arrived does not keep it in your list, and the TITLE,
+    // ➤ where multi-location postings hide the country ("Graduate Programme - Qatar").
     for (const p of pending) {
       if (!companyOk(p.company) || !titleOk(p.title, p.location)
           || (p.location && !locFilter(p.location)) || locFilter.blockHit(p.title)
@@ -482,9 +473,9 @@ async function main() {
   const langCfg = config.title_language_filter || {};
   if (langCfg.enabled !== false) {
     // ➤ SAME FALLBACK CHAIN AS THE SCANNER for languages: the profile's declared languages
-    // ➤ first, portals.yml's allow list after. This recheck feeds the project's only PERMANENT
-    // ➤ delete, so it must never judge under a staler rule than the scan that admitted the
-    // ➤ offer.
+    // ➤ first, portals.yml's allow list after — this recheck feeds the project's only
+    // ➤ PERMANENT delete and must never judge under a staler rule than the scan that admitted
+    // ➤ the offer.
     const allow = new Set((searchProfile.languages || langCfg.allow || ['en', 'es', 'ca']).map(s => String(s).toLowerCase()));
     const candidates = pending.filter(p => !filteredIdx.has(p.lineIdx));
     const checks = candidates.map(p => async () => {
@@ -521,9 +512,8 @@ async function main() {
       // ➤ DEGREE requirement in the body: master's/degree in a field the user doesn't have → out
       // ➤ (same as in the scanner).
       if (!priority && desc && degreeScreen(desc, p.title)) { filteredIdx.add(p.lineIdx); degIdx.add(p.lineIdx); return; }
-      // ➤ Does the body REQUIRE a language the user doesn't speak? → hidden. (On
-      // ➤ Adzuna only with the clean description: the whole page carries menus
-      // ➤ in the country's language and would give false positives.)
+      // ➤ Does the body REQUIRE a language the user doesn't speak? → hidden. On Adzuna only with
+      // ➤ the clean description: the whole page carries menus in the country's language.
       if (hkLangCfg.enabled !== false && desc && (!/adzuna\./.test(p.url) || adzunaJdClean.has(p.url))) {
         if (bodyLanguageBlock(desc)) { filteredIdx.add(p.lineIdx); langIdx.add(p.lineIdx); }
       }
@@ -537,8 +527,8 @@ async function main() {
   const seenRole = new Set();
   const dupIdx = new Set();
   // ➤ KEEP THE NEWEST: when a company re-posts a vacancy under a new link, the old one is
-  // ➤ precisely the one about to be deleted as dead in step 2, so keeping the first
-  // ➤ occurrence would make the role vanish completely. We walk backwards.
+  // ➤ precisely the one about to be deleted as dead in step 2 — keeping the first occurrence
+  // ➤ would make the role vanish. We walk backwards.
   for (let i = pending.length - 1; i >= 0; i--) {
     const p = pending[i];
     if (filteredIdx.has(p.lineIdx)) continue;
@@ -557,9 +547,9 @@ async function main() {
     if (await isLikelyDead(p.url)) deadIdx.add(p.lineIdx);
   });
   await parallel(checks, LIVENESS_CONCURRENCY);
-  // ➤ THE SAME BRAKE AS THE DAILY CHECK: this path deletes strictly more than the daily one.
-  // ➤ Only the DEAD verdicts are dropped — the filtered and duplicate ones are decided from
-  // ➤ text we already hold, so a network problem cannot make them wrong.
+  // ➤ THE SAME BRAKE AS THE DAILY CHECK: this path deletes strictly more. Only the DEAD
+  // ➤ verdicts are dropped — filtered and duplicate ones are decided from text already held,
+  // ➤ so a network problem cannot make them wrong.
   let deadAborted = 0;
   if (looksLikeAnOutage(survivors.length, deadIdx.size)) {
     deadAborted = deadIdx.size;
@@ -607,9 +597,9 @@ async function main() {
   if (report.length) console.log(report.join('\n'));
 }
 
-// ➤ Starts the process; if something fails completely, it prints the error and signals the
-// ➤ system (exit code 1). GUARD: main() DELETES pending offers, so it only runs when
-// ➤ launched directly, like scan.mjs — importing this file must never start deleting.
+// ➤ Starts the process; a total failure prints the error and exits 1. GUARD: main()
+// ➤ DELETES pending offers, so it only runs when launched directly, like scan.mjs —
+// ➤ importing this file must never start deleting.
 if (process.argv[1] && /(^|[\\/])housekeep\.mjs$/.test(process.argv[1])) {
   main().catch(e => { console.error('Fatal:', e.message); process.exit(1); });
 }

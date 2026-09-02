@@ -76,9 +76,8 @@ export function removeVeto(v, kind, value) {
 }
 
 // ➤ ── Merging into the filters ──────────────────────────────────────────
-// ➤ scan.mjs and housekeep.mjs call these when they build their filters, so
-// ➤ a veto behaves exactly like a hand-written negative — same word rules,
-// ➤ same --explain output naming the word that fired.
+// ➤ scan.mjs and housekeep.mjs call these when building their filters, so a veto behaves
+// ➤ exactly like a hand-written negative — same word rules, same --explain output.
 
 export function titleNegativesWith(base, v) {
   return [...(base || []), ...v.titles];
@@ -94,9 +93,9 @@ export function locationFilterWith(lf, v) {
   return { ...(lf || {}), block: [...((lf || {}).block || []), ...v.cities] };
 }
 
-// ➤ Which of these offers would the veto block? Answered by the real filter
-// ➤ builders with ONLY the veto loaded, so the panel's "also hides #705"
-// ➤ claim and the scanner's future behaviour cannot drift apart.
+// ➤ Which offers would the veto block? Answered by the real filter builders with ONLY the
+// ➤ veto loaded, so the panel's "also hides #705" and the scanner's future behaviour
+// ➤ cannot drift apart.
 export function vetoHits(kind, value, offers) {
   if (kind === 'title') {
     const f = buildTitleFilter({ positive: [], negative: [value] });
@@ -111,9 +110,8 @@ export function vetoHits(kind, value, offers) {
 }
 
 // ➤ ── What to propose ───────────────────────────────────────────────────
-// ➤ Words that could be ANY job: vetoing one would express nothing about
-// ➤ this rejection. Generic job nouns, seniority, gender tags and the
-// ➤ articles of the five languages the engine already speaks.
+// ➤ Words that could be ANY job — generic job nouns, seniority, gender tags and the
+// ➤ articles of the five languages: vetoing one would say nothing about this rejection.
 const CHIP_STOP = new Set((
   'the a an and or of for in at to with de la el los las del un una unas unos y o en para con al ' +
   'van het een en bij voor met und der die das im bei fur mit le les des du et a au aux ' +
@@ -150,17 +148,16 @@ const alreadyVetoed = (word, v) => v.titles.some(t => fold(t) === fold(word));
 // ➤ "<trade> en <town>" is exactly how the odd-job marketplaces write theirs.
 const CHIP_BRIDGE = new Set('de del da das di du des van von der den of'.split(' '));
 
-// ➤ From one rejected offer to at most seven buttons: the job as ONE phrase
-// ➤ first (narrower, so safer to tap), then the distinctive words on their
-// ➤ own, then the company and the city.
+// ➤ From one rejected offer to at most seven buttons: the job as ONE phrase first
+// ➤ (narrower, so safer to tap), then the distinctive words alone, then the company and
+// ➤ the city.
 export function proposeVetoChips(offer, { positives = [], vetoes = null } = {}) {
   const v = vetoes || { titles: [], companies: [], cities: [] };
   const chips = [];
   const title = String(offer.title || '');
-  // ➤ Tokens WITH their position, because a phrase is cut from the title
-  // ➤ verbatim: a rebuilt "Pulidor de suelos" would not match the
-  // ➤ "Pulidor/a de suelos" it came from, and a veto that matches nothing is
-  // ➤ worse than no veto — it looks like it worked.
+  // ➤ Tokens WITH their position, because a phrase is cut from the title verbatim: a rebuilt
+  // ➤ "Pulidor de suelos" would not match the "Pulidor/a de suelos" it came from, and a veto
+  // ➤ that matches nothing is worse than none — it looks like it worked.
   const toks = [...title.matchAll(/[\p{L}\p{N}]+/gu)].map(m => ({ w: m[0], at: m.index }));
   const words = toks.map(t => t.w);
   const usable = w => w.length >= 4 && !/^\d+$/.test(w) && !CHIP_STOP.has(fold(w));
@@ -194,17 +191,15 @@ export function proposeVetoChips(offer, { positives = [], vetoes = null } = {}) 
   if (company && !v.companies.some(c => fold(c) === fold(company))) {
     chips.push({ kind: 'company', value: company, label: `Company: ${company}` });
   }
-  // ➤ cityOf and NOTHING ELSE. It already refuses to call a country a city,
-  // ➤ and an earlier fallback to the raw first segment walked straight around
-  // ➤ that guard: an offer located plain "España" offered "City: España", one
-  // ➤ tap from vetoing the whole country.
+  // ➤ cityOf and NOTHING ELSE: it already refuses to call a country a city, and a fallback
+  // ➤ to the raw first segment walked around that guard — an offer located plain "España"
+  // ➤ offered "City: España", one tap from vetoing the whole country.
   const city = cityOf(offer.location || '');
   if (city && !v.cities.some(c => fold(c) === fold(city))) {
     chips.push({ kind: 'city', value: city, label: `City: ${city}` });
   }
-  // ➤ Every chip must block the offer it was proposed from. A button that
-  // ➤ changes nothing is the worst button on the panel, because tapping it
-  // ➤ reads as done.
+  // ➤ Every chip must block the offer it was proposed from: a button that changes nothing is
+  // ➤ the worst on the panel, because tapping it reads as done.
   return chips.filter(c => vetoHits(c.kind, c.value, [offer]).length === 1);
 }
 
@@ -224,9 +219,9 @@ function idList(ids) {
   return ids.length > 8 ? `${shown} and ${ids.length - 8} more` : shown;
 }
 
-// ➤ Chip indexes in callback data point into the ORIGINAL chips array, which
-// ➤ never shrinks — a consumed chip is only marked used. So a tap that races
-// ➤ a redraw still lands on the chip its button named, or on nothing.
+// ➤ Chip indexes in callback data point into the ORIGINAL chips array, which never shrinks
+// ➤ (a consumed chip is only marked used), so a tap that races a redraw still lands on the
+// ➤ chip its button named, or on nothing.
 function chipsPanel(state) {
   const lines = [
     `<b>Teach the filter</b> from #${state.offer.id} — ${esc(state.offer.title)} (${esc(state.offer.company)})`,
@@ -269,9 +264,9 @@ function vetoDeps(over = {}) {
   };
 }
 
-// ➤ The user's own POSITIVE terms, from wherever the scanner would take them
-// ➤ (profile first, the shipped example otherwise). Chips are screened against
-// ➤ these so a bad mooring offer can never tempt you into vetoing "Mooring".
+// ➤ The user's own POSITIVE terms, from wherever the scanner takes them (profile first,
+// ➤ the shipped example otherwise): chips are screened against these so a bad mooring
+// ➤ offer can never tempt you into vetoing "Mooring".
 export function activePositives() {
   if (Array.isArray(searchProfile.positive_titles)) return searchProfile.positive_titles;
   try {
@@ -327,9 +322,9 @@ export async function startVetoList(deps = {}) {
 }
 
 // ➤ ── The taps ──────────────────────────────────────────────────────────
-// ➤ Returns true if the callback was ours (the listener stops routing then).
-// ➤ Answer FIRST, act after — the spinner on the user's phone must die in
-// ➤ milliseconds whatever the disk is doing (the review-mode rule).
+// ➤ Returns true if the callback was ours (the listener stops routing then). Answer FIRST,
+// ➤ act after — the spinner on the phone must die in milliseconds whatever the disk is
+// ➤ doing.
 export async function handleVetoCallback(data, messageId, cbId, deps = {}) {
   if (!/^vt:/.test(String(data || ''))) return false;
   const d = vetoDeps(deps);

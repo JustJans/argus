@@ -27,10 +27,9 @@ import { SCOPE, AUTH_ENDPOINT, TOKEN_ENDPOINT, OAUTH_PATH, TOKEN_PATH, saveToken
 // ➤ mean something else inside a URL swapped out, and no padding.
 const b64url = buf => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-// ➤ PKCE: we invent a random secret (the verifier), send only its HASH (the
-// ➤ challenge) to Google, and reveal the verifier when redeeming the code.
-// ➤ Anyone who intercepts the code cannot use it without the verifier, which
-// ➤ never left this process. That is what replaces the client secret.
+// ➤ PKCE: a random secret (the verifier) whose HASH (the challenge) goes to Google; the
+// ➤ verifier is revealed only when redeeming the code, so an intercepted code is useless
+// ➤ without it. That is what replaces the client secret.
 export function pkcePair() {
   const verifier = b64url(randomBytes(64));            // 86 chars, within 43-128
   const challenge = b64url(createHash('sha256').update(verifier).digest());
@@ -69,9 +68,9 @@ async function main() {
     console.error(`No client_id. Create ${OAUTH_PATH} with {"client_id": "...apps.googleusercontent.com"}`);
     process.exit(1);
   }
-  // ➤ Checked BEFORE opening the browser. Without it Google accepts the
-  // ➤ consent, hands back a code, and only then refuses to redeem it — so you
-  // ➤ approve access, wait, and get an error, for a reason known up front.
+  // ➤ Checked BEFORE opening the browser: without it Google accepts the consent, hands back
+  // ➤ a code, and only then refuses to redeem it — approval, wait, error, for a reason known
+  // ➤ up front.
   if (!oauth.client_secret || /PEGA|PASTE|\.\.\./i.test(oauth.client_secret)) {
     console.error(`No client_secret in ${OAUTH_PATH}.`);
     console.error('Google marks it optional for desktop apps but its token endpoint requires it.');

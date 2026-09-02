@@ -30,9 +30,8 @@
  *   node server-bot/scan.mjs --explain --dry-run
  */
 
-// ➤ Tools this file needs: read/write files, read the YAML
-// ➤ configuration, and the requirements reader (years of experience
-// ➤ required and degree demanded) from the body of the offers.
+// ➤ Tools this file needs: files, the YAML configuration, and the requirements reader
+// ➤ (years and degree demanded) for the body of the offers.
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
 // ➤ Atomic full-file overwrite (temp file + rename) so a crash mid-write can't
 // ➤ truncate the pending list. Used for the pipeline.md rewrite below.
@@ -54,9 +53,8 @@ import { experienceScreen, degreeScreen, stripHtml, extractAdzunaJd, searchProfi
 const parseYaml = yaml.load;
 
 // ── Paths (argus root = parent of server-bot/) ─────────────────
-// ➤ Here we record the paths of every file the scanner uses: the
-// ➤ configuration, the offer list, the history and the state of the
-// ➤ last scan. This way the rest of the program doesn't repeat paths by hand.
+// ➤ Every path the scanner uses — configuration, offer list, history, last-scan state —
+// ➤ recorded once, so the rest of the program never repeats a path by hand.
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(SCRIPT_DIR);
 
@@ -70,9 +68,8 @@ const STATE_PATH = join(SCRIPT_DIR, 'last-scan.json');
 // ➤ Makes sure the data/ folder exists before writing to it.
 mkdirSync(join(ROOT, 'data'), { recursive: true });
 
-// ➤ Loads Argus's "dead offer" detector (server-bot/liveness-core.mjs);
-// ➤ if for whatever reason it were missing, it uses a minimal plan B: it only
-// ➤ considers an offer dead if the site answers "doesn't exist" (404 or 410 errors).
+// ➤ Loads the "dead offer" detector (liveness-core.mjs); if it were missing, a minimal
+// ➤ plan B: dead only when the site answers 404 or 410.
 let classifyLiveness;
 try {
   ({ classifyLiveness } = await import('file://' + join(SCRIPT_DIR, 'liveness-core.mjs').replace(/\\/g, '/')));
@@ -157,10 +154,10 @@ export function normalizeLocation(loc) {
   return out.length > MAX_LOCATION_CHARS ? out.slice(0, MAX_LOCATION_CHARS) : out;
 }
 
-// ➤ Simplifies a web address so it can be compared: it removes the tracking "tail" that
-// ➤ changes on every visit. Without this, the same Adzuna offer would look new on every
-// ➤ scan. Adzuna's /land/ad/<id> bounce and its /details/<id> page are THE SAME offer, so
-// ➤ for comparison both are mapped to /details/<id>.
+// ➤ Simplifies a web address so it can be compared: the tracking "tail" that changes on
+// ➤ every visit goes, or the same Adzuna offer looks new on every scan; Adzuna's
+// ➤ /land/ad/<id> bounce and its /details/<id> page are THE SAME offer, so both map to
+// ➤ /details/<id>.
 export function normUrl(u) {
   const s = (u || '').split('?')[0].replace(/\/$/, '');
   return s.replace(/^(https?:\/\/[^/]*adzuna\.[a-z.]+)\/land\/ad\/(\d+)$/, '$1/details/$2');
@@ -168,10 +165,9 @@ export function normUrl(u) {
 
 // ── API detection ───────────────────────────────────────────────────
 
-// ➤ Looks at each company's entry in portals.yml and figures out which job
-// ➤ portal it uses (Workday, Oracle, Greenhouse, Ashby or Lever), to know
-// ➤ how to ask it for the offer list. If it recognizes none, it returns
-// ➤ "nothing" and that company is skipped.
+// ➤ Looks at each company's entry in portals.yml and figures out which portal it uses, to
+// ➤ know how to ask for the offer list. None recognised → null, and the company is
+// ➤ skipped.
 function detectApi(company) {
   // Workday (explicit config block)
   if (company.workday?.tenant && company.workday?.site) {
@@ -232,9 +228,8 @@ function detectApi(company) {
 }
 
 // ── Parsers ─────────────────────────────────────────────────────────
-// ➤ Each portal returns its offers in a different format. These
-// ➤ "translator" functions convert each portal's response into the
-// ➤ same common format: title, link, company and location.
+// ➤ Each portal answers in its own format; these "translators" turn each response into one
+// ➤ common shape: title, link, company, location — and the advert text.
 
 // ➤ THE ADVERT TEXT COMES ACROSS TOO. Without it fetchOfferDescription has nothing to hand
 // ➤ back and the years, the degree and the body-language screens run against an empty body
@@ -247,17 +242,15 @@ export function parseGreenhouse(json, name) {
   return (Array.isArray(json?.jobs) ? json.jobs : []).filter(Boolean).map(j => ({
     title: j.title || '', url: j.absolute_url || '', company: name,
     location: j.location?.name || '',
-    // ➤ Greenhouse sends the advert with its markup ESCAPED ("&lt;p&gt;"),
-    // ➤ so the tag stripper downstream sees no tags at all: the tag names
-    // ➤ leak in as words and the sentences run together, which is exactly
-    // ➤ where the requirement lines live.
+    // ➤ Greenhouse sends the advert with its markup ESCAPED ("&lt;p&gt;"), so the tag stripper
+    // ➤ would see no tags: the tag names leak in as words and the sentences run together,
+    // ➤ exactly where the requirement lines live.
     description: unescapeEntities(j.content || ''),
   }));
 }
 
-// ➤ Turns "&lt;p&gt;5+ years&lt;/p&gt;" back into real markup so the tag
-// ➤ stripper can do its job. Only the five that matter: anything else is
-// ➤ already handled once the text is stripped.
+// ➤ Turns "&lt;p&gt;5+ years&lt;/p&gt;" back into real markup so the tag stripper can do
+// ➤ its job. Only the five that matter; the rest is handled once the text is stripped.
 export function unescapeEntities(text) {
   return String(text || '')
     .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
@@ -276,35 +269,33 @@ export function parseLever(json, name) {
   return json.map(j => ({
     title: j.text || '', url: j.hostedUrl || '', company: name,
     location: j.categories?.location || '',
-    // ➤ Lever splits the advert: `description` is the intro blurb and the
-    // ➤ requirements live in `lists` ("What We Require", "Qualifications").
-    // ➤ Reading only the intro meant "5+ years required" never reached the
-    // ➤ years and degree screens at all.
+    // ➤ Lever splits the advert: `description` is the intro blurb and the requirements live in
+    // ➤ `lists` ("What We Require", "Qualifications"). Reading only the intro meant "5+ years
+    // ➤ required" never reached the years and degree screens.
     description: leverText(j),
   }));
 }
 
-// ➤ The whole Lever advert as one string: intro, every list, and the closing
-// ➤ section. Exported to be tested — the requirements are the part that
-// ➤ decides whether an offer is realistic for you.
+// ➤ The whole Lever advert as one string: intro, every list, the closing section. Exported
+// ➤ to be tested — the requirements are what decides whether an offer is realistic for
+// ➤ you.
 export function leverText(j) {
   const lists = (j?.lists || []).map(l => `${l?.text || ''}. ${l?.content || ''}`);
   return [j?.descriptionPlain || j?.description || '', ...lists, j?.additionalPlain || j?.additional || '']
     .filter(Boolean).join(' ');
 }
 
-// ➤ Greenhouse leaves the advert text out unless the URL asks for it. The flag
-// ➤ is added here rather than in portals.yml so it cannot be forgotten when a
-// ➤ board is added; re-adding it to a URL that already has it is a no-op.
+// ➤ Greenhouse leaves the advert text out unless the URL asks for it. The flag is added
+// ➤ here, not in portals.yml, so it cannot be forgotten when a board is added; re-adding
+// ➤ it is a no-op.
 export function greenhouseUrlWithContent(url) {
   const u = String(url || '');
   if (!u || /[?&]content=true\b/.test(u)) return u;
   return u + (u.includes('?') ? '&' : '?') + 'content=true';
 }
-// ➤ Workday translator. Important detail: when an offer says
-// ➤ "2 Locations" (several locations without saying which), the
-// ➤ location is left empty so as not to discard it by mistake; further below there is a step
-// ➤ that finds out the real locations of those offers.
+// ➤ Workday translator. When an offer says "2 Locations" (several, without saying which),
+// ➤ the location is left empty so as not to discard it by mistake; a later step finds out
+// ➤ the real locations.
 function parseWorkday(json, name, meta) {
   const base = `https://${meta.tenant}.${meta.dc}.myworkdayjobs.com/en-US/${meta.site}`;
   return (json.jobPostings || []).map(j => {
@@ -322,15 +313,13 @@ function parseWorkday(json, name, meta) {
     };
   });
 }
-// ➤ Oracle translator. The link format is verified by hand:
-// ➤ with the wrong format, DNV's site sent you to the global list
-// ➤ and the user ended up seeing India/UK offers. Hence the warning below.
+// ➤ Oracle translator. The link format is verified by hand — with the wrong one, DNV's
+// ➤ site sent you to the global list (India/UK offers).
 function parseOracle(json, name, meta) {
   const items = json.items?.[0]?.requisitionList || [];
   // ➤ URL format VERIFIED against DNV's live site: /requisitions/preview/{Id}. The /job/{Id}
   // ➤ route does not exist in their Oracle CX version — the SPA silently falls back to the
-  // ➤ global job list (India/UK listings). HTTP 200 means nothing on an SPA; only the real
-  // ➤ link format counts.
+  // ➤ global list. HTTP 200 means nothing on an SPA.
   const base = `https://${meta.host}/hcmUI/CandidateExperience/en/sites/${meta.site}/requisitions/preview`;
   return items.map(j => ({
     title: j.Title || '',
@@ -348,10 +337,10 @@ const PARSERS = { greenhouse: parseGreenhouse, ashby: parseAshby, lever: parseLe
 // ➤ pages at most, so as not to request endless old offers.
 const WORKDAY_PAGE = 20;          // Workday returns 20 per page
 const WORKDAY_MAX_PER_TERM = 60;  // cap pages per search term (3 pages)
-// ➤ The most postings one employer may contribute in a single run. Well above any real
-// ➤ board — Bureau Veritas publishes 1,985 real ones and Indra 663, and a cap of 500 left
-// ➤ three quarters of Bureau Veritas unread every run — while still catching the flood it
-// ➤ exists for (a feed that answered 20,000).
+// ➤ The most postings one employer may contribute in a run. Well above any real board —
+// ➤ Bureau Veritas publishes 1,985 real ones and Indra 663, and a cap of 500 left three
+// ➤ quarters of Bureau Veritas unread — while still catching the flood it exists for (a
+// ➤ feed that answered 20,000).
 export const MAX_JOBS_PER_COMPANY = 3000;
 const ORACLE_PAGE = 50;           // Oracle finder page size
 const ORACLE_MAX = 150;           // 3 pages, newest first
@@ -374,10 +363,9 @@ async function fetchJson(url, opts = {}) {
   }
 }
 
-// ➤ Same as the previous one, but with retries: if the failure is transient
-// ➤ (the portal's server is overloaded), it waits a bit and tries
-// ➤ again up to 3 times. If the failure is "you've made too many requests"
-// ➤ (error 429), it does NOT retry: we must stop so as not to make it worse.
+// ➤ Like fetchJson, with retries: a transient failure (an overloaded portal) is retried up
+// ➤ to 3 times after a pause. A 429 ("too many requests") is NOT retried — stop, not make
+// ➤ it worse.
 async function fetchJsonRetry(url, opts = {}, tries = 3) {
   let lastErr;
   for (let i = 0; i < tries; i++) {
@@ -405,9 +393,9 @@ async function collectWorkday(api, name, searchTerms, onPartial = () => {}) {
   const terms = searchTerms.length ? searchTerms : [''];
   const byUrl = new Map();
   // ➤ DID THIS BOARD ANSWER AT ALL? A swallowed request error makes a board that could not
-  // ➤ be reached look exactly like one with no matching jobs — measured with the network
-  // ➤ cut: nine boards reported as scanned, five errors, seven failures invisible, and the
-  // ➤ run read as an ordinary quiet one.
+  // ➤ be reached look exactly like one with no matching jobs — with the network cut, nine
+  // ➤ boards reported as scanned, five errors, seven failures invisible: an ordinary quiet
+  // ➤ run.
   let answered = false, lastError = null, cutShort = false;
   for (const term of terms) {
     for (let offset = 0; offset < WORKDAY_MAX_PER_TERM; offset += WORKDAY_PAGE) {
@@ -421,9 +409,9 @@ async function collectWorkday(api, name, searchTerms, onPartial = () => {}) {
         answered = true;
       } catch (err) {
         lastError = err;
-        // ➤ Failing here, with pages already read, is a TRUNCATED board — not an
-        // ➤ employer with nothing to offer. There are no retries on this path
-        // ➤ (fetchJson, not fetchJsonRetry), so one 429 ends the term.
+        // ➤ Failing here, with pages already read, is a TRUNCATED board — not an employer with
+        // ➤ nothing to offer. No retries on this path (fetchJson, not fetchJsonRetry), so one 429
+        // ➤ ends the term.
         if (answered) cutShort = true;
         break; // move to next term on error
       }
@@ -445,22 +433,21 @@ async function collectWorkday(api, name, searchTerms, onPartial = () => {}) {
 // ➤ and each vacancy page carries a schema.org JobPosting block: the same fields an ATS
 // ➤ would hand over, published for search engines.
 
-// ➤ The title lives in the last part of the vacancy URL, minus its id:
-// ➤ "…/vacancies/production-automation-system-engineer-rotterdam-2807en".
-// ➤ Good enough for the title filter, which is all it is used for.
+// ➤ The title lives in the last part of the vacancy URL, minus its id
+// ➤ ("…/vacancies/production-automation-system-engineer-rotterdam-2807en"). Good enough
+// ➤ for the title filter, all it is used for.
 export function slugTitle(url) {
   const raw = String(url || '').split(/[?#]/)[0].replace(/\/+$/, '').split('/').pop() || '';
-  // ➤ decodeURIComponent THROWS on malformed percent-encoding, and this runs
-  // ➤ once per sitemap URL — one bad link took the whole board down with it.
-  // ➤ The raw slug still carries the words the title filter needs.
+  // ➤ decodeURIComponent THROWS on malformed percent-encoding, and this runs once per
+  // ➤ sitemap URL — one bad link would take the whole board down. The raw slug still carries
+  // ➤ the words the title filter needs.
   let last = raw;
   try { last = decodeURIComponent(raw); } catch { /* keep the raw slug */ }
   return last.replace(/-\d+[a-z]*$/i, '').replace(/[-_]+/g, ' ').trim();
 }
 
-// ➤ Reads the JobPosting block out of a vacancy page. Returns null when the page
-// ➤ has none, so a site that stops publishing it goes quiet rather than filling
-// ➤ the list with blanks.
+// ➤ Reads the JobPosting block out of a vacancy page; null when the page has none, so a
+// ➤ site that stops publishing it goes quiet rather than filling the list with blanks.
 export function parseJobPostingLd(html, url, name) {
   for (const m of String(html || '').matchAll(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
     let parsed;
@@ -478,14 +465,14 @@ export function parseJobPostingLd(html, url, name) {
 }
 
 // ➤ How many vacancy pages one site may be asked for in a run. Two stages keep it tiny:
-// ➤ the slug carries the title, so the filter runs on it first and only the survivors are
-// ➤ downloaded (164 vacancies listed, 5 downloaded on the two real boards). The ceiling is
-// ➤ for the day a filter is widened and suddenly everything matches.
+// ➤ the slug carries the title, so the filter runs on it first and only survivors are
+// ➤ downloaded (164 listed, 5 downloaded on the two real boards). The ceiling is for the
+// ➤ day a filter is widened and everything matches.
 const SITEMAP_MAX_PAGES = 40;
 
-// ➤ `titleFilter` is passed in rather than reached for: it is what makes this
-// ➤ cheap, and a version that downloaded everything first would still work,
-// ➤ which is exactly the kind of regression a test cannot see.
+// ➤ `titleFilter` is passed in rather than reached for: it is what makes this cheap, and a
+// ➤ version that downloaded everything first would still work — the kind of regression a
+// ➤ test cannot see.
 async function collectSitemap(api, name, titleFilter, log = console.log) {
   const res = await fetch(api.url, { headers: { 'User-Agent': DESC_UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -506,10 +493,9 @@ async function collectSitemap(api, name, titleFilter, log = console.log) {
   return jobs;
 }
 
-// ➤ Collects a company's offers on Oracle: it requests the most recent ones
-// ➤ first, page by page, up to the cap of 150 offers.
-// ➤ onPartial: same as Workday above — a board that answered and then stopped
-// ➤ is a truncated read, and the run has to say so.
+// ➤ Collects a company's offers on Oracle: most recent first, page by page, up to the cap
+// ➤ of 150. onPartial: as for Workday — a board that answered and then stopped is a
+// ➤ truncated read, and the run has to say so.
 async function collectOracle(api, name, onPartial = () => {}) {
   const { host, site } = api.meta;
   const byUrl = new Map();
@@ -541,9 +527,8 @@ async function collectOracle(api, name, onPartial = () => {}) {
 // ➤ aggregator: a search engine that gathers offers from many portals (Indeed and European
 // ➤ job boards).
 
-// ➤ Looks for Adzuna's access keys (a kind of username and
-// ➤ password for its service): first in the system variables,
-// ➤ then in the adzuna-key.json file. Without keys, Adzuna is skipped.
+// ➤ Adzuna's access keys (a username and password for its service): first the environment,
+// ➤ then adzuna-key.json. Without keys, Adzuna is skipped.
 function loadAdzunaCreds() {
   if (process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY) {
     return { id: process.env.ADZUNA_APP_ID, key: process.env.ADZUNA_APP_KEY };
@@ -559,9 +544,8 @@ function loadAdzunaCreds() {
 }
 
 // ➤ Turns the Adzuna salary into a short, honest text ("€35-45k"): "~" in front when
-// ➤ Adzuna ESTIMATED it, so you never take an estimate for a real figure; Switzerland in
-// ➤ CHF; suspiciously low figures (<10k/year) omitted as API garbage. Exported to be
-// ➤ tested.
+// ➤ Adzuna ESTIMATED it, Switzerland in CHF, suspiciously low figures (<10k/year) omitted
+// ➤ as API garbage. Exported to be tested.
 export function formatSalary(min, max, predicted, countryCode) {
   let lo = Number(min) || 0, hi = Number(max) || 0;
   if (!lo && !hi) return '';
@@ -599,10 +583,9 @@ function parseAdzuna(json, countryCode) {
   }));
 }
 
-// ➤ Goes through all enabled countries and all configured searches
-// ➤ requesting offers from Adzuna. It counts how many requests went well and
-// ➤ how many failed (failures are shown, not hidden), and if Adzuna
-// ➤ says "too many requests" it stops immediately with whatever it has.
+// ➤ Goes through every enabled country and configured search asking Adzuna for offers.
+// ➤ Successes and failures are counted (failures shown, not hidden), and a "too many
+// ➤ requests" stops it at once with whatever it has.
 async function collectAdzuna(creds, cfg, countryOffNames) {
   const countries = cfg.countries || [];
   // New format: queries: [{what: "..."} | {what_or: "w1 w2 ..."}].
@@ -637,10 +620,9 @@ async function collectAdzuna(creds, cfg, countryOffNames) {
         calls++;
         for (const o of parseAdzuna(json, c.code)) {
           if (!o.url) continue;
-          // Adzuna results always carry a location in practice. If one ever
-          // comes empty, fall back to the queried country AND log it loudly —
-          // the user wants the city, so an empty location is an anomaly to show,
-          // not to paper over silently.
+          // ➤ Adzuna results always carry a location in practice. If one ever comes empty, fall back
+          // ➤ to the queried country AND log it loudly — the user wants the city, so an empty
+          // ➤ location is an anomaly to show, not paper over.
           if (!o.location) {
             o.location = c.name;
             failures.push(`no location in API for ${o.url} — country fallback used`);
@@ -669,9 +651,8 @@ async function collectAdzuna(creds, cfg, countryOffNames) {
 
 const LI_STATE_PATH = join(SCRIPT_DIR, 'linkedin-state.json');
 
-// ➤ The LinkedIn page doesn't arrive as ordered data but as HTML
-// ➤ (the web page's code). This function "digs through" that code for
-// ➤ the title, company and location of each offer card.
+// ➤ The LinkedIn page arrives as HTML, not ordered data: this digs through it for the
+// ➤ title, company and location of each offer card.
 export function parseLinkedInCards(html) {
   // ➤ Splits the page using the marker LinkedIn puts at the start of
   // ➤ each offer; each resulting chunk is an offer.
@@ -700,10 +681,9 @@ export function parseLinkedInCards(html) {
 // ➤ now used twice: once to set the pause and once to sanity-check it.
 const LINKEDIN_COOLDOWN_MS = 24 * 3600_000;
 
-// ➤ Queries LinkedIn respecting its limits: first it checks whether it's time
-// ➤ to rest (24h penalty, or the hours between queries haven't
-// ➤ passed yet); if so, it does nothing. If it queries, it saves the time in a
-// ➤ little state file for next time.
+// ➤ Queries LinkedIn respecting its limits: first whether it is time to rest (the 24 h
+// ➤ penalty, or the hours between queries not yet passed) — then nothing; when it does
+// ➤ query, it saves the time in a little state file for next time.
 async function collectLinkedIn(cfg) {
   const state = existsSync(LI_STATE_PATH)
     ? (() => { try { return JSON.parse(readFileSync(LI_STATE_PATH, 'utf-8')); } catch { return {}; } })()
@@ -722,10 +702,10 @@ async function collectLinkedIn(cfg) {
     return { offers: [], calls: 0, status: `cooldown until ${new Date(state.cooldown_until).toISOString().slice(0, 16)}` };
   }
   const everyMs = (cfg.every_hours || 6) * 3600_000;
-  // ➤ Have the minimum hours since the last query not passed yet? Skip.
-  // ➤ Same clock guard as the cooldown below: last_run is written on every
-  // ➤ run, so it is the likelier of the two to catch a clock that jumped, and
-  // ➤ a run "in the future" would hold LinkedIn off until the date passes.
+  // ➤ Have the minimum hours since the last query not passed yet? Skip. Same clock guard as
+  // ➤ the cooldown below: last_run is written on every run, so it is the likelier of the two
+  // ➤ to catch a clock that jumped, and a run "in the future" would hold LinkedIn off until
+  // ➤ the date passes.
   if (state.last_run && state.last_run - now > everyMs) state.last_run = 0;
   if (state.last_run && now - state.last_run < everyMs) {
     return { offers: [], calls: 0, status: 'cadence-skip' };
@@ -790,9 +770,9 @@ async function collectLinkedIn(cfg) {
 // ➤ (JS-heavy SPAs) or network errors — when in doubt the offer is live, so a transient
 // ➤ website failure cannot lose a good one.
 
-// ➤ Does the page have a live APPLY button/link? ("Apply now",
-// ➤ "Solliciteer", "Jetzt bewerben", "Postuler"...). Strong signal that the
-// ➤ offer is still active. Exported so housekeep uses the same one.
+// ➤ Does the page have a live APPLY button/link ("Apply now", "Solliciteer", "Jetzt
+// ➤ bewerben", "Postuler"…)? A strong signal the offer is still active. Exported so
+// ➤ housekeep uses the same one.
 export function hasApplySignal(text) {
   return /apply (?:now|today|here|for this (?:job|position|role))|submit (?:your )?application|start (?:your )?application|solliciteer|postule[rz]\b|jetzt bewerben|bewirb dich|ap[úu]ntate|inscr[íi]bete|env[íi]a tu (?:cv|candidatura)|aplicar? ahora/i.test(String(text || ''));
 }
@@ -857,8 +837,8 @@ const DESC_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (K
 const SCAN_HOST_GAP_MS = { adzuna: 1500, linkedin: 1200 };
 // ➤ Slot allocator per host, not a last-request timestamp: a read-sleep-write lets the
 // ➤ five callers of parallel(checks, 5) compute the same wait, wake together and fire in a
-// ➤ burst of 5 — earning the very 429s that defer offers. Claiming the slot synchronously
-// ➤ (no await between read and write) hands each caller its own moment, one gap apart.
+// ➤ burst of 5 — earning the 429s that defer offers. Claiming the slot synchronously hands
+// ➤ each caller its own moment, one gap apart.
 const scanHostNext = new Map();   // per host: when the NEXT request may fire
 const scanHostFloor = new Map();  // per host: floor imposed by a 429 penalty
 async function scanPoliteFetch(hostKey, url, opts = {}) {
@@ -891,9 +871,9 @@ async function scanPoliteFetch(hostKey, url, opts = {}) {
 async function fetchOfferDescription(o, targetsByName) {
   try {
     // ➤ A body some earlier step already extracted wins outright: the sitemap parser stores
-    // ➤ the whole JD in _jd and the Workday location enrichment stashes it too, while
-    // ➤ o.description is EMPTY for sitemap offers — falling through to it would skip the
-    // ➤ years/degree/language screens for those boards entirely.
+    // ➤ the whole JD in _jd and the Workday enrichment stashes it too, while o.description is
+    // ➤ EMPTY for sitemap offers — falling through to it would skip the years/degree/language
+    // ➤ screens for those boards.
     if (o._jd) return o._jd;
     // ➤ Workday recipe: the offer's detail page is requested.
     if (o.source === 'workday-api') {
@@ -929,8 +909,8 @@ async function fetchOfferDescription(o, targetsByName) {
       const liUrl = `https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/${idm[1]}`;
       // ➤ LinkedIn throttles or blocks unauthenticated reads probabilistically (often a 403/999)
       // ➤ and one failure is usually transient, so try TWICE — a second PUBLIC attempt, no
-      // ➤ login. scanPoliteFetch already paces calls and retries 429s; this only adds a retry
-      // ➤ for the block/empty cases.
+      // ➤ login. scanPoliteFetch already paces calls and retries 429s; this adds a retry for the
+      // ➤ block/empty cases.
       for (let attempt = 0; attempt < 2; attempt++) {
         const res = await scanPoliteFetch('linkedin', liUrl);
         if (res && res.ok) {
@@ -940,23 +920,17 @@ async function fetchOfferDescription(o, targetsByName) {
       }
       return '';
     }
-    // ➤ Adzuna recipe: the short snippet isn't enough (the years
-    // ➤ requirement usually isn't there), so the offer's full page is
-    // ➤ downloaded and joined with the snippet. This closed the gap through which
-    // ➤ "10 years of experience" offers were slipping in.
+    // ➤ Adzuna recipe: the ~200-char snippet almost never carries the years requirement, so
+    // ➤ the full details page (o.url) is downloaded and joined with the snippet — verified
+    // ➤ live, it recovers the "10 años"/"5 years" the snippet omitted.
     if (o.source === 'adzuna') {
-      // ➤ The ~200-char list snippet almost never carries the years requirement (it lives in the
-      // ➤ full JD), so high-year offers slipped through. Adzuna's details page (o.url) hosts the
-      // ➤ whole body: fetch it and combine with the snippet — verified live, it recovers the "10
-      // ➤ años"/"5 years" the snippet omitted.
       let body = '';
       try {
         const res = await scanPoliteFetch('adzuna', o.url, { redirect: 'follow' });
         if (res && res.ok) {
           const html = await res.text();
-          // ➤ If the clean description region is found, that one is used
-          // ➤ (without menus or related ads) and it's saved in the offer
-          // ➤ so the body's LANGUAGE can also be checked on Adzuna.
+          // ➤ If the clean description region is found, that one is used (no menus or related ads)
+          // ➤ and saved in the offer so the body's LANGUAGE can be checked on Adzuna too.
           const jd = extractAdzunaJd(html);
           if (jd) o._jd = jd;
           body = jd || stripHtml(html);
@@ -996,10 +970,10 @@ async function fetchOfferDescription(o, targetsByName) {
 // ➤ met.
 const TITLE_LANG_DEMAND = /\b(german|deutsch|french|dutch|nederlands|flemish|italian|norwegian|danish|swedish|polish|portuguese)\b[^)]{0,25}?(speak(?:ing|er)?|sprechend|sprachig|parlant)/i;
 
-// ➤ ENGLISH AS AN ALTERNATIVE IS NOT A DEMAND. "German or English speaking"
-// ➤ and "Dutch/English speaking" both accept English, so the owner qualifies —
-// ➤ only "and" chains the two into a real requirement. In doubt, keep: a
-// ➤ false drop loses the offer in silence, a false keep costs one tap.
+// ➤ ENGLISH AS AN ALTERNATIVE IS NOT A DEMAND: "German or English speaking" and
+// ➤ "Dutch/English speaking" both accept English, so the owner qualifies — only "and"
+// ➤ chains the two into a real requirement. In doubt, keep: a false drop loses the offer
+// ➤ in silence, a false keep costs one tap.
 const OTHER_LANG = '(?:german|deutsch|french|dutch|nederlands|flemish|italian|norwegian|danish|swedish|polish|portuguese)';
 const ALT_JOIN = String.raw`\s*(?:/|,?\s+(?:or|oder|of|ou|o)\s+)\s*`;
 const ENGLISH_ALTERNATIVE = new RegExp(
@@ -1038,9 +1012,8 @@ const REQWORD = '(?:fluent|fluency|proficien\\w+|mandatory|compulsory|require[sd
   + '|flie[sß]end\\w*|verhandlungssicher\\w*|sehr gut\\w*|gute?n? kenntnisse|kenntnisse|beherrsch\\w*|sicher\\w* umgang'
   + '|vlot\\w*|beheers\\w*|goede kennis|uitstekend\\w*|spreekt|schrift'
   + '|courant\\w*|ma[îi]tris\\w*|bilingue|tr[èe]s bon\\w* niveau|niveau (?:c1|c2|courant))';
-// ➤ Combines the two lists: it requires the requirement word and the language
-// ➤ to appear together in the same sentence (without crossing periods or semicolons),
-// ➤ or that there be a list like "Languages: Dutch".
+// ➤ Combines the two lists: the requirement word and the language must appear in the same
+// ➤ sentence (no periods or semicolons crossed), or in a list like "Languages: Dutch".
 const BODY_LANG_REQ = new RegExp(
   `${REQWORD}[^.!?;]{0,40}\\b${LANGWORD}|\\b${LANGWORD}[^.!?;]{0,30}${REQWORD}|(?:talen|sprachen|langues|idiomas|languages)\\s*:\\s*[^.!?;]{0,30}\\b${LANGWORD}`,
   'i',
@@ -1072,10 +1045,9 @@ export function bodyLanguageBlock(text) {
   BODY_LANG_REQ.lastIndex = 0;
   const m = BODY_LANG_REQ.exec(t);
   if (!m) return false;
-  // ➤ The mitigator ("a plus"/"advantage") only counts if it's in the SAME sentence as the
+  // ➤ The mitigator ("a plus"/"advantage") only counts in the SAME sentence as the
   // ➤ requirement: with a crude ±60-char window, "German required. English is a plus" is
-  // ➤ softened by the "plus" of the OTHER language and an offer with mandatory German slips
-  // ➤ in.
+  // ➤ softened by the OTHER language's "plus" and mandatory German slips in.
   let s = m.index, e = m.index + m[0].length;
   while (s > 0 && !/[.!?;]/.test(t[s - 1])) s--;
   while (e < t.length && !/[.!?;]/.test(t[e])) e++;
@@ -1102,9 +1074,8 @@ export function bodyLanguageBlock(text) {
   return true;
 }
 
-// ➤ Finds out the language of a short text by asking Google's free
-// ➤ translator (which, besides translating, says which language the
-// ➤ original was in). If the query fails, it returns "don't know" and nothing is discarded.
+// ➤ The language of a short text, asked of Google's free translator (which also reports
+// ➤ the source language). If the query fails: "don't know", and nothing is discarded.
 export async function detectTitleLang(title) {
   try {
     const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q='
@@ -1133,9 +1104,9 @@ export function buildCountryFilter(cfg = null) {
   const countries = cfg.countries || {};
   const aliases = cfg.aliases || {};
   // ➤ Keeps only the countries marked off. A hand-typed toggle counts however YAML reads it:
-  // ➤ js-yaml follows YAML 1.2, where `no` and `off` are STRINGS, not booleans, so `Germany:
-  // ➤ no` would switch nothing off and say nothing. The written forms of "off" are honoured;
-  // ➤ anything else leaves it on.
+  // ➤ js-yaml follows YAML 1.2, where `no` and `off` are STRINGS, so `Germany: no` would
+  // ➤ switch nothing off and say nothing. The written forms of "off" are honoured; anything
+  // ➤ else leaves it on.
   const isOff = v => v === false || /^(?:no|off|false)$/i.test(String(v).trim());
   const off = Object.entries(countries).filter(([, on]) => isOff(on)).map(([c]) => c);
 
@@ -1164,9 +1135,8 @@ export function buildCountryFilter(cfg = null) {
 }
 
 // ── Dedup ───────────────────────────────────────────────────────────
-// ➤ Anti-duplicate system. So as not to show an already-seen offer again,
-// ➤ all the already-known web addresses are loaded into memory (from the
-// ➤ history, the pending list and the applications record).
+// ➤ Anti-duplicate system: every web address already known is loaded into memory (history,
+// ➤ pending list, applications record) so an already-seen offer is never shown again.
 
 function loadSeenUrls() {
   const seen = new Set();
@@ -1272,8 +1242,7 @@ function loadSeenCompanyRoles() {
 }
 
 // ── Writers ─────────────────────────────────────────────────────────
-// ➤ Writing results: these functions record the new offers
-// ➤ in the pending list (pipeline.md) and the history.
+// ➤ These functions record the new offers in the pending list (pipeline.md) and the history.
 
 // ➤ WHO GETS IN, and the reason when they do not. Written once, here, and
 // ➤ exported: this same rule is re-applied weeks later by housekeep, and two
@@ -1300,8 +1269,8 @@ export function admissionVerdict(job, gates) {
   if (locationFilter.blockHit(job.title)) return { ok: false, stage: 'LOCATION', reason: 'the title names a country outside your range' };
   // ➤ Judged SEAT BY SEAT, like the location gate one line up and the Workday enrichment:
   // ➤ fed the joined string, the toggle would kill "Rotterdam, NL; Esbjerg, DK" whole with
-  // ➤ Denmark off, though the Dutch seat passes both gates on its own — one seat you can
-  // ➤ take is enough.
+  // ➤ Denmark off, though the Dutch seat passes on its own — one seat you can take is
+  // ➤ enough.
   const seats = String(job.location || '').split(';').map(x => x.trim()).filter(Boolean);
   const countryOk = seats.length > 1
     ? seats.some(s => locationFilter(s) && country.fn(s))
@@ -1329,10 +1298,8 @@ export function capJobs(jobs, name, max = MAX_JOBS_PER_COMPANY, log = console.lo
   return list.slice(0, max);
 }
 
-// ➤ Adds the new offers to the "Pending" section of pipeline.md.
-// ➤ Each one is assigned a fixed number (#412...) that appears in the Telegram
-// ➤ messages; that way, when the user replies "seen 412", there's no possible
-// ➤ confusion (numbering by position failed because Telegram groups by country).
+// ➤ Adds the new offers to the "Pending" section of pipeline.md, each with a fixed number
+// ➤ (#412...) shown in the Telegram messages, so "seen 412" can never hit the wrong one.
 function appendToPipeline(offers) {
   if (offers.length === 0) return;
   // ➤ Under lock. The scan runs every two hours and takes minutes, but this part — read the
@@ -1345,18 +1312,17 @@ function appendToPipeline(offers) {
 
 function appendToPipelineLocked(offers) {
   let text = existsSync(PIPELINE_PATH) ? readFileSync(PIPELINE_PATH, 'utf-8') : `# Pipeline\n\n${PENDING_HEADING}\n\n${PROCESSED_HEADING}\n`;
-  // Stable per-offer ID (last field, "#412"): shown in every Telegram message
-  // and used by visto/no. Positional numbering caused wrong-offer feedback —
-  // the Telegram list is country-grouped, so positions never matched.
+  // ➤ Positional numbering caused wrong-offer feedback — the Telegram list is
+  // ➤ country-grouped, so positions never matched.
   let nextId = 0;
   // ➤ Finds the highest number already used in the file to keep counting from it (a number
   // ➤ is never repeated). It counts the # at end of line AND the # right before the "|
   // ➤ visto" marker — a looser pattern could swallow a "#123" that came inside a title.
   for (const m of text.matchAll(/\|\s*#(\d+)\s*(?:\|\s*visto\s*)?$/gim)) nextId = Math.max(nextId, parseInt(m[1], 10));
   // ➤ HIGH-WATER MARK. The count above is the largest id still PRESENT in the file, and
-  // ➤ housekeep DELETES lines — so when the highest-numbered offer dies, the next new offer
-  // ➤ would get that same number again and two different offers would share one "#412". We
-  // ➤ also remember the highest id EVER handed out, so numbers only move forward.
+  // ➤ housekeep DELETES lines — when the highest-numbered offer dies, the next new offer
+  // ➤ would get that number again and two offers would share "#412". So the highest id EVER
+  // ➤ handed out is remembered too: numbers only move forward.
   nextId = Math.max(nextId, loadIdHighWater());
   // ➤ Where to insert: the pending heading, asked for in one place.
   const idx = pendingIndex(text);
@@ -1396,8 +1362,8 @@ function appendToPipelineLocked(offers) {
 }
 
 // ── The offer-number high-water mark ────────────────────────────────────
-// ➤ data/last-id.json simply holds the biggest #id ever assigned. It exists
-// ➤ because pipeline.md (where the ids live) has lines DELETED from it.
+// ➤ data/last-id.json holds the biggest #id ever assigned, because pipeline.md (where the
+// ➤ ids live) has lines DELETED from it.
 const LAST_ID_PATH = join(ROOT, 'data', 'last-id.json');
 // ➤ The highest offer number ever handed out. Reading it is deliberately paranoid: getting
 // ➤ it wrong gives two different jobs the same number, so "no 412" from an older message
@@ -1427,17 +1393,16 @@ export function loadIdHighWater(counterPath = LAST_ID_PATH, recordPaths = [join(
 }
 function saveIdHighWater(n) {
   if (!Number.isInteger(n) || n <= 0) return;
-  // ➤ Written atomically: this one small file is the ONLY thing standing between us and
-  // ➤ handing the same #number to two offers. A write cut in half leaves invalid JSON, the
-  // ➤ reader falls back to the highest id still in the pipeline — which housekeep deletes
-  // ➤ from — and the counter walks backwards.
+  // ➤ Written atomically: this small file is the ONLY thing between us and handing the same
+  // ➤ #number to two offers. A write cut in half leaves invalid JSON, the reader falls back
+  // ➤ to the highest id still in the pipeline — which housekeep deletes from — and the
+  // ➤ counter walks backwards.
   try { writeFileAtomic(LAST_ID_PATH, JSON.stringify({ lastId: n }) + '\n'); }
   catch { /* best-effort: at worst we fall back to the old behaviour */ }
 }
 
-// ➤ Adds each new offer to the scan-history.tsv history (a table with
-// ➤ date, portal, title...). This history is the memory that avoids
-// ➤ repeating offers in future scans.
+// ➤ Adds each new offer to scan-history.tsv (date, portal, title...): the memory that
+// ➤ avoids repeating offers in future scans.
 function appendToScanHistory(offers, date) {
   if (!existsSync(SCAN_HISTORY_PATH)) {
     writeFileSync(SCAN_HISTORY_PATH, 'url\tfirst_seen\tportal\ttitle\tcompany\tstatus\tlocation\n', 'utf-8');
@@ -1450,14 +1415,12 @@ function appendToScanHistory(offers, date) {
 
 // ── Concurrency ─────────────────────────────────────────────────────
 
-// ➤ Small work organizer: runs a list of tasks in
-// ➤ parallel but only a few at a time (the limit), so as not to overload
-// ➤ either the home server or the portals.
+// ➤ Small work organiser: runs a list of tasks in parallel, only a few at a time (the
+// ➤ limit), so neither the home server nor the portals are overloaded.
 async function parallel(tasks, limit) {
   let i = 0;
   // ➤ ERROR ISOLATION: a single throwing task must not abort its whole worker, or one bad
-  // ➤ link could cut a sweep short and make the remaining offers look like they simply were
-  // ➤ not there.
+  // ➤ link cuts a sweep short and the remaining offers look like they were never there.
   async function next() {
     while (i < tasks.length) {
       const task = tasks[i++];
@@ -1467,10 +1430,9 @@ async function parallel(tasks, limit) {
   await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, next));
 }
 
-// ➤ Writes the COMPLETE list of scan decisions (--explain mode): one
-// ➤ line per offer with the exact reason it was discarded (or "NEW" if
-// ➤ it passed). Groups by reason so it's readable, with a summary at the top. The
-// ➤ result goes to data/scan-explain.txt.
+// ➤ Writes the COMPLETE list of scan decisions (--explain mode) to data/scan-explain.txt:
+// ➤ one line per offer with the exact reason it was discarded (or "NEW"), grouped by
+// ➤ reason, with a summary on top.
 function writeExplainReport(rows, found) {
   // ➤ Order in which the reasons are shown (first the ones that reach you). COMPANY and
   // ➤ DEFERRED are counted in the summary too, not only written to the report.
@@ -1506,13 +1468,12 @@ function writeExplainReport(rows, found) {
 
 
 // ➤ ── THE RUN'S ACCOUNTING, IN ONE PLACE ────────────────────────────────
-// ➤ main() hands these the numbers it kept and nothing here reaches back into
-// ➤ the run. That is what makes the alarm testable: it decides from a summary,
-// ➤ not from the scan's own locals.
+// ➤ main() hands these the numbers it kept and nothing here reaches back into the run —
+// ➤ what makes the alarm testable: it decides from a summary, not from the scan's own
+// ➤ locals.
 
-// ➤ A "snapshot" of the scan in last-scan.json (when it ran, how many offers,
-// ➤ how many failures...). It serves to monitor that the server scanner is
-// ➤ working properly.
+// ➤ A "snapshot" of the scan in last-scan.json (when it ran, how many offers, how many
+// ➤ failures...), to monitor that the server scanner is working.
 function writeStateSnapshot(s) {
   writeFileSync(STATE_PATH, JSON.stringify({
     last_scan: new Date().toISOString(),
@@ -1640,8 +1601,8 @@ async function main() {
   const config = parseYaml(readFileSync(PORTALS_PATH, 'utf-8'));
   const companies = config.tracked_companies || [];
   // ➤ Title keywords come from your profile (search.positive_titles /
-  // ➤ search.negative_titles) when set; otherwise from portals.yml (the marine
-  // ➤ default). This lets the onboarding configure the base filter in one file.
+  // ➤ search.negative_titles) when set; otherwise from portals.yml (the marine default) — so
+  // ➤ the onboarding configures the base filter in one file.
   const vetoes = loadVetoes();
   const titleFilter = buildTitleFilter({
     positive: searchProfile.positive_titles || (config.title_filter || {}).positive,
@@ -1670,8 +1631,8 @@ async function main() {
     : (config.adzuna || {});
   // ➤ The COUNTRIES must follow the profile too, not only the queries: otherwise an
   // ➤ onboarded user's whole Adzuna budget goes to the marine example's seven countries —
-  // ➤ whose results their own location filter then kills — while the countries they chose,
-  // ➤ whose adzuna codes the onboarding records for exactly this, are never queried.
+  // ➤ whose results their own location filter then kills — while the countries they chose
+  // ➤ are never queried.
   const profileAdzunaCountries = Array.isArray(searchProfile.countries)
     ? searchProfile.countries.filter(c => c && c.adzuna && c.name).map(c => ({ name: c.name, code: c.adzuna }))
     : [];
@@ -1690,8 +1651,8 @@ async function main() {
     .filter(c => c._api !== null);
 
   // ➤ Counted against the SAME set targets was built from: with --company, comparing against
-  // ➤ every enabled company would report "28 skipped — no direct API" when the other 28 were
-  // ➤ simply not asked for.
+  // ➤ every enabled company would report "28 skipped — no direct API" for boards nobody
+  // ➤ asked for.
   const considered = companies.filter(c => c.enabled !== false && (!only || c.name.toLowerCase().includes(only)));
   const noApi = considered.length - targets.length;
 
@@ -1713,9 +1674,9 @@ async function main() {
   // ➤ apart from `errors` so a fresh install does not read as a broken one.
   const skipped = [];
 
-  // ➤ --explain mode: it records, offer by offer, WHY each one was discarded, so it can give
-  // ➤ you the complete "one line per offer" list (dumped to data/scan-explain.txt). It does
-  // ➤ NOT change the normal scan: without --explain, logDrop does nothing.
+  // ➤ --explain mode records, offer by offer, WHY each one was discarded, for the complete
+  // ➤ "one line per offer" list (data/scan-explain.txt). Without --explain, logDrop does
+  // ➤ nothing.
   const explain = args.includes('--explain');
   const explainRows = [];
   const logDrop = (stage, reason, o, source) => {
@@ -1727,10 +1688,9 @@ async function main() {
     });
   };
 
-  // ➤ The "entry gate": every offer found passes through here and must
-  // ➤ clear, in order, the title filter, the location one, the off-country
-  // ➤ one and the two duplicate checks. Only then is it
-  // ➤ accepted as a new offer.
+  // ➤ The "entry gate": every offer found must clear, in order, the title filter, the
+  // ➤ location one, the off-country one and the two duplicate checks before it counts as
+  // ➤ new.
   function admit(job, source) {
     const v = admissionVerdict(job, { companyFilter, titleFilter, locationFilter, country, seenUrls, seenRoles });
 
@@ -1741,9 +1701,8 @@ async function main() {
       else if (v.stage === 'COUNTRY') fCountry++;
       else if (v.stage === 'DUPLICATE') dupes++;
       // ➤ THE FIRST GATE COUNTS TOO: an offer thrown out for a missing or unsafe link must
-      // ➤ appear in the summary and in last-scan.json. It is zero on a healthy run, which is
-      // ➤ exactly why it would go unnoticed the day a board renames the field its links come
-      // ➤ from and every one of its offers leaves by this door.
+      // ➤ appear in the summary and in last-scan.json — zero on a healthy run, which is exactly
+      // ➤ why it would go unnoticed the day a board renames the field its links come from.
       else if (v.stage === 'NO LINK') fNoLink++;
 
       logDrop(v.stage, v.reason, job, source);
@@ -1762,10 +1721,10 @@ async function main() {
   // ➤ How many sources answered at all. Used at the end to tell "a quiet week"
   // ➤ from "nothing could be reached", which look identical otherwise.
   let sourcesOk = 0;
-  // ➤ Boards that ANSWER with zero postings, named. An answered zero never trips the
-  // ➤ no-answer alarm, and three boards sat wrong for weeks behind exactly that: a stale
-  // ➤ tenant (5 postings, the real board had 733), an absorbed brand (0), and one
-  // ➤ legitimately quiet board. One glance tells which you have.
+  // ➤ Boards that ANSWER with zero postings, named: an answered zero never trips the
+  // ➤ no-answer alarm, and three boards sat wrong for weeks behind that — a stale tenant (5
+  // ➤ postings, the real board had 733), an absorbed brand (0), one legitimately quiet
+  // ➤ board. One glance tells which you have.
   const emptyBoards = [];
   let adzunaCalls = 0, adzunaFailed = 0, adzunaRateLimited = false;
   const adzunaWanted = adzunaCfg.enabled
@@ -1857,14 +1816,13 @@ async function main() {
 
   async function collectFromAdzuna() {
     // ── Adzuna aggregator (skipped when --company targets an ATS) ─────
-    // ➤ Adzuna step: only if it's enabled in the configuration and skipping it
-    // ➤ wasn't requested. Without access keys, the error is recorded and it continues.
+    // ➤ Only if enabled in the configuration and not skipped by the flag. Without access keys
+    // ➤ the note is recorded and it continues.
     if (adzunaWanted) {
       const creds = loadAdzunaCreds();
       if (!creds) {
         // ➤ NOT an error: the Adzuna key is optional and the README says so; listing it under
-        // ➤ "Errors" on every scan of a fresh install reads as "your setup is broken" when nothing
-        // ➤ is.
+        // ➤ "Errors" on every scan of a fresh install reads as "your setup is broken".
         skipped.push('Adzuna (no key — see README, it is optional)');
       } else {
         const res = await collectAdzuna(creds, adzunaCfg, country.off);
@@ -1880,8 +1838,7 @@ async function main() {
 
   async function collectFromLinkedIn() {
     // ── LinkedIn jobs-guest (optional, low volume, self-throttled) ─────
-    // ➤ LinkedIn step: just as optional, and it also self-throttles
-    // ➤ (hourly cadence and rests, as explained above).
+    // ➤ Just as optional, and self-throttled (cadence and rests, explained above).
     if (liCfg.enabled && !args.includes('--no-linkedin') && (!only || 'linkedin'.includes(only))) {
       const res = await collectLinkedIn(liCfg);
       liCalls = res.calls;
@@ -1916,9 +1873,8 @@ async function main() {
             if (info.jobDescription) o._jd = stripHtml(info.jobDescription);
             const locs = [info.location, ...(info.additionalLocations || [])].filter(Boolean);
             if (!locs.length) return; // still unknown — keep as-is
-            // ➤ Generous rule: as long as ONE of the locations is allowed,
-            // ➤ the offer stays (and that one is shown). It's only discarded if
-            // ➤ ALL are blocked.
+            // ➤ Generous rule: as long as ONE of the locations is allowed the offer stays (and that
+            // ➤ one is shown); discarded only if ALL are blocked.
             const passing = locs.filter(l => locationFilter(l) && country.fn(l));
             if (passing.length === 0) { drops.add(i); o._why = `all its locations are outside your range (${locs.join(', ')})`; return; }
             o.location = passing.join('; ');
@@ -1940,8 +1896,8 @@ async function main() {
   async function screenTitleLanguage() {
     // ── Language screen ───────────────────────────────────────────────
     // ➤ TITLE language step: out with offers whose title is in a language the user does not
-    // ➤ speak, or that already demand a language in the title. Allowed title languages come
-    // ➤ from the profile (search.languages); portals.yml or EN/ES/CA are fallbacks.
+    // ➤ speak, or that already demand a language in the title. Allowed languages come from the
+    // ➤ profile (search.languages); portals.yml or EN/ES/CA are fallbacks.
     const langAllow = new Set((searchProfile.languages || langCfg.allow || ['en', 'es', 'ca']).map(s => String(s).toLowerCase()));
     if (langEnabled && newOffers.length > 0) {
       const drops = new Set();
@@ -1982,14 +1938,13 @@ async function main() {
       const deferred = new Set();
       const checks = newOffers.map((o, i) => async () => {
         const desc = await fetchOfferDescription(o, targetsByName);
-        // ➤ Experience verdict: it looks at how many years they ask for AND in what field
-        // ➤ (2 years "in a similar role" of PLC discard just like 5 — the user
-        // ➤ can't prove them; 2 years of mooring they can).
+        // ➤ Experience verdict: how many years AND in what field — 2 years "in a similar role" of
+        // ➤ PLC discard like 5 (the user can't prove them); 2 years of mooring they can.
         const verdict = experienceScreen(`${o.title || ''}. ${desc}`, o.title, maxYears);
         if (verdict) o.years = verdict.years;         // surfaced in the scan log
-        // ➤ OrcaFlex rule: if the offer mentions OrcaFlex — HIS star tool, which barely anyone
-        // ➤ knows — it stays in the list even if it asks for more years than the cap. The language
-        // ➤ is still checked. The term list lives in the profile (search.priority_terms).
+        // ➤ OrcaFlex rule: an offer that mentions the user's star tool stays even past the years
+        // ➤ cap; the language is still checked. The term list lives in the profile
+        // ➤ (search.priority_terms).
         const priority = PRIORITY_KEEP.test(`${o.title || ''} ${desc}`);
         if (verdict && verdict.drop && !priority) {
           drops.add(i);
@@ -1998,22 +1953,21 @@ async function main() {
             : `asks for more experience than you have`;
           return;
         }
-        // ➤ DEGREE requirement in the body: if the text requires a master's/degree in a field the
-        // ➤ user doesn't have (mechanical/electrical/electronics...) and mentions none of the
-        // ➤ user's fields, out. OrcaFlex exempts just like with the years.
+        // ➤ DEGREE requirement in the body: a master's/degree in a field the user doesn't have,
+        // ➤ with none of their fields mentioned → out. OrcaFlex exempts, as with the years.
         if (!priority && degreeScreen(desc, o.title)) { drops.add(i); o.degree = true; o._why = 'the body requires a degree you do not have (mechanical/electrical/civil engineering/etc.)'; return; }
-        // ➤ Refined language rule: it does NOT matter which language the offer is written in —
-        // ➤ it's only discarded if the body REQUIRES a language you don't speak (and not as
-        // ➤ "valued/a plus"). For Adzuna the clean description region is used (or the API
-        // ➤ snippet); never the whole page, which carries menus in the country's language.
+        // ➤ Refined language rule: not which language the offer is written in — only whether the
+        // ➤ body REQUIRES one you don't speak (not as "valued/a plus"). For Adzuna the clean
+        // ➤ description region (or the API snippet) is used, never the whole page with its menus
+        // ➤ in the country's language.
         if (langEnabled) {
           const pure = o.source === 'adzuna' ? (o._jd || stripHtml(o.description || '')) : desc;
           if (pure && bodyLanguageBlock(pure)) { langDrops.add(i); o._why = 'the body REQUIRES (mandatory) a language you do not speak'; }
         }
         // ➤ DEFERRAL: if the detail page could NOT be read (429 exhausted), the offer isn't shown
-        // ➤ to you half-examined. It's left out WITHOUT recording it anywhere, and the next scan
-        // ➤ (2 h, fresh quota) re-finds it and examines it fully. OrcaFlex exception: if the
-        // ➤ snippet already names your star tool, it comes in anyway — it's not risked being lost.
+        // ➤ half-examined — left out WITHOUT recording it, the next scan (2 h, fresh quota)
+        // ➤ re-finds and examines it. OrcaFlex exception: a snippet naming your star tool comes in
+        // ➤ anyway.
         if (o._bodyUnread && !priority) { deferred.add(i); o._why = 'detail page unreadable due to rate-limit — retried on the next scan'; }
       });
       await parallel(checks, 5);
@@ -2039,16 +1993,14 @@ async function main() {
   }
 
   async function dropDeadLinks() {
-    // ── Liveness: drop clearly-dead Adzuna links before they reach the user ─
-    // ➤ Last filter: check that the Adzuna links are still alive,
-    // ➤ so the user doesn't get offers already withdrawn.
+    // ➤ Last filter: the Adzuna links are checked to be alive, so no withdrawn offer reaches you.
     if (newOffers.length > 0 && !args.includes('--no-liveness')) {
       const candidates = newOffers.map((o, i) => ({ o, i })).filter(x => x.o.source === 'adzuna');
       const dead = new Set();
       const checks = candidates.map(({ o, i }) => async () => {
-        // ➤ The experience screen already downloaded this very page and left the verdict's
-        // ➤ evidence on the offer — judging from it avoids a second download of the whole batch.
-        // ➤ Only offers that arrived without evidence (screen skipped or errored) still fetch.
+        // ➤ The experience screen already downloaded this page and left the evidence on the offer
+        // ➤ — judging from it avoids a second download of the batch. Only offers without evidence
+        // ➤ (screen skipped or errored) still fetch.
         const isDead = o._live
           ? deadFromEvidence(o._live.status, o._live.finalUrl, o._live.body)
           : await isLikelyDead(o.url);
@@ -2068,8 +2020,8 @@ async function main() {
 
   function dumpExplainReport() {
     // ── --explain: record the survivors and dump the complete list ──
-    // ➤ Every offer that reaches here is a NEW one (it'll reach you). With everything
-    // ➤ recorded, data/scan-explain.txt is written: one line per offer.
+    // ➤ Every offer here is NEW (it'll reach you); with everything recorded,
+    // ➤ data/scan-explain.txt is written, one line per offer.
     if (explain) {
       for (const o of newOffers) logDrop('✅ NEW', 'passed all filters — it reaches you', o);
       writeExplainReport(explainRows, found);
@@ -2131,9 +2083,9 @@ async function main() {
 }
 
 // ➤ The scan only runs when this file is launched directly (node server-bot/scan.mjs);
-// ➤ importing it from the tests triggers nothing. The path separator is part of the check
-// ➤ so "x-scan.mjs" cannot fire it. Renaming this file means changing this line too, or
-// ➤ the scanner silently stops starting.
+// ➤ importing it triggers nothing. The path separator is part of the check so "x-scan.mjs"
+// ➤ cannot fire it. Renaming this file means changing this line too, or the scanner
+// ➤ silently stops starting.
 if (process.argv[1] && /(^|[\\/])scan\.mjs$/.test(process.argv[1])) {
   main().catch(err => { console.error('Fatal:', err.message); process.exit(1); });
 }

@@ -7,15 +7,14 @@
 // ➤ nothing.
 // ➤ ═══════════════════════════════════════════════════════════════════════
 
-// ➤ Your profile may override these default (marine) prompts via
-// ➤ config/profile.yml → search.judge_prompts.{good,bad,ugly}. If it doesn't,
-// ➤ the marine defaults below are used unchanged (so the user's calibration is
-// ➤ preserved exactly). The onboarding can generate tailored prompts per user.
+// ➤ Your profile may override these default (marine) prompts via config/profile.yml →
+// ➤ search.judge_prompts.{good,bad,ugly}; otherwise the marine defaults below apply
+// ➤ unchanged.
 import { searchProfile } from '../requirements.mjs';
 
 // ➤ ── THE GOOD (The Defender) ───────────────────────────────────────────────
-// ➤ Lenient judge: by default SHOWS. It only hides if a hard, unambiguous barrier
-// ➤ trips that it can CITE. Its mission: don't let a good offer slip away.
+// ➤ Lenient judge: SHOWS by default, hides only on a hard barrier it can CITE — no good
+// ➤ offer slips away.
 const GOOD_PROMPT = `You are THE GOOD, the DEFENDER judge of Argus's Council (Argus Plus). You receive the TITLE and the BODY of a job offer and the candidate's profile (attached). You decide whether the offer should be SHOWN to the candidate.
 
 YOUR MISSION AND YOUR DELIBERATE BIAS
@@ -44,8 +43,8 @@ OUTPUT: return ONLY this JSON, in English, with nothing around it:
 {"vote":"show"|"hide","reason":"<one sentence; quote the phrase from the offer that justifies the vote>","confidence":<0-1>}`;
 
 // ➤ ── THE BAD (The Prosecutor) ──────────────────────────────────────────────
-// ➤ Strict judge: reads the BODY to catch the fine mismatch that the title
-// ➤ filter can't see. It only hides with quotable literal proof (checklist 1-8).
+// ➤ Strict: reads the BODY for the fine mismatch the title filter can't see, and hides
+// ➤ only with quotable literal proof (checklist 1-8).
 const BAD_PROMPT = `You are THE BAD, the prosecutor of Argus's Council, the candidate's job-search assistant. You work in SHADOW: your vote is logged but decides nothing. There are three of you judges; an offer is shown if 2 of 3 of you vote "show".
 
 YOUR ROLE: read the BODY of the offer (not just the title) and CATCH the real mismatch that Argus's automatic filter, which only looks at the title and a few regexes, doesn't see. You look for the "no", but honestly: you only vote "hide" when you find in the text concrete, QUOTABLE proof of rejection. If there is no proof, you vote "show". The candidate's expensive mistake is the false reject; do NOT knock it down on suspicion or on absence of information.
@@ -74,8 +73,8 @@ DISCIPLINE RULES:
 Return ONLY a JSON object with the keys reason, vote and confidence, with no additional text. Write the reason in English.`;
 
 // ➤ ── THE UGLY (The Realist) ───────────────────────────────────────────────
-// ➤ Neutral judge: reads the BODY to understand the real day-to-day and votes on
-// ➤ balance (energizes vs drains, real function vs commercial). Breaks ties without bias.
+// ➤ Neutral: reads the BODY for the real day-to-day and votes on balance (energises vs
+// ➤ drains, real function vs commercial). Breaks ties without bias.
 const UGLY_PROMPT = `You are THE UGLY, one of the three judges of Argus's Council. Your role is the NEUTRAL REALIST: you neither defend the offer nor accuse it. You read the BODY to understand WHAT the job really is day-to-day and you decide, on balance, whether it's WORTH it for the candidate to be shown it. You run in shadow: your vote does not decide yet.
 
 You receive the TITLE and the BODY of an offer. Judge it on its own, in absolute terms — never compare it with others.
@@ -114,15 +113,15 @@ confidence = how clear the balance is (high in clear-cut cases, ~0.5 in the 2.5-
 // ➤ set, otherwise the marine defaults above (so nothing changes for the user).
 const _JP = searchProfile.judge_prompts || {};
 
-// ➤ THE PROFILE, IN THE JUDGE'S OWN WORDS. The default prompts below carry a marine
-// ➤ example, so without this a non-marine user would get judges reasoning about mooring
-// ➤ and STCW. This block is appended to every prompt and states, from config/profile.yml,
-// ➤ what THIS candidate is — which overrides any example the prompt text may contain.
+// ➤ THE PROFILE, IN THE JUDGE'S OWN WORDS: the default prompts carry a marine example, so
+// ➤ without this a non-marine user would get judges reasoning about mooring and STCW.
+// ➤ Appended to every prompt, it states from config/profile.yml what THIS candidate is —
+// ➤ overriding any example in the prompt text.
 function profileBriefing() {
   const s = searchProfile || {};
-  // ➤ The config lists are REGEX fragments ("marin[eo]", "\briser"). A judge is
-  // ➤ an LLM reading prose, so they are turned back into plain words: the
-  // ➤ optional-letter groups keep their first option and the regex syntax goes.
+  // ➤ The config lists are REGEX fragments ("marin[eo]") and a judge is an LLM reading
+  // ➤ prose, so they become plain words: optional-letter groups keep their first option and
+  // ➤ the regex syntax goes.
   const readable = x => String(x && x.name ? x.name : x)
     .replace(/\[([^\]\/]+)\]/g, (m, chars) => chars[0])   // marin[eo] → marine
     .replace(/\\b|\\w\*?|\(\?:|[()|?*+^$]/g, '')
@@ -160,9 +159,9 @@ export const JUDGES = [
 ];
 
 // ➤ ── Vote reader (parseVerdict) ───────────────────────────────────────
-// ➤ Translates the vote to the only two internal labels: 'show' or 'hide'.
-// ➤ Accepts English (show/hide) and Spanish (mostrar/ocultar); if it recognizes
-// ➤ nothing, it returns null (and that judge does NOT count in the 2-of-3 vote).
+// ➤ Translates the vote to the two internal labels, 'show' or 'hide', from English
+// ➤ (show/hide) or Spanish (mostrar/ocultar); unrecognised → null, and that judge does NOT
+// ➤ count in the 2-of-3 vote.
 function normVote(raw) {
   const s = String(raw || '').toLowerCase();
   if (/\b(show|mostrar|muestra|keep|mostrarse)\b/.test(s)) return 'show';
@@ -179,10 +178,9 @@ function normConfidence(raw) {
   return n;
 }
 
-// ➤ Interprets a judge's RAW reply and returns {vote, reason, confidence}.
-// ➤ It is deliberately tolerant: the judge may return perfect JSON, JSON
-// ➤ embedded in more text, or even just the loose word "mostrar". If there is
-// ➤ no readable vote → {vote:null, ...} (honest failure, never breaks).
+// ➤ Interprets a judge's RAW reply into {vote, reason, confidence}, deliberately tolerant:
+// ➤ perfect JSON, JSON embedded in text, or just the loose word "mostrar". No readable
+// ➤ vote → {vote:null, ...}: an honest failure, never a crash.
 export function parseVerdict(text) {
   const src = String(text || '');
   // ➤ 1st attempt: find the first {...} block and read it as JSON.

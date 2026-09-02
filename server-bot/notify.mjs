@@ -44,31 +44,29 @@ const COUNTRIES_PATH = join(SCRIPT_DIR, 'countries.yml');
 const ROOT = dirname(SCRIPT_DIR);
 const PORTALS_PATH = join(ROOT, 'portals.yml');
 const JUDGE_JOURNAL_PATH = join(ROOT, 'data', 'judge-shadow.jsonl');
-// ➤ The Telegram host, overridable for testing. Default is the real one;
-// ➤ ARGUS_TG_API points a local mock server in its place so the whole setup
-// ➤ conversation can be replayed end-to-end with no account (the baseApiUrl
-// ➤ pattern every Telegram-bot test harness uses). Never set in production.
+// ➤ The Telegram host, overridable for testing: ARGUS_TG_API points a local mock in its
+// ➤ place so the whole setup conversation can be replayed end-to-end with no account (the
+// ➤ baseApiUrl pattern every Telegram-bot test harness uses). Never set in production.
 export const TG_API = process.env.ARGUS_TG_API || 'https://api.telegram.org';
 
 // ➤ How much text goes in one message before a new one begins. TELEGRAM REFUSES ANYTHING
-// ➤ OVER 4096 CHARACTERS, and refusing means no list at all — the failure is total. The
-// ➤ margin exists because the count is of VISIBLE text while what is sent carries HTML
-// ➤ tags and links. Exported so a test can hold it under the limit.
+// ➤ OVER 4096 CHARACTERS — no list at all, the failure is total — and the count is of
+// ➤ VISIBLE text while what is sent carries HTML tags and links, hence the margin.
+// ➤ Exported so a test holds it under the limit.
 export const MAX_CHUNK = 3500;
 export const TELEGRAM_LIMIT = 4096;
-// ➤ A backstop for the splitter, not a reading width: a line that alone exceeds
-// ➤ MAX_CHUNK cannot be split off, so the whole message is refused. The longest
-// ➤ real title measured is 116 characters, so nothing real ever reaches this.
+// ➤ A backstop for the splitter, not a reading width: a line that alone exceeds MAX_CHUNK
+// ➤ cannot be split off, so the whole message is refused. The longest real title measured
+// ➤ is 116 characters.
 export const MAX_TITLE_CHARS = 300;
 
 // ── Country grouping (the user's priority order) ────────────────────────
-// Barcelona first, then rest of Spain, France, Monaco, Belgium,
-// Netherlands, Germany; remaining countries after; unknowns last.
+// ➤ Barcelona first, then the rest of Spain, France, Monaco, Belgium, Netherlands,
+// ➤ Germany; other countries after; unknowns last.
 
-// ➤ Your home city and target countries come from your profile
-// ➤ (config/profile.yml → search.home_city / search.countries). The marine
-// ➤ default below is used if the profile doesn't set them. From this ONE list
-// ➤ we derive the display order, the name→group map and the Adzuna-domain map.
+// ➤ Your home city and target countries come from your profile (config/profile.yml →
+// ➤ search.home_city / search.countries); the marine default below applies if unset. From
+// ➤ this ONE list come the display order, the name→group map and the Adzuna-domain map.
 const DEFAULT_COUNTRIES = [
   { name: 'Spain', label: 'SPAIN', adzuna: 'es' },
   { name: 'France', label: 'FRANCE', adzuna: 'fr' },
@@ -91,17 +89,16 @@ const HOME_GROUP = HOME_CITY.toUpperCase();
 
 // ➤ Order of the country groups: home city first, then your countries in priority order,
 // ➤ then the catch-all groups. DE-DUPLICATED: a label appearing twice would send its
-// ➤ offers twice — the onboarding offers "Remote" as a country to tick, so anyone who
-// ➤ ticks it has REMOTE from their own list AND the fixed one below.
+// ➤ offers twice (the onboarding offers "Remote" as a country to tick, and REMOTE is also
+// ➤ a fixed group below).
 const GROUP_ORDER = [...new Set([HOME_GROUP, ..._COUNTRIES.map(c => c.label), 'REMOTE', 'OTHER', 'NO LOCATION'])];
 
 // ➤ From the English country name (as it arrives from the job portals) to the
 // ➤ group label shown in the message.
 const COUNTRY_TO_GROUP = Object.fromEntries(_COUNTRIES.map(c => [c.name, c.label]));
 
-// ➤ Builds the "cheat sheet" to recognize countries: for each one it gathers
-// ➤ its name and its nicknames (taken from countries.yml: cities,
-// ➤ abbreviations...) all in lowercase, to compare them against each offer's
+// ➤ The "cheat sheet" to recognise countries: for each one, its name and nicknames (from
+// ➤ countries.yml: cities, abbreviations...) in lowercase, to compare against each offer's
 // ➤ location.
 export function loadCountryMatchers() {
   let cfg = {};
@@ -116,9 +113,8 @@ export function loadCountryMatchers() {
   }));
 }
 
-// ➤ Decides which group an offer belongs to by looking at its location text:
-// ➤ Barcelona beats everything else; otherwise it tries country by country;
-// ➤ if it mentions remote work it goes to REMOTE; and if nothing fits, OTHER.
+// ➤ Which group an offer belongs to, from its location text: Barcelona beats everything;
+// ➤ then country by country; remote work goes to REMOTE; nothing fits → OTHER.
 export function classifyLocation(loc, matchers) {
   const lower = String(loc || '').toLowerCase().trim();
   if (!lower) return 'NO LOCATION';
@@ -133,9 +129,9 @@ export function classifyLocation(loc, matchers) {
   return 'OTHER';
 }
 
-// ➤ Country of last resort, taken from the link itself: an adzuna.nl address
-// ➤ IS a Netherlands offer even when the location field came back empty. Built
-// ➤ from the same profile country list, so it stays in sync on its own.
+// ➤ Country of last resort, from the link itself: an adzuna.nl address IS a Netherlands
+// ➤ offer even when the location came back empty. Built from the same profile list, so it
+// ➤ stays in sync on its own.
 const ADZUNA_DOMAIN_GROUP = Object.fromEntries(
   _COUNTRIES.filter(c => c.adzuna).map(c => [String(c.adzuna).toLowerCase(), c.label]),
 );
@@ -162,10 +158,9 @@ export function cleanTitle(title) {
     .trim();
 }
 
-// ➤ Words that are only a country (not a city): if the "city" turns out to be
-// ➤ one of these, it isn't shown, because the message's group already says it.
-// ➤ Country names ONLY — never city aliases, or "Madrid" would stop showing.
-// ➤ Includes the multilingual base set AND the configured countries' names/labels.
+// ➤ Words that are only a country (never a city): a "city" that is one of these is not
+// ➤ shown, the group already says it. Country names ONLY, or "Madrid" would stop showing —
+// ➤ the multilingual base set plus the configured countries' names and labels.
 const COUNTRY_WORDS = new Set([
   'spain', 'españa', 'espana', 'france', 'monaco', 'mónaco', 'belgium',
   'belgië', 'belgique', 'belgie', 'netherlands', 'nederland', 'holland',
@@ -176,18 +171,17 @@ const COUNTRY_WORDS = new Set([
 
 // ➤ Takes the NOISE out of a title and nothing else: contract parentheticals ("(Temp
 // ➤ Agency)"), trailing acronym lists ("... DWDM / MPLS-TP / TDM") and sector tags every
-// ➤ offer here already carries ("- NAVAL Sector"). IT DOES NOT SHORTEN: Telegram wraps a
-// ➤ long line by itself, so a cut would only lose title.
+// ➤ offer carries ("- NAVAL Sector"). IT DOES NOT SHORTEN: Telegram wraps long lines
+// ➤ itself.
 export function compactTitle(title) {
   let t = String(title || '');
 
   // ➤ Removes parentheticals like "(freelance)" or "(temp agency)" that add nothing.
   t = t.replace(/\s*\(\s*(?:temp(?:orary)?(?:\s+agency)?|interim|ett|zzp|freelance|w2|contract(?:or)?)\s*\)/gi, '');
 
-  // ➤ Removes the trailing "acronym tail" (e.g. " DWDM / MPLS-TP / TDM"). Each slash-segment
-  // ➤ must start AND end on a non-space: with spaces allowed at the edges the split between
-  // ➤ the separator's whitespace and the segment is ambiguous and backtracking goes
-  // ➤ polynomial on titles that almost match — and titles are board input.
+  // ➤ Removes the trailing "acronym tail" (" DWDM / MPLS-TP / TDM"). Each slash-segment must
+  // ➤ start AND end on a non-space: with spaces allowed at the edges the split is ambiguous
+  // ➤ and backtracking goes polynomial on near-miss titles — and titles are board input.
   t = t.replace(/\s+[A-Z0-9][A-Z0-9-]{2,}(?:\s*\/\s*[^/\s](?:[^/]{0,38}[^/\s])?)+\s*$/, '');
 
   // ➤ Removes dash-separated chunks that only name the sector ("Sector NAVAL").
@@ -209,9 +203,9 @@ export function compactTitle(title) {
   return t;
 }
 
-// ➤ The city = the first locality of the location string, with the region and
-// ➤ province dropped: "Marín (Pontevedra) | Lugo, España, Galicia" → "Marín".
-// ➤ If there is no real city it returns empty and none is shown.
+// ➤ The city = the first locality of the location string, region and province dropped:
+// ➤ "Marín (Pontevedra) | Lugo, España, Galicia" → "Marín". No real city → empty, none
+// ➤ shown.
 export function cityOf(location) {
   // ➤ The "· reflotada" marker (from a removed feature) still appears in old lines inside
   // ➤ the location — it's stripped here so it doesn't show up as part of the city name.
@@ -252,9 +246,8 @@ function persistTranslation(key, out) {
   if (keys.length > TRANSLATIONS_MAX) {
     for (const k of keys.slice(0, keys.length - TRANSLATIONS_MAX)) delete _tdisk[k];
   }
-  // ➤ Atomic but unlocked on purpose: two processes racing lose a few fresh
-  // ➤ entries to last-writer-wins, which just means one extra translation
-  // ➤ later — never a corrupt file.
+  // ➤ Atomic but unlocked on purpose: two processes racing lose a few fresh entries to
+  // ➤ last-writer-wins — one extra translation later, never a corrupt file.
   try { writeFileAtomic(TRANSLATIONS_PATH, JSON.stringify(_tdisk)); } catch { /* disk full — cache still works in memory */ }
 }
 
@@ -274,10 +267,9 @@ const COUNTRY_LANG = [
 ];
 export const languageOfPlace = place => (COUNTRY_LANG.find(([re]) => re.test(unaccent(place))) || [])[1] || '';
 
-// ➤ fetchImpl is injectable so the two-attempt logic can be tested without a
-// ➤ network. It was not, and a mutation run proved the cost: deleting the
-// ➤ country hint entirely — the whole reason non-English titles arrive in
-// ➤ English — left the suite green, because nothing exercised this at all.
+// ➤ fetchImpl is injectable so the two-attempt logic can be tested without a network. A
+// ➤ mutation run proved the cost of not doing so: deleting the country hint — the whole
+// ➤ reason non-English titles arrive in English — left the suite green.
 async function askTranslator(title, sl, fetchImpl = fetch) {
   const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=en&dt=t&q=`
     + encodeURIComponent(title);
@@ -336,9 +328,8 @@ export function telegramConfigured() {
   return Boolean(c?.bot_token && c?.chat_id);
 }
 
-// ➤ Calls the Telegram hub to run a command (send a message, read messages...).
-// ➤ If Telegram asks to wait because of too much sending, it waits the time it
-// ➤ says and retries ONCE before giving up.
+// ➤ Calls the Telegram hub to run a command. If Telegram asks to wait (too much sending),
+// ➤ it waits the time it says and retries ONCE before giving up.
 async function api(token, method, payload) {
   for (let attempt = 0; attempt < 2; attempt++) {
     const res = await fetch(`${TG_API}/bot${token}/${method}`, {
@@ -360,10 +351,9 @@ async function api(token, method, payload) {
   }
 }
 
-// ➤ Sends a text to your chat and RETURNS the number (message_id) of the
-// ➤ message, so it can be deleted later (the "live list" needs it). silent=true
-// ➤ sends it with no sound or notification. If not configured yet, null.
-// ➤ Disables link previews so the screen doesn't get cluttered.
+// ➤ Sends a text to your chat and RETURNS its message_id, so it can be deleted later (the
+// ➤ live list needs it); silent=true means no sound. Not configured yet → null. Link
+// ➤ previews are disabled so the screen stays uncluttered.
 export async function sendTelegramMessage(text, { html = false, silent = false } = {}) {
   const c = loadCfg();
   if (!c?.bot_token || !c?.chat_id) return null;
@@ -383,10 +373,10 @@ export async function sendTelegram(text, opts = {}) {
   return (await sendTelegramMessage(text, opts)) !== null;
 }
 
-// ➤ Downloads a file the user sent to the bot (getFile, then the file API). Exists for the
-// ➤ CV question: people send the PDF they already have, not pasted text. Returns a Buffer,
-// ➤ or null when the file is missing, oversized (bots can fetch up to ~20 MB; a CV is
-// ➤ under 2) or the network fails — the caller owns the apology.
+// ➤ Downloads a file the user sent to the bot (getFile, then the file API) — people send
+// ➤ the PDF CV they already have. Returns a Buffer, or null when the file is missing,
+// ➤ oversized (bots fetch up to ~20 MB; a CV is under 2) or the network fails; the caller
+// ➤ owns the apology.
 export async function downloadTelegramFile(fileId, maxBytes = 15 * 1024 * 1024) {
   const c = loadCfg();
   if (!c?.bot_token || !fileId) return null;
@@ -401,10 +391,9 @@ export async function downloadTelegramFile(fileId, maxBytes = 15 * 1024 * 1024) 
   } catch { return null; }
 }
 
-// ➤ Deletes a chat message by its id. The "live list" uses it to remove the
-// ➤ previous list before re-sending the updated one. If the message no longer
-// ➤ exists (Telegram or you deleted it), Telegram returns an error and it's
-// ➤ silently ignored here: it's not a real failure.
+// ➤ Deletes a chat message by id; the live list removes its previous version this way. A
+// ➤ message that no longer exists (Telegram or you deleted it) makes Telegram return an
+// ➤ error, ignored here: not a real failure.
 export async function deleteTelegramMessage(messageId) {
   const c = loadCfg();
   if (!c?.bot_token || !c?.chat_id || messageId == null) return false;
@@ -426,9 +415,9 @@ export async function deleteTelegramMessage(messageId) {
 // ➤ inner array is one row; `data` is the short payload (<=64 bytes) Telegram sends back
 // ➤ on a tap.
 
-// ➤ Turns our simple {label,data} rows into Telegram's inline_keyboard shape.
-// ➤ {label,url} makes a LINK button instead (the review card's "Open offer"):
-// ➤ Telegram opens it directly, no callback ever comes back.
+// ➤ Turns our {label,data} rows into Telegram's inline_keyboard shape. {label,url} makes a
+// ➤ LINK button instead (the review card's "Open offer"): Telegram opens it directly, no
+// ➤ callback comes back.
 export function toInlineKeyboard(rows) {
   return { inline_keyboard: (rows || []).map(row => row.map(b => (b.url ? { text: b.label, url: b.url } : { text: b.label, callback_data: b.data }))) };
 }
@@ -468,8 +457,7 @@ export async function editTelegramButtons(messageId, text, rows, { html = false 
 }
 
 // ➤ Redraws ONLY the keyboard under a message: editMessageText resends the whole text on
-// ➤ every multi-select tick, and that round trip was most of why ticking an option felt
-// ➤ slow.
+// ➤ every multi-select tick, most of why ticking felt slow.
 export async function editTelegramMarkup(messageId, rows) {
   const c = loadCfg();
   if (!c?.bot_token || !c?.chat_id || messageId == null) return false;
@@ -500,9 +488,8 @@ export async function answerCallback(callbackId, text = '') {
   } catch { return false; }
 }
 
-// ➤ Affinity score of a title: +2 if it's one of the user's fields
-// ➤ (mooring/offshore/survey...), +1 if it's junior/graduate. Used ONLY to order the
-// ➤ display — never to filter. Exported so it can be tested in test-filter.mjs.
+// ➤ Affinity score of a title: +2 for one of the user's fields, +1 for junior/graduate.
+// ➤ Used ONLY to order the display, never to filter. Exported for test-filter.mjs.
 export function offerAffinity(title) {
   const t = String(title || '');
   return (USER_FIELDS.test(t) ? 2 : 0) + (/\bjunior\b|\bgraduate\b/i.test(t) ? 1 : 0);
@@ -511,16 +498,14 @@ export function offerAffinity(title) {
 // ➤ (No inline BUTTONS under each offer: the owner prefers typing the commands. Do not
 // ➤ reintroduce them.)
 
-// ➤ NAVIGATION buttons are different, and owner-requested: a long list arrives as ONE
-// ➤ message showing a page, with Prev/Next flipping the page IN PLACE (editMessageText)
-// ➤ instead of stacking messages in the chat. Per-offer action buttons remain vetoed —
-// ➤ this row only turns pages.
+// ➤ NAVIGATION buttons, owner-requested: a long list is ONE message showing a page,
+// ➤ Prev/Next flipping it IN PLACE (editMessageText) instead of stacking messages.
+// ➤ Per-offer action buttons remain vetoed — this row only turns pages.
 export const LIST_PAGES_PATH = join(ROOT, 'data', 'list-pages.json');
 
 // ➤ The list also carries ONE action row: the entry to the review mode (review.mjs), where
-// ➤ the per-offer buttons live on a card that shows a single offer — the only place a
-// ➤ button can say which offer it belongs to. The list itself still gets nothing but
-// ➤ navigation.
+// ➤ per-offer buttons live on a card showing a single offer — the only place a button can
+// ➤ say which offer it belongs to.
 export function listPageKeyboard(page, total) {
   const row = [];
   if (page > 1) row.push({ label: '◀ Prev', data: `pg:${page - 1}` });
@@ -531,10 +516,9 @@ export function listPageKeyboard(page, total) {
   return rows;
 }
 
-// ➤ Sends a FILE (for example the PDF of a cover letter) to your Telegram
-// ➤ chat, with an optional caption. The "cover" command uses it. Unlike normal
-// ➤ messages, files go in a special "envelope" (multipart) that Telegram
-// ➤ requires for attachments.
+// ➤ Sends a FILE (the PDF of a cover letter) to your chat with an optional caption — the
+// ➤ "cover" command uses it. Files go in the multipart "envelope" Telegram requires for
+// ➤ attachments.
 export async function sendTelegramDocument(filePath, caption = '') {
   const c = loadCfg();
   if (!c?.bot_token || !c?.chat_id) return false;
@@ -642,9 +626,8 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
   // ➤ Here the ids of each sent message are stored (a long list may be split
   // ➤ into several). The "live list" uses them to delete them later.
   const messageIds = [];
-  // ➤ The list is BUILT first as pages and SENT after: the same builder feeds both
-  // ➤ renderings — every page as its own message, or one paged message with Prev/Next
-  // ➤ buttons.
+  // ➤ The list is BUILT first as pages and SENT after: one builder feeds both renderings —
+  // ➤ every page as its own message, or one paged message with Prev/Next.
   const pages = [];
   // ➤ "flush" = close the accumulated text as a finished page.
   const flush = async () => {
@@ -668,15 +651,14 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
     addGroupHeader(groupName);
     currentGroup = groupName;
 
-    // ➤ Order by affinity: within each country, what's "most yours" on top (the user's fields
-    // ➤ +2, junior/graduate +1). It only changes the visual ORDER — it doesn't filter or hide
-    // ➤ anything; on equal affinity the arrival order is kept (Node's sort is stable).
+    // ➤ Order by affinity within each country: the user's fields +2, junior/graduate +1.
+    // ➤ Visual ORDER only — nothing filtered or hidden; equal affinity keeps arrival order
+    // ➤ (Node's sort is stable).
     list.sort((a, b) => offerAffinity(b.title) - offerAffinity(a.title));
 
     for (const o of list) {
-      // ➤ Build the offer line: title - company - city (the city is omitted if it just repeats
-      // ➤ the country), with the offer number in front. If known, the required years and the
-      // ➤ salary are added ("~" = Adzuna estimate, not data from the posting).
+      // ➤ The offer line: title - company - city (omitted if it repeats the country), the number
+      // ➤ in front; if known, the required years and the salary ("~" = Adzuna estimate).
       const city = cityOf(o.location);
       const parts = [displayTitle.get(o) || compactTitle(cleanTitle(o.title)), o.company];
       if (city && city.toLowerCase() !== groupName.toLowerCase()) parts.push(city);
@@ -735,9 +717,8 @@ export async function notifyNewOffers(offers, { headerLabel = 'new', silent = fa
     if (id != null) messageIds.push(id);
     sentAny = true;
   }
-  // ➤ Returns the ids of the sent messages (the "live list" remembers them to
-  // ➤ delete them next time). A non-empty array also counts as "yes, it was
-  // ➤ sent" for whoever only checks whether something was sent.
+  // ➤ Returns the ids of the sent messages (the live list remembers them to delete next
+  // ➤ time); a non-empty array also means "yes, it was sent".
   return messageIds;
 }
 
@@ -757,16 +738,15 @@ async function cliSetup() {
     process.exit(1);
   }
   // ➤ WAIT for the message instead of demanding it already arrived: people press Enter
-  // ➤ within a second or two and Telegram can lag. So this polls — up to two minutes,
-  // ➤ stopping the moment it appears; when the message is already there the very first look
-  // ➤ finds it.
+  // ➤ within a second or two and Telegram can lag, so this polls up to two minutes, stopping
+  // ➤ the moment it appears — the first look finds it when it is already there.
   let updates;
   const deadline = Date.now() + 120_000;
   for (;;) {
-    // ➤ THE LISTENER MAY HAVE LINKED THE CHAT MEANWHILE: any listener polling this bot — from
-    // ➤ this install, or a survivor of an earlier one — CONSUMES the very message this poll
-    // ➤ waits for, so getUpdates alone would wait for ever. telegram.json is the meeting
-    // ➤ point: the listener writes the chat_id there and this console run only has to notice.
+    // ➤ THE LISTENER MAY HAVE LINKED THE CHAT MEANWHILE: any listener polling this bot
+    // ➤ CONSUMES the very message this poll waits for, so getUpdates alone would wait for
+    // ➤ ever. telegram.json is the meeting point: the listener writes the chat_id there and
+    // ➤ this console run only has to notice.
     const linked = loadCfg();
     if (linked?.chat_id) {
       console.log(`chat_id ${linked.chat_id} saved (the listener completed the link). Confirmation sent.`);
@@ -775,10 +755,10 @@ async function cliSetup() {
     try {
       updates = await api(c.bot_token, 'getUpdates', {});
     } catch (e) {
-      // ➤ Telegram answers a bad token two different ways, and both mean the same thing: 401
-      // ➤ Unauthorized when the token is well-formed but wrong, 404 Not Found when it is not
-      // ➤ even token-shaped. Saying so plainly is the whole point — the raw error sends people
-      // ➤ looking for a problem with their chat, when the token was simply mistyped.
+      // ➤ Telegram answers a bad token two ways that mean the same thing: 401 Unauthorized when
+      // ➤ it is well-formed but wrong, 404 Not Found when it is not even token-shaped. Say so
+      // ➤ plainly — the raw error sends people looking for a problem with their chat when the
+      // ➤ token was mistyped.
       if (/unauthorized|not found|HTTP 40[14]/i.test(e.message)) {
         console.error('Telegram rejected the bot token: it is not a valid one.');
         console.error('Check it against the token @BotFather gave you (it looks like 123456789:AAH...),');
@@ -809,9 +789,8 @@ async function cliSetup() {
   // ➤ telegram.json holds the bot token — keep it readable only by you (0600).
   // ➤ On systems without POSIX permissions (e.g. Windows) this is a harmless no-op.
   try { chmodSync(CFG_PATH, 0o600); } catch { /* not POSIX — ignore */ }
-  // ➤ This is the FIRST thing the bot ever says, and the field tester read the
-  // ➤ old wording ("I'll notify you when there are new offers") as the whole
-  // ➤ story — and never sent /start. Say what comes next instead.
+  // ➤ The FIRST thing the bot ever says. A field tester read "I'll notify you when there are
+  // ➤ new offers" as the whole story and never sent /start — so say what comes next.
   await sendTelegram(`Connected. Finish the setup in the console; when it says Done, send /start here to build your profile.`);
   console.log(`chat_id ${c.chat_id} (${chat.first_name || chat.username || 'chat'}) saved. Confirmation sent.`);
 }
@@ -826,8 +805,7 @@ async function cliTest() {
   console.log('Test message sent.');
 }
 
-// ➤ This block only runs when the file is launched by hand (node notify.mjs
-// ➤ --setup or --test), never when another module imports it. The path
+// ➤ Only when the file is launched by hand (--setup or --test), never on import. The path
 // ➤ separator is part of the check so "test-notify.mjs" can't trigger it.
 if (process.argv[1] && /(^|[\\/])notify\.mjs$/.test(process.argv[1])) {
   const arg = process.argv[2];

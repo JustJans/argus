@@ -25,9 +25,8 @@ const STATE_PATH = join(ROOT, 'data', 'list-message.json');
 // ➤ arrived since) can be marked [NEW].
 const SEEN_PATH = join(ROOT, 'data', 'list-seen.json');
 
-// ➤ Reads the ids of the previous list. If the file doesn't exist or is corrupt,
-// ➤ it returns an empty list (no problem, there simply won't be anything to
-// ➤ delete). The `path` parameter exists only so it can be tested in a test.
+// ➤ Reads the ids of the previous list; a missing or corrupt file means an empty list
+// ➤ (nothing to delete). `path` exists only for tests.
 export function loadListIds(path = STATE_PATH) {
   try {
     const s = JSON.parse(readFileSync(path, 'utf-8'));
@@ -35,19 +34,17 @@ export function loadListIds(path = STATE_PATH) {
   } catch { return []; }
 }
 
-// ➤ Saves the ids of the list that was just sent, so it can be deleted next
-// ➤ time. If saving fails, it is ignored (worst case: an old list is left
-// ➤ undeleted, nothing serious).
+// ➤ Saves the ids of the list just sent, so it can be deleted next time. A failed save is
+// ➤ ignored: at worst an old list is left undeleted.
 export function saveListIds(ids, path = STATE_PATH) {
   try {
     writeFileSync(path, JSON.stringify({ message_ids: ids, ts: new Date().toISOString() }) + '\n', 'utf-8');
   } catch { /* we don't break just because we couldn't save the state */ }
 }
 
-// ➤ The offer ids you have ALREADY seen in a list (the rest show [NEW]). Returns null when
-// ➤ never set; callers wrap it as `new Set(loadSeenIds() || [])`, so on the very first
-// ➤ list EVERYTHING shows [NEW] until a command runs and saveSeenIds records the current
-// ➤ offers as seen. `path` is only for testing.
+// ➤ The offer ids you have ALREADY seen in a list (the rest show [NEW]); null when never
+// ➤ set, which callers turn into an empty set — so on the very first list EVERYTHING shows
+// ➤ [NEW] until a command marks the current offers seen. `path` is only for testing.
 export function loadSeenIds(path = SEEN_PATH) {
   try {
     const s = JSON.parse(readFileSync(path, 'utf-8'));
@@ -85,16 +82,16 @@ export async function refreshList({ alert = false, markSeen = false, deps } = {}
     const oldIds = d.loadListIds();
     const offers = d.pendingOffers();
 
-    // 2) Work out which offers are NEW: those not in the "already seen" set.
-    //    Everything is [NEW] until you first view the list with a command, which
-    //    marks the current offers as seen; after that only later arrivals show [NEW].
+    // ➤ 2) Work out which offers are NEW: those not in the "already seen" set. Everything is
+    // ➤ [NEW] until you first view the list with a command; after that only later arrivals
+    // ➤ show it.
     const pendingIds = offers.map(o => o.id).filter(id => id != null);
     const seenSet = new Set(d.loadSeenIds() || []);
     const newIds = new Set(pendingIds.filter(id => !seenSet.has(id)));
 
-    // 3) Draw and send the current list. Silent unless alert=true (new offers);
-    //    the new ones are marked [NEW]. If there are no pending offers, a short
-    //    notice so there is always a reference list at the bottom of the chat.
+    // ➤ 3) Draw and send the current list, silent unless alert=true (new offers), the new ones
+    // ➤ marked [NEW]. With nothing pending, a short notice, so a reference list always sits at
+    // ➤ the bottom of the chat.
     let ids;
     if (offers.length) {
       // ➤ paged: the whole list is ONE message showing a page, with Prev/Next buttons editing it
@@ -106,9 +103,9 @@ export async function refreshList({ alert = false, markSeen = false, deps } = {}
       ids = id != null ? [id] : [];
     }
 
-    // 4) Save the new list's ids FIRST, so they can never be lost, and only then
-    //    remove the old list. If the send above failed, ids is empty and the old
-    //    list stays put rather than leaving your chat with nothing at all.
+    // ➤ 4) Save the new list's ids FIRST, so they can never be lost, and only then remove the
+    // ➤ old list. If the send failed, ids is empty and the old list stays put rather than
+    // ➤ leaving the chat with nothing.
     if (ids.length) {
       // ➤ RECONCILED UNDER LOCK. Scanner, housekeep and listener are separate processes; if each
       // ➤ worked from the ids loaded before its send, whoever saved second would erase the

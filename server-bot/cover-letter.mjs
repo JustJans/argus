@@ -42,12 +42,12 @@ function loadJson(path, fallback) {
 }
 
 // ── Claude on the server ────────────────────────────────────────────────
-// ➤ The launcher, the path lookup and the failure classification live in claude-cli.mjs,
-// ➤ shared with the Council.
+// ➤ The launcher, path lookup and failure classification live in claude-cli.mjs, shared
+// ➤ with the Council.
 
-// ➤ Launches Claude on the server (automated mode, no window) with the job of writing the
-// ➤ letter, authenticating with the stored token, through the shared launcher — which also
-// ➤ treats a complaint printed on normal output (the spend-limit warning) as a failure.
+// ➤ Launches Claude on the server (headless) to write the letter with the stored token,
+// ➤ through the shared launcher — which treats a complaint on normal output (the
+// ➤ spend-limit warning) as a failure.
 function runClaude(prompt) {
   return runClaudeCli(prompt, {
     tokenPath: join(SCRIPT_DIR, 'claude-token.json'),
@@ -70,10 +70,9 @@ function runClaude(prompt) {
 function untrust(s) {
   return String(s || '').replace(/"{3,}/g, '""');
 }
-// ➤ For short NAME fields (title, company, location): these are echoed inside
-// ➤ "quotes" in the agency-detection rule too, so a stray double-quote could
-// ➤ still form a fence there. A real company/title never needs a double-quote,
-// ➤ so we simply drop them all — the safest option for these fields.
+// ➤ Short NAME fields (title, company, location) are echoed inside "quotes" in the
+// ➤ agency-detection rule too, so a stray double-quote could form a fence there. A real
+// ➤ company or title never needs one: drop them all.
 function untrustName(s) {
   return String(s || '').replace(/"/g, '');
 }
@@ -126,9 +125,8 @@ export function buildCoverPrompt(offer, body) {
     `DESPEDIDA: Best regards,`;
 }
 
-// ➤ Interprets Claude's response. If the format does not come out perfect, it
-// ➤ still uses all the text as the body (better a letter with a generic
-// ➤ salutation than none).
+// ➤ Interprets Claude's response. If the format is not perfect, the whole text becomes the
+// ➤ body — a letter with a generic salutation beats none.
 export function parseLetter(out, company) {
   const s = String(out || '').trim();
   const saludo = s.match(/SALUDO\s*:\s*(.+)/i)?.[1]?.trim() || 'Dear Hiring Manager,';
@@ -140,16 +138,14 @@ export function parseLetter(out, company) {
 }
 
 // ── Layout and PDF ──────────────────────────────────────────────────────
-// ➤ Escapes HTML special characters so that no text from the
-// ➤ letter can break (or sneak into) the layout.
+// ➤ Escapes HTML special characters so no text from the letter can break (or sneak into) the layout.
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// ➤ Reads from config/profile.yml how the user signs their letters: "letter_name"
-// ➤ and "letter_city" (added to the "candidate:" section, copying their example
-// ➤ letter). If they are missing, the full name and general location are used.
-// ➤ Only text is accepted (if a field were something else, it is ignored).
+// ➤ Reads from config/profile.yml how the user signs their letters: "letter_name" and
+// ➤ "letter_city" (under "candidate:", copied from their example letter); missing, the
+// ➤ full name and general location are used. Only text is accepted.
 function loadContact() {
   const str = v => (typeof v === 'string' ? v.trim() : '');
   try {
@@ -174,9 +170,8 @@ function letterDate() {
   return `${n}${suf} ${d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`;
 }
 
-// ➤ Cleans up the recipient's location: portals repeat the city
-// ➤ several times ("Brussel, Brussel Hoofdstad, ..., Brussel (Regio)") and in
-// ➤ a formal letter it looks bad. The repeated parts are removed.
+// ➤ Cleans the recipient's location: portals repeat the city ("Brussel, Brussel Hoofdstad,
+// ➤ ..., Brussel (Regio)") and in a formal letter it looks bad.
 function tidyLocation(loc) {
   const parts = String(loc || '').split(',').map(s => s.trim()).filter(Boolean);
   const seen = new Set();
@@ -207,10 +202,10 @@ export function letterHtml(offer, letter) {
   </body></html>`;
 }
 
-// ➤ Turns the HTML page into an A4 PDF using Playwright's Chromium, installing the browser
-// ➤ first if it is missing: Playwright ships as a library and downloads its browser
-// ➤ separately, so `npm install` alone leaves a hole that only shows at the first `cover
-// ➤ N`, and an npm update can reopen it. One attempt, then the error stands.
+// ➤ Turns the HTML page into an A4 PDF with Playwright's Chromium, installing the browser
+// ➤ first if missing: Playwright ships as a library and downloads its browser separately,
+// ➤ so `npm install` alone leaves a hole that shows at the first `cover N` and an npm
+// ➤ update can reopen. One attempt, then the error stands.
 async function renderPdf(html, outPath) {
   const { chromium } = await import('playwright');
   const launch = () => chromium.launch({ headless: true });
@@ -237,10 +232,10 @@ async function renderPdf(html, outPath) {
   }
 }
 
-// ➤ The file name, always CoverLetter_Surname_Firstname_Company: "Surname_Firstname" from
-// ➤ letter_name, the company in PascalCase without accents or symbols ("Jan De Nul Group"
-// ➤ → JanDeNulGroup). It ends at the company on purpose — a recruiter sees this name, and
-// ➤ an internal offer number there reads like a reference you forgot to remove.
+// ➤ The file name, always CoverLetter_Surname_Firstname_Company ("Jan De Nul Group" →
+// ➤ JanDeNulGroup, no accents or symbols). It ends at the company on purpose: a recruiter
+// ➤ sees this name, and an internal offer number there reads like a reference you forgot
+// ➤ to remove.
 export function coverFileBase(company) {
   const who = loadContact().name.trim().split(/\s+/);
   const nameBit = who.length >= 2 ? `${who[who.length - 1]}_${who.slice(0, -1).join('_')}` : (who[0] || 'Candidate');
@@ -249,8 +244,8 @@ export function coverFileBase(company) {
   return `CoverLetter_${nameBit}_${comp}`;
 }
 
-// ➤ WHO OWNS WHICH FILE NAME. Two open roles at the same employer must not overwrite each
-// ➤ other's letter; this little index keeps the offer number out of the name: { "730":
+// ➤ WHO OWNS WHICH FILE NAME: two open roles at the same employer must not overwrite each
+// ➤ other's letter, so this index keeps the offer number out of the name: { "730":
 // ➤ "CoverLetter_Doe_Jane_JanDeNulGroup" }.
 const LETTER_INDEX_PATH = join(ROOT, 'data', 'cover-letters.json');
 
@@ -272,8 +267,8 @@ export function resolveCoverBase(company, offerId, index = {}) {
 }
 
 // ── The main function used by the listener ──────────────────────────────
-// ➤ Receives the offer (with its number, company, title and link), orchestrates the
-// ➤ 4 steps and returns the PDF and text paths — or an honest error.
+// ➤ Receives the offer (number, company, title, link), orchestrates the 4 steps and
+// ➤ returns the PDF and text paths — or an honest error.
 export async function makeCoverLetter(offer) {
   // ➤ Step 1: the offer text (if the portal does not give it, Claude will write
   // ➤ with the title and company, less refined but with a warning — better than nothing).
@@ -304,10 +299,10 @@ export async function makeCoverLetter(offer) {
     base = resolveCoverBase(offer.company, offer.id, index);
     if (Number.isInteger(offer.id) && offer.id > 0) {
       index[String(offer.id)] = base;
-      // ➤ Written aside and renamed, like every other file that is the only copy
-      // ➤ of something. Half-written this is invalid JSON, the reader falls back to
-      // ➤ an empty index, and the next letter to the same employer takes a name
-      // ➤ that is already taken — overwriting a PDF you may already have sent.
+      // ➤ Written aside and renamed, like every file that is the only copy of something:
+      // ➤ half-written it is invalid JSON, the reader falls back to an empty index, and the next
+      // ➤ letter to the same employer takes a name already in use — overwriting a PDF you may
+      // ➤ have sent.
       try { writeFileAtomic(LETTER_INDEX_PATH, JSON.stringify(index)); }
       catch { /* the letter matters more than the bookkeeping */ }
     }
@@ -360,9 +355,9 @@ if (process.argv[1] && /(^|[\\/])cover-letter\.mjs$/.test(process.argv[1])) {
     console.error('Usage: cover-letter.mjs --offer <id>   (the # number shown in the list)');
     process.exit(1);
   }
-  // ➤ --progress-msg: the id of the listener's "Generating..." note. It is
-  // ➤ deleted AFTER the answer lands (letter or failure), never before — the
-  // ➤ chat must always hold either the promise or the result.
+  // ➤ --progress-msg: the id of the listener's "Generating..." note, deleted AFTER the
+  // ➤ answer lands (letter or failure), never before — the chat must always hold either the
+  // ➤ promise or the result.
   const pmAt = process.argv.indexOf('--progress-msg');
   const progressMsg = pmAt === -1 ? NaN : parseInt(process.argv[pmAt + 1], 10);
   const [{ pendingOffers }, { sendTelegram, sendTelegramDocument, deleteTelegramMessage }] = await Promise.all([

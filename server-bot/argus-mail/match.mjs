@@ -59,10 +59,9 @@ function hasWord(haystack, word) {
   return new RegExp(`(?<![\\p{L}\\d])${esc}(?![\\p{L}\\d])`, 'iu').test(haystack);
 }
 
-// ➤ "Careers at Van Oord" <noreply@platform.com> → the bit before the address.
-// ➤ Worth its own function because it turned out to be the best signal there
-// ➤ is after the company name: of 38 emails that named nobody in their text,
-// ➤ 30 were identified from the sender alone.
+// ➤ "Careers at Van Oord" <noreply@platform.com> → the bit before the address. Its own
+// ➤ function because it turned out to be the best signal after the company name: of 38
+// ➤ emails that named nobody in their text, 30 were identified from the sender alone.
 export function senderName(from) {
   const m = String(from || '').match(/^\s*"?([^"<]+?)"?\s*</);
   const name = (m ? m[1] : '').trim();
@@ -78,10 +77,10 @@ const HOST_NOISE = /^(mail|email|no-?reply|noreply|smtp|send|notify|notification
 // ➤ so reading a company out of it would invent one.
 export const KNOWN_ATS = /workday|myworkday|successfactors|greenhouse|lever|smartrecruiters|teamtailor|recruitee|personio|softgarden|jobvite|icims|taleo|talentclue|bizneo|factorial|workable|ashby|epreselec|linkedin|indeed|adzuna|infojobs|welcometothejungle|sendgrid|mailchimp|amazonses/;
 
-// ➤ The employer's name as it appears in the sending address, or nothing.
-// ➤ "careers.vanoord.com" is worth "vanoord"; "mail.greenhouse.io" is worth
-// ➤ nothing at all, because that is the recruiting platform's name and reading
-// ➤ a company out of it would invent one that never applied to anybody.
+// ➤ The employer's name as it appears in the sending address, or nothing:
+// ➤ "careers.vanoord.com" is worth "vanoord"; "mail.greenhouse.io" is worth nothing,
+// ➤ because that is the recruiting platform's name and reading a company out of it would
+// ➤ invent one.
 export function senderDomainCore(from) {
   const host = (String(from || '').match(/@([\w.-]+)/) || [])[1] || '';
   if (!host || KNOWN_ATS.test(fold(host))) return '';
@@ -89,17 +88,17 @@ export function senderDomainCore(from) {
   return parts.sort((a, b) => b.length - a.length)[0] || '';
 }
 
-// ➤ How long after applying you might get round to typing "applied N". The
-// ➤ recorded date is that moment, not the moment you applied, so a reply can
-// ➤ honestly be older than the record it belongs to.
+// ➤ How long after applying you might get round to typing "applied N": the recorded date
+// ➤ is that moment, not the application's, so a reply can honestly be older than the
+// ➤ record it belongs to.
 export const LOGGING_LAG_DAYS = 2;
 
 // ➤ How well one email fits one application. Returns the score and the reasons,
 // ➤ because a link you cannot explain is a link you cannot check.
 export function scoreLink(message, application) {
-  // ➤ The sender is searched along with the text. It matters: the employer's
-  // ➤ name lives in the "From" line of mail sent BY a recruiting platform, and
-  // ➤ of 38 emails naming nobody in their body, 30 were identifiable from it.
+  // ➤ The sender is searched along with the text: the employer's name lives in the "From"
+  // ➤ line of mail sent BY a recruiting platform, and of 38 emails naming nobody in their
+  // ➤ body, 30 were identifiable from it.
   const all = fold(`${message.subject} ${message.snippet} ${message.body || ''} ${message.from} ${senderDomainCore(message.from)}`);
   const text = fold(`${message.subject} ${message.snippet} ${message.body || ''}`);
   const why = [];
@@ -122,23 +121,21 @@ export function scoreLink(message, application) {
   // ➤ WHOLE WORD, which is how a company writes its own name.
   else if (compact.length >= 2 && compact.length < 6 && hasWord(all, compact)) { identity += 10; why.push('company'); }
 
-  // ➤ 3: real but weak, so it takes TWO matching words — never one, however
-  // ➤ short the title. Six of a real set of 23 applications reduce to a single
-  // ➤ distinctive word, and four of those were the same word ("automation"):
-  // ➤ with a one-word rule, any email mentioning it identified them all.
+  // ➤ 3: real but weak, so it takes TWO matching words — never one, however short the title.
+  // ➤ Six of a real set of 23 applications reduce to a single distinctive word, four of
+  // ➤ those the same one ("automation"): with a one-word rule any email mentioning it
+  // ➤ identified them all.
   const title = tokens(application.title);
   const hits = title.filter(w => hasWord(text, w)).length;
   if (hits >= 2) { identity += 3; why.push('title'); }
-  // ➤ ONE shared word is NOT identity. It is how a receipt from a company you
-  // ➤ never applied to ended up competing for two applications, on the strength
-  // ➤ of the word "project". It only counts once something else has already
-  // ➤ established who the email is about.
+  // ➤ ONE shared word is NOT identity: that is how a receipt from a company you never
+  // ➤ applied to ended up competing for two applications, on the strength of the word
+  // ➤ "project". It only counts once something else has established who the email is about.
   else if (hits === 1 && identity > 0) { identity += 1; why.push('title-partial'); }
 
-  // ➤ NOTHING IDENTIFIES IT. Stop here. Time and place would otherwise make
-  // ➤ every unrelated email that happened to arrive that day a candidate, and
-  // ➤ with several applications sent on one day that is how a receipt from a
-  // ➤ company you never applied to gets filed against one you did.
+  // ➤ NOTHING IDENTIFIES IT: stop here. Time and place would otherwise make every unrelated
+  // ➤ email of that day a candidate, and with several applications sent on one day a receipt
+  // ➤ from a company you never applied to gets filed against one you did.
   if (identity === 0) return { score: 0, why: ['nothing-identifies-it'] };
 
   // ➤ An email cannot be about an application that did not exist yet — but the date on the
@@ -199,10 +196,10 @@ export function linkOutcomes(messages, applications, { margin = 1 } = {}) {
     const clear = ranked.length === 1
       || (ranked[0].identity - ranked[1].identity) >= margin;
     if (!clear) {
-      // ➤ The tie list is built on identity too, for the same reason. Demanding
-      // ➤ an equal total as well would drop every candidate whose date bonus
-      // ➤ happened to differ, so the bot would announce a tie and then name only
-      // ➤ one side of it — which reads exactly like a decision it did not make.
+      // ➤ The tie list is built on identity too, for the same reason: demanding an equal total
+      // ➤ as well would drop every candidate whose date bonus happened to differ, and the bot
+      // ➤ would announce a tie and name only one side — which reads like a decision it did not
+      // ➤ make.
       const tied = ranked.filter(r => r.identity === ranked[0].identity);
       // ➤ A BOUNCE IS THE ONE THING THAT LINKS TO ALL OF THEM. Every other message is about ONE
       // ➤ vacancy, so guessing between two would put a rejection on the wrong job; a bounce says

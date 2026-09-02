@@ -22,8 +22,8 @@ const PIPELINE_PATH = join(ROOT, 'data', 'pipeline.md');
 
 // ➤ These are the FIXED offer numbers (#412 as shown on Telegram), never a position in the
 // ➤ list, so the wrong one can't be marked. De-duplicated: "seen 701 701" must not append
-// ➤ "| visto" twice, which would break the "#id at end of line" shape the id counter and
-// ➤ the parsers rely on.
+// ➤ "| visto" twice and break the "#id at end of line" shape the id counter and the
+// ➤ parsers rely on.
 export function parseIds(argv) {
   return [...new Set(argv.map(s => Number(String(s).replace(/^#/, ''))).filter(n => Number.isInteger(n) && n > 0))];
 }
@@ -43,10 +43,10 @@ export function indexPending(lines) {
   return byId;
 }
 
-// ➤ The marking itself, kept pure so it can be tested: this writes to the ONLY
-// ➤ copy of your pending list and marks it by the FIXED offer number, so an
-// ➤ off-by-one here would file the wrong job away without saying so.
-// ➤ Returns the new lines plus what to report; it never touches disk.
+// ➤ The marking itself, kept pure so it can be tested: it writes to the ONLY copy of your
+// ➤ pending list by the FIXED offer number, so an off-by-one here would file the wrong job
+// ➤ away without saying so. Returns the new lines plus what to report; it never touches
+// ➤ disk.
 export function markSeenInLines(lines, nums) {
   const out = [...lines];
   const byId = indexPending(out);
@@ -54,10 +54,10 @@ export function markSeenInLines(lines, nums) {
   for (const n of nums) {
     const idx = byId.get(n);
     if (idx === undefined) { missing.push(n); continue; }
-    // ➤ The "| visto" tag marks it as YOUR decision: the scanner then keeps it
-    // ➤ out even if the company reposts it under a new link. Offers the bot
-    // ➤ hides on its own (dead link, cleanup) carry no tag, so those CAN come
-    // ➤ back. Dropping the tag would silently undo that promise.
+    // ➤ The "| visto" tag marks it as YOUR decision: the scanner then keeps it out even if the
+    // ➤ company reposts it under a new link. Offers the bot hides on its own (dead link,
+    // ➤ cleanup) carry no tag, so those CAN come back. Dropping the tag would silently undo
+    // ➤ that promise.
     out[idx] = out[idx].replace('- [ ] ', '- [x] ') + ' | visto';
     const label = out[idx].split('|').slice(1, 3).join(' —').trim();
     marked.push(`#${n} ${label}`);
@@ -65,10 +65,10 @@ export function markSeenInLines(lines, nums) {
   return { lines: out, marked, missing, hadPending: byId.size > 0 };
 }
 
-// ➤ The exact inverse of the marking above, for the "undo" command and the review card's
-// ➤ Undo button: "- [x] ... | visto" back to "- [ ] ...". ONLY lines carrying the "|
-// ➤ visto" tag — that tag means the hiding was YOUR decision; a line the cleanup hid on
-// ➤ its own (dead link) has no tag and is not brought back by an undo.
+// ➤ The exact inverse of the marking above, for "undo" and the review card's Undo: "- [x]
+// ➤ ... | visto" back to "- [ ] ...". ONLY lines carrying the "| visto" tag — that tag
+// ➤ means the hiding was YOUR decision; a line the cleanup hid on its own is not brought
+// ➤ back.
 export function restorePendingInLines(lines, n) {
   const out = [...lines];
   for (let i = 0; i < out.length; i++) {
@@ -94,9 +94,9 @@ if (process.argv[1] && /(^|[\\/])seen\.mjs$/.test(process.argv[1])) {
     process.exit(1);
   }
   // ➤ Read, mark and write INSIDE the lock. This runs from Telegram, so it can fire at any
-  // ➤ second — including while the scanner is appending or housekeep is deleting. Without
-  // ➤ the lock, whichever wrote last would wipe the other's work; with it, a "seen" cannot
-  // ➤ be swallowed by a scan that started a moment earlier.
+  // ➤ second — while the scanner is appending or housekeep is deleting. Without the lock
+  // ➤ whichever wrote last would wipe the other's work; with it, a "seen" cannot be
+  // ➤ swallowed by a scan that started a moment earlier.
   const res = withFileLock(PIPELINE_PATH, () => {
     const text = readFileSync(PIPELINE_PATH, 'utf-8');
     const r = markSeenInLines(text.split('\n'), nums);

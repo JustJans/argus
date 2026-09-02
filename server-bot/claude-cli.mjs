@@ -12,9 +12,9 @@ import { execFile } from 'child_process';
 // ➤ /usr/local/bin), so a bare "claude" is not enough.
 export const CLAUDE_BIN = ['/usr/local/bin/claude', '/usr/bin/claude'].find(p => existsSync(p)) || 'claude';
 
-// ➤ Unmistakable signatures of the claude program complaining instead of
-// ➤ answering. Kept DELIBERATELY specific (the exact wording of the CLI) so a
-// ➤ real cover letter or a judge's verdict can never be mistaken for an error.
+// ➤ Unmistakable signatures of the claude program complaining instead of answering —
+// ➤ DELIBERATELY the CLI's exact wording, so a real letter or verdict can never be
+// ➤ mistaken for an error.
 const LIMIT_SIGNS = [
   /you'?ve hit your (?:monthly |weekly |daily )?(?:spend|usage) limit/i,
   /claude\.ai\/settings\/usage/i,
@@ -49,9 +49,8 @@ export function claudeErrorMessage(kind, raw) {
   // ➤ broken, it simply did not finish in time, and asking again often works.
   if (kind === 'timeout') return 'Claude ran out of time before finishing — ask again, it usually works second time';
   if (kind === 'auth') return 'Claude is not authenticated on this machine (run: claude setup-token, then save it to server-bot/claude-token.json)';
-  // ➤ "ENOENT" = the claude program is not installed here. Worth saying plainly:
-  // ➤ cover letters and the Council are the only features that need it, so this
-  // ➤ is a missing OPTIONAL extra, not a broken bot.
+  // ➤ "ENOENT" = the claude program is not installed here: cover letters and the Council are
+  // ➤ the only features that need it — a missing OPTIONAL extra, not a broken bot.
   if (/ENOENT|not found/i.test(String(raw || ''))) {
     return 'the Claude CLI is not installed on this machine — it is only needed for cover letters and the Council '
       + '(install: npm i -g @anthropic-ai/claude-code, then claude setup-token). Searching works without it.';
@@ -59,9 +58,9 @@ export function claudeErrorMessage(kind, raw) {
   return `Claude failed: ${String(raw || 'no output').replace(/\s+/g, ' ').slice(0, 180)}`;
 }
 
-// ➤ Runs claude headless and returns {ok, out, kind}. `ok:false` means NOTHING
-// ➤ usable came back — the caller must not treat `out` as content.
-// ➤ tokenPath = server-bot/claude-token.json (the stored session).
+// ➤ Runs claude headless and returns {ok, out, kind}. `ok:false` means NOTHING usable came
+// ➤ back — the caller must not treat `out` as content. tokenPath =
+// ➤ server-bot/claude-token.json.
 export function runClaudeCli(prompt, { tokenPath, cwd, model = 'sonnet', timeoutMs = 6 * 60 * 1000, label = 'claude' } = {}) {
   let tok = null;
   try { tok = JSON.parse(readFileSync(tokenPath, 'utf-8'))?.token || null; } catch { /* no token file */ }

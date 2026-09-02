@@ -25,10 +25,10 @@ import { esc, sendTelegramButtons, editTelegramButtons, answerCallback, sendTele
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(SCRIPT_DIR);
-// ➤ The whole session on disk: which message is the card, which offer it
-// ➤ shows, and what was decided — {message_id, idx, offers, decisions, ts}.
-// ➤ On disk and not in memory for the same reason as the list pages: the
-// ➤ listener can restart between two taps, and the file is the only bridge.
+// ➤ The whole session on disk — {message_id, idx, offers, decisions, ts}: which message is
+// ➤ the card, which offer it shows, what was decided. On disk for the same reason as the
+// ➤ list pages: the listener can restart between two taps, and the file is the only
+// ➤ bridge.
 export const REVIEW_STATE_PATH = join(ROOT, 'data', 'review-state.json');
 const PIPELINE_PATH = join(ROOT, 'data', 'pipeline.md');
 // ➤ Where "no" and "applied" append their one-line records; undo removes the
@@ -44,9 +44,9 @@ function loadJson(path, fallback) {
 // ➤ no icons on buttons or states (owner's choice).
 const KIND_LABEL = { seen: 'Seen', no: 'Discarded', applied: 'Applied' };
 
-// ➤ The card's keyboard. A decided offer offers only Undo and the arrows; a
-// ➤ pending one offers the link plus the four actions. Only arrows that lead
-// ➤ somewhere are shown — the same rule as the list's page row.
+// ➤ The card's keyboard: a decided offer offers only Undo and the arrows; a pending one
+// ➤ the link plus the four actions. Only arrows that lead somewhere are shown — the list's
+// ➤ page-row rule.
 export function reviewKeyboard(state) {
   const o = state.offers[state.idx];
   const total = state.offers.length;
@@ -139,10 +139,10 @@ export function undoDecision(id, decision = null, deps = {}) {
   return { restored, recordRemoved };
 }
 
-// ➤ Opens the review: a snapshot of the pending list becomes the deck, and
-// ➤ the first card is sent. The snapshot is deliberate — decided offers must
-// ➤ STAY in the deck (that is where late Undo lives), which the live pending
-// ➤ list cannot give. A previous card, if any, is deleted: one deck at a time.
+// ➤ Opens the review: a snapshot of the pending list becomes the deck and the first card
+// ➤ is sent. The snapshot is deliberate — decided offers must STAY in the deck (that is
+// ➤ where late Undo lives), which the live list cannot give. A previous card is deleted:
+// ➤ one deck at a time.
 export async function startReview(deps = {}) {
   const d = {
     pending: pendingOffers, send: sendTelegramButtons, notify: sendTelegramMessage,
@@ -156,10 +156,9 @@ export async function startReview(deps = {}) {
   if (!offers.length) { await d.notify('No pending offers to review.'); return null; }
   const prev = d.load();
   if (prev?.message_id != null) { try { await d.del(prev.message_id); } catch { /* already gone */ } }
-  // ➤ The judges' word is read ONCE, when the deck is cut: the snapshot the
-  // ➤ cards page through is frozen, so its verdicts freeze with it. Keyed by
-  // ➤ url first and by #id as the fallback, same as the list. With the
-  // ➤ Council off, verdicts() is null and every card reads as before.
+  // ➤ The judges' word is read ONCE, when the deck is cut: the snapshot is frozen, so its
+  // ➤ verdicts freeze with it. Keyed by url first and #id as fallback, like the list. With
+  // ➤ the Council off, verdicts() is null and every card reads as before.
   const v = d.verdicts();
   const state = {
     message_id: null, idx: 0,
@@ -234,9 +233,8 @@ export async function handleReviewCallback(data, messageId, cbId, deps = {}) {
   const out = (await act(offer)) || {};
   st.decisions[offer.id] = {
     kind,
-    // ➤ recTs pins the exact record line for undo; at orders decisions in
-    // ➤ time, so a bare "undo" knows which one was last (seen has no record,
-    // ➤ so recTs alone cannot order them).
+    // ➤ recTs pins the exact record line for undo; at orders decisions in time, so a bare
+    // ➤ "undo" knows which was last (seen has no record, so recTs alone cannot order them).
     recTs: out.recTs || null,
     at: new Date().toISOString(),
     ...(out.warn ? { warn: out.warn } : {}),

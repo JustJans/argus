@@ -1,6 +1,6 @@
-// ➤ The Council's ballot box: takes the 3 judges' votes and returns the verdict
-// ➤ by majority. Pure function — no network, no files, no clock — which is why
-// ➤ it is the easiest part of the Council to test. judge-shadow.mjs calls it.
+// ➤ The Council's ballot box: the 3 judges' votes in, the verdict by majority out. Pure —
+// ➤ no network, no files, no clock — which is why it is the easiest part of the Council to
+// ➤ test.
 
 // ➤ Normalises to 'show' | 'hide' | null. Accepts a bare vote or a whole judge
 // ➤ object. null = the judge failed or gave no readable vote; it does not count.
