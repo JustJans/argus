@@ -13,7 +13,8 @@
  * scan.mjs (server-bot) — Zero-token portal scanner
  *
  * Sources, all pure HTTP + JSON (zero Claude tokens):
- *   - Greenhouse / Ashby / Lever   (by domain detection)
+ *   - Greenhouse / Ashby / Lever / Teamtailor / SmartRecruiters (by domain detection)
+ *   - SuccessFactors  successfactors: true (or the feed URL)   in portals.yml
  *   - Workday      workday: { tenant, dc, site }   in portals.yml
  *   - Oracle Cloud oracle:  { host, site }         in portals.yml
  *   - Adzuna       adzuna: { queries: [...] }      in portals.yml
@@ -224,6 +225,40 @@ function detectApi(company) {
     };
   }
 
+  // ➤ Teamtailor publishes a public JSON feed at /jobs.json, no key. Most customers put
+  // ➤ their own domain in front (careers.acme.com says "Teamtailor" nowhere), so besides
+  // ➤ the teamtailor.com address `teamtailor: true` declares it when the URL cannot.
+  const ttMatch = url.match(/^https?:\/\/([^/?#]+\.teamtailor\.com)/);
+  if (ttMatch) return { type: 'teamtailor', url: `https://${ttMatch[1]}/jobs.json` };
+  if (company.teamtailor && url) {
+    try { return { type: 'teamtailor', url: `${new URL(url).origin}/jobs.json` }; } catch { /* unusable URL */ }
+  }
+
+  // ➤ SuccessFactors gives nothing away in the address, so it is declared with
+  // ➤ `successfactors: true`; the feed is always <site>/jobs.xml. A STRING value names
+  // ➤ the feed directly, for boards that speak the same RSS dialect from another shelf.
+  if (company.successfactors && url) {
+    try {
+      const feed = typeof company.successfactors === 'string'
+        ? company.successfactors
+        : `${new URL(url).origin}/jobs.xml`;
+      return { type: 'successfactors', url: feed };
+    } catch { /* unusable URL */ }
+  }
+
+  // ➤ SmartRecruiters: one public API for every company, keyed by the company slug —
+  // ➤ the first path segment of any of their job links, or `smartrecruiters: SLUG` when
+  // ➤ the careers URL is a custom domain.
+  const srMatch = url.match(/jobs\.smartrecruiters\.com\/([^/?#]+)/);
+  const srSlug = company.smartrecruiters || (srMatch ? srMatch[1] : null);
+  if (srSlug) {
+    return {
+      type: 'smartrecruiters',
+      url: `https://api.smartrecruiters.com/v1/companies/${encodeURIComponent(srSlug)}/postings?limit=100`,
+      meta: { slug: srSlug },
+    };
+  }
+
   return null;
 }
 
@@ -329,7 +364,90 @@ function parseOracle(json, name, meta) {
   }));
 }
 
-const PARSERS = { greenhouse: parseGreenhouse, ashby: parseAshby, lever: parseLever };
+// ➤ Teamtailor hangs a schema.org JobPosting off each feed item, with the town and
+// ➤ country separately AND the whole advert text — so this source needs no second visit.
+export function parseTeamtailor(json, name) {
+  return (json?.items || []).map(j => {
+    const p = j._jobposting || {};
+    // ➤ A job posted in several towns keeps them all; the location filter decides.
+    const places = (Array.isArray(p.jobLocation) ? p.jobLocation : [p.jobLocation]).filter(Boolean);
+    const location = places
+      .map(l => [l?.address?.addressLocality, l?.address?.addressRegion || l?.address?.addressCountry]
+        .filter(Boolean).join(', '))
+      .filter(Boolean).join('; ');
+    return {
+      title: j.title || p.title || '',
+      url: j.url || '',
+      company: name,
+      location,
+      _jd: stripHtml(p.description || j.content_html || ''),
+    };
+  });
+}
+
+// ➤ SmartRecruiters gives the title and the place but NOT the advert: that needs one
+// ➤ more call per offer, which fetchOfferDescription makes only for the survivors.
+export function parseSmartRecruiters(json, name) {
+  return (json?.content || []).map(j => {
+    const l = j.location || {};
+    // ➤ Their "fullLocation" repeats the country ("Poland, REMOTE, Poland"): joined here, no repeats.
+    const parts = [l.city, l.region, l.country && String(l.country).toUpperCase()]
+      .filter(Boolean).filter((v, i, a) => a.findIndex(x => String(x).toLowerCase() === String(v).toLowerCase()) === i);
+    const slug = j.company?.identifier;
+    return {
+      title: j.name || '',
+      url: slug && j.id ? `https://jobs.smartrecruiters.com/${slug}/${j.id}` : '',
+      company: name,
+      location: l.remote && !l.city ? 'Remote' : parts.join(', '),
+      _sr: { slug, id: j.id },
+    };
+  });
+}
+
+// ➤ The XML entities a job feed really contains, numeric ones included: "&#39;" is how
+// ➤ most feeds write an apostrophe, and a title full of those matches nothing.
+function decodeFeedEntities(s) {
+  return String(s || '')
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&');          // last, or "&amp;lt;" would become "<"
+}
+
+// ➤ SuccessFactors career sites (SAP's site builder, still answering to its old name of
+// ➤ jobs2web) publish the WHOLE board as RSS at <site>/jobs.xml — no key, advert included.
+export function parseSuccessFactors(xml, name) {
+  const tag = (block, t) => {
+    const m = block.match(new RegExp(`<${t}[^<>]*>([\\s\\S]*?)</${t}>`, 'i'));
+    return m ? decodeFeedEntities(m[1]).trim() : '';
+  };
+  return [...String(xml || '').matchAll(/<item>([\s\S]*?)<\/item>/gi)].map(([, block]) => {
+    const location = tag(block, 'g:location');
+    let title = tag(block, 'title');
+    // ➤ These titles repeat the location in brackets at the end ("E3D System Administrator
+    // ➤ (Kuala Lumpur, MY, 50470)"). Dropped ONLY when it equals the location field —
+    // ➤ plenty of real titles end in brackets that mean something ("Automation Engineer (HMI)").
+    if (location) {
+      const tail = title.match(/\s*\(([^)]+)\)\s*$/);
+      if (tail && tail[1].trim().toLowerCase() === location.trim().toLowerCase()) title = title.slice(0, tail.index).trim();
+    }
+    return {
+      title,
+      url: tag(block, 'link'),
+      company: name,
+      location,
+      _jd: stripHtml(tag(block, 'description')),
+    };
+  }).filter(o => o.title && o.url);
+}
+
+const PARSERS = {
+  greenhouse: parseGreenhouse, ashby: parseAshby, lever: parseLever,
+  teamtailor: parseTeamtailor, smartrecruiters: parseSmartRecruiters,
+};
 
 // ── Fetch ───────────────────────────────────────────────────────────
 
@@ -875,6 +993,14 @@ async function fetchOfferDescription(o, targetsByName) {
     // ➤ EMPTY for sitemap offers — falling through to it would skip the years/degree/language
     // ➤ screens for those boards.
     if (o._jd) return o._jd;
+    // ➤ SmartRecruiters keeps the advert on a second endpoint, one per offer.
+    if (o.source === 'smartrecruiters-api') {
+      if (!o._sr?.slug || !o._sr?.id) return '';
+      const j = await fetchJson(`https://api.smartrecruiters.com/v1/companies/${encodeURIComponent(o._sr.slug)}/postings/${encodeURIComponent(o._sr.id)}`);
+      const s = j?.jobAd?.sections || {};
+      return stripHtml([s.companyDescription?.text, s.jobDescription?.text, s.qualifications?.text, s.additionalInformation?.text]
+        .filter(Boolean).join(' '));
+    }
     // ➤ Workday recipe: the offer's detail page is requested.
     if (o.source === 'workday-api') {
       const t = targetsByName.get(o.company);
@@ -1792,6 +1918,14 @@ async function main() {
           jobs = await collectOracle(c._api, c.name, partial);
         } else if (c._api.type === 'sitemap') {
           jobs = await collectSitemap(c._api, c.name, titleFilter);
+        } else if (c._api.type === 'successfactors') {
+          // ➤ The only source that answers in XML, so it is fetched as text.
+          const res = await fetch(c._api.url, {
+            headers: { 'User-Agent': DESC_UA, Accept: 'application/rss+xml, text/xml, */*' },
+            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS * 2),   // whole boards run to megabytes
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          jobs = parseSuccessFactors(await res.text(), c.name);
         } else {
           // ➤ Greenhouse withholds the advert text unless asked; see above.
           const url = c._api.type === 'greenhouse' ? greenhouseUrlWithContent(c._api.url) : c._api.url;

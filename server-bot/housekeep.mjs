@@ -36,7 +36,7 @@ import { isPendingHeading } from './pipeline-format.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
-import { detectTitleLang, NOT_AN_EMPLOYER, titleDemandsForeignLanguage, titleEncodingBroken, bodyLanguageBlock, overrideDeadIfApply } from './scan.mjs';
+import { detectTitleLang, NOT_AN_EMPLOYER, titleDemandsForeignLanguage, titleEncodingBroken, bodyLanguageBlock, overrideDeadIfApply, buildCountryFilter } from './scan.mjs';
 import { buildTitleFilter, buildLocationFilter, buildCompanyFilter } from './filters.mjs';
 import { titleKey } from './text.mjs';
 import { loadVetoes, titleNegativesWith, companyFilterWith, locationFilterWith } from './vetoes.mjs';
@@ -133,6 +133,21 @@ export function rewritePipelineWithout(linesToDrop, path = PIPELINE_PATH) {
 // ➤ of two is half of them; a count alone misses "everything died" on a small list): five
 // ➤ or more dead AND at least half, OR every single one dead from three up. One or two
 // ➤ dead links get deleted, which is what they are for.
+// ➤ Would this saved offer get in TODAY? The weekly recheck asks it of every pending
+// ➤ line, in the scanner's order, and says which rule it now fails. Pure and exported,
+// ➤ so the rule behind the only permanent delete can be tested.
+export function stillPasses(offer, gates) {
+  const { companyOk, titleOk, locFilter, countryOk = () => true } = gates;
+  if (!companyOk(offer.company)) return { keep: false, why: 'company' };
+  if (!titleOk(offer.title, offer.location)) return { keep: false, why: 'title' };
+  if (offer.location && !locFilter(offer.location)) return { keep: false, why: 'location' };
+  if (locFilter.blockHit(offer.title)) return { keep: false, why: 'location' };
+  if (offer.location && !countryOk(offer.location)) return { keep: false, why: 'country' };
+  if (titleDemandsForeignLanguage(offer.title)) return { keep: false, why: 'language' };
+  if (titleEncodingBroken(offer.title)) return { keep: false, why: 'garbled' };
+  return { keep: true, why: null };
+}
+
 export function looksLikeAnOutage(pendingCount, deadCount) {
   if (pendingCount <= 0 || deadCount <= 0) return false;
   const half = deadCount >= Math.ceil(pendingCount * 0.5);
@@ -459,12 +474,10 @@ async function main() {
     // ➤ GEOGRAPHY IS CHECKED ON BOTH HALVES, like the scanner: the LOCATION, so a country
     // ➤ switched off after the offer arrived does not keep it in your list, and the TITLE,
     // ➤ where multi-location postings hide the country ("Graduate Programme - Qatar").
+    const countryFilter = buildCountryFilter();
     for (const p of pending) {
-      if (!companyOk(p.company) || !titleOk(p.title, p.location)
-          || (p.location && !locFilter(p.location)) || locFilter.blockHit(p.title)
-          || titleDemandsForeignLanguage(p.title) || titleEncodingBroken(p.title)) {
-        filteredIdx.add(p.lineIdx);
-      }
+      const v = stillPasses(p, { companyOk, titleOk, locFilter, countryOk: countryFilter.fn });
+      if (!v.keep) filteredIdx.add(p.lineIdx);
     }
   }
 

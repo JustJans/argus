@@ -15,10 +15,10 @@ import { parseLetter, coverFileBase, resolveCoverBase } from './cover-letter.mjs
 import { writeFileAtomic, tempNameFor, withFileLock } from './fs-atomic.mjs';
 import { classifyLiveness } from './liveness-core.mjs';
 import { stripHtml, profileTerm } from './requirements.mjs';
-import { looksLikeAnOutage } from './housekeep.mjs';
+import { stillPasses, looksLikeAnOutage } from './housekeep.mjs';
 import { seenReply } from './telegram-listener.mjs';
 import { buildCountryFilter, norm, buildTitleFilter, buildCompanyFilter, buildLocationFilter, parseGreenhouse, parseAshby, parseLever, greenhouseUrlWithContent, loadIdHighWater, capJobs, MAX_JOBS_PER_COMPANY } from './scan.mjs';
-import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync, copyFileSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync, copyFileSync, unlinkSync, utimesSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, dirname } from 'path';
 import { pathToFileURL, fileURLToPath } from 'url';
@@ -1472,6 +1472,68 @@ const { ok, eq, done } = harness('robustness');
   ok(!cpp.test('c plus plus'), 'profile: and nothing else');
   eq(profileTerm('Node.js (v18+)').literal, false, 'profile: text that happens to compile is left alone (dot, group, plus are all valid)');
   eq(profileTerm('(unclosed').literal, true, 'profile: an unclosed group is plain text too');
+}
+
+// ── The weekly re-check judges every saved offer under today's rules ────
+// ➤ stillPasses is the one place the cleanup asks "would this offer get in
+// ➤ today?": company, title, place, country, language and encoding, in the
+// ➤ scanner's order, with the reason it would not.
+{
+  const gates = {
+    companyOk: c => c !== 'Blocked Co',
+    titleOk: t => /engineer/i.test(t),
+    locFilter: Object.assign(l => !/dubai/i.test(l), { blockHit: t => /qatar/i.test(t) }),
+    countryOk: l => !/germany/i.test(l),
+  };
+  const offer = (over = {}) => ({ company: 'Acme', title: 'Mooring Engineer', location: 'Rotterdam', ...over });
+  eq(stillPasses(offer(), gates), { keep: true, why: null }, 'an offer that still fits every rule is kept');
+  eq(stillPasses(offer({ company: 'Blocked Co' }), gates).why, 'company', 'a company you blocked since is filtered');
+  eq(stillPasses(offer({ title: 'Mooring Technician' }), gates).why, 'title', 'a title that no longer passes is filtered');
+  eq(stillPasses(offer({ location: 'Dubai' }), gates).why, 'location', 'a blocked place is filtered');
+  eq(stillPasses(offer({ title: 'Graduate Engineer - Qatar' }), gates).why, 'location', 'and a blocked country hiding in the title');
+  eq(stillPasses(offer({ location: 'Hamburg, Germany' }), gates).why, 'country', 'a country switched off since the offer arrived is filtered');
+  eq(stillPasses(offer({ location: '' }), gates).keep, true, 'an empty location is not judged by geography');
+  eq(stillPasses(offer({ title: 'Dutch-speaking Mooring Engineer' }), gates).why, 'language', 'a title that demands a language you lack is filtered');
+  eq(stillPasses(offer({ title: 'Mooring Engineer ??????' }), gates).why, 'garbled', 'a mangled title is filtered');
+  eq(stillPasses(offer({ location: 'Hamburg, Germany' }), { ...gates, countryOk: undefined }).keep, true,
+     'without a country gate, the country toggle is not judged');
+}
+
+// ── A lock from the future, and a wait that does not burn the CPU ───────
+{
+  const dir = join(tmpdir(), `argus-lock-future-${process.pid}`);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, 'pipeline.md');
+  writeFileSync(file, 'x');
+  mkdirSync(`${file}.lock`);
+  const tomorrow = new Date(Date.now() + 86_400_000);
+  utimesSync(`${file}.lock`, tomorrow, tomorrow);
+  let ranWithFuture = false;
+  const tFut = Date.now();
+  withFileLock(file, () => { ranWithFuture = true; }, { timeoutMs: 2000 });
+  ok(ranWithFuture, 'a lock dated in the future does not stop the job');
+  ok(Date.now() - tFut < 500, 'and it is cleared at once, not waited out');
+  ok(!existsSync(`${file}.lock`), 'the impossible lock is gone afterwards');
+  const brokenIo = {
+    mkdirSync: () => { const e = new Error('EROFS: read-only file system'); e.code = 'EROFS'; throw e; },
+    rmdirSync: () => {},
+    statSync: () => { const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; },
+  };
+  const cpu0 = process.cpuUsage();
+  withFileLock(file, () => {}, { timeoutMs: 600, io: brokenIo, log: () => {} });
+  const burnt = process.cpuUsage(cpu0).user / 1000;
+  ok(burnt < 200, `waiting sleeps instead of spinning (burnt ${Math.round(burnt)} ms of CPU over 600)`);
+  rmSync(dir, { recursive: true, force: true });
+}
+
+// ── The Claude launcher treats every error as a failure ─────────────────
+{
+  const cli = readFileSync(join(SELF_DIR, 'claude-cli.mjs'), 'utf-8');
+  ok(/\n\s*if \(err\) \{/.test(cli), 'any error from the Claude program is a failure');
+  ok(!/if \(err && !outText\)/.test(cli), 'not only one that printed nothing');
+  ok(/err\.killed \? 'timeout'/.test(cli), 'and a run that ran out of time says so');
+  ok(/ran out of time/.test(claudeErrorMessage('timeout', '')), 'which turns into a sentence you can act on');
 }
 
 done();

@@ -20,6 +20,10 @@ function writePrivate(path, data) {
   writeFileSync(path, data, 'utf-8');
   try { chmodSync(path, 0o600); } catch { /* not POSIX — ignore */ }
 }
+function appendPrivate(path, data) {
+  const before = existsSync(path) ? readFileSync(path, 'utf-8') : '';
+  writePrivate(path, before + data);
+}
 
 // ➤ Keep the old version before replacing a document you could not retype from memory:
 // ➤ exactly ONE backup (<file>.bak), enough to undo an accident without piling up copies.
@@ -46,6 +50,9 @@ const STATE_PATH = join(ROOT, 'data', 'onboarding-state.json');
 const ANSWERS_PATH = join(ROOT, 'data', 'onboarding-answers.json');
 const PROFILE_PATH = join(ROOT, 'config', 'profile.yml');
 const CV_PATH = join(ROOT, 'cv.md');
+// ➤ A pasted message that fills Telegram's limit is almost certainly not the end of the
+// ➤ document: from this length on, the setup waits for the rest before moving on.
+const CV_CHUNK_HINT = 3900;
 const COVER_EXAMPLE_PATH = join(ROOT, 'config', 'cover-example.md');
 
 // ── Catalogs for the button questions ────────────────────────────────────
@@ -663,6 +670,20 @@ export async function handleOnboardingText(text) {
 
   const value = String(text || '').trim();
   if (q.kind === 'contact') return applyContactAnswer(s, value);
+  // ➤ Still collecting a CV that arrived in pieces: append rather than replace, and move
+  // ➤ on only when the user says it is complete.
+  if (s.answers.cvPartial && q.kind === 'cv') {
+    if (/^done$/i.test(value)) {
+      s.answers.cvPartial = false;
+      try { s.suggest = await readCvForSuggestions(readFileSync(CV_PATH, 'utf-8')); } catch { /* no CV, no suggestions */ }
+      await advance(s);
+      return true;
+    }
+    appendPrivate(CV_PATH, '\n' + value + '\n');
+    saveState(s);
+    await sendTelegram('Added. Paste more, or type "done" when the CV is complete.');
+    return true;
+  }
   if (q.kind === 'cv') {
     // ➤ Keep the previous CV before overwriting it: your copy is not a git repo and nothing
     // ➤ else holds this file, so without the backup one mistyped message costs the document
@@ -670,6 +691,13 @@ export async function handleOnboardingText(text) {
     backupBeforeOverwrite(CV_PATH);
     writePrivate(CV_PATH, value + '\n');
     s.answers.cv = 'saved';
+    if (value.length >= CV_CHUNK_HINT) {
+      s.answers.cvPartial = true;
+      saveState(s);
+      await sendTelegram('Got that piece. Telegram splits long messages, so if your CV continues, paste the rest now — I will add it on. When it is complete, type "done".');
+      return true;
+    }
+    s.answers.cvPartial = false;
     s.suggest = await readCvForSuggestions(value);
   } else if (q.kind === 'skip-text') {
     if (!/^skip$/i.test(value) && value) {

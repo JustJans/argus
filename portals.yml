@@ -1410,6 +1410,15 @@ tracked_companies:
     notes: "Papendrecht NL. Marine contractor. Graduate programme available."
     enabled: true
 
+  # ➤ Three more kinds of careers site the scanner reads without a key:
+  #   teamtailor: true       → the site's own /jobs.json feed (any *.teamtailor.com address is detected alone)
+  #   successfactors: true   → the site's /jobs.xml RSS feed (a string names another feed URL instead)
+  #   smartrecruiters: SLUG  → SmartRecruiters' public API (a jobs.smartrecruiters.com link is detected alone)
+  # - name: Example Co
+  #   careers_url: https://careers.example.com/
+  #   successfactors: true
+  #   enabled: true
+
   - name: Heerema Marine Contractors
     careers_url: https://www.heerema.com/careers
     notes: "Leiden NL. Heavy lift and offshore installation. Graduate roles."

@@ -17,7 +17,7 @@
 
 ## What it does
 
-- **Scans** Workday, Oracle, Adzuna and LinkedIn on a schedule: plain HTTP and JSON, **zero AI tokens**.
+- **Scans** Workday, Oracle, Greenhouse, Ashby, Lever, Teamtailor, SmartRecruiters, SuccessFactors, career-site sitemaps, Adzuna and LinkedIn on a schedule: plain HTTP, JSON and RSS, **zero AI tokens**.
 - **Filters** every offer against your profile: title, country, language, years required, degree required, dead links.
 - **Sends** one live list to Telegram, updated in place, so the bottom of your chat is always current.
 

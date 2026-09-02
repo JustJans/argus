@@ -25,7 +25,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
-import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, buildCountryFilter, admissionVerdict, roleKey, slugTitle, parseJobPostingLd, parseLinkedInCards, titleDemandsForeignLanguage, titleEncodingBroken, bodyLanguageBlock, pipelineRoleKey, hasApplySignal, overrideDeadIfApply, formatSalary, normUrl } from './scan.mjs';
+import { buildTitleFilter, buildLocationFilter, buildCompanyFilter, buildCountryFilter, admissionVerdict, roleKey, parseTeamtailor, parseSmartRecruiters, parseSuccessFactors, slugTitle, parseJobPostingLd, parseLinkedInCards, titleDemandsForeignLanguage, titleEncodingBroken, bodyLanguageBlock, pipelineRoleKey, hasApplySignal, overrideDeadIfApply, formatSalary, normUrl } from './scan.mjs';
 import { offerAffinity } from './notify.mjs';
 import { extractRequiredYears, stripHtml, experienceScreen, extractAdzunaJd, degreeScreen } from './requirements.mjs';
 import { harness } from './test-harness.mjs';
@@ -1226,4 +1226,68 @@ for (const [name, ok] of COMPANY) {
 }
 
 // ➤ so other scripts can detect it.
+// ➤ The three boards that publish their whole list without a key: Teamtailor
+// ➤ (JSON feed with the advert inside), SmartRecruiters (JSON list, advert on a
+// ➤ second endpoint) and SuccessFactors (RSS at <site>/jobs.xml, advert inside).
+{
+  const tt = parseTeamtailor({
+    items: [{
+      title: 'Naval Architect', url: 'https://careers.acme-sails.example/jobs/123-naval-architect',
+      _jobposting: {
+        title: 'Naval Architect', description: '<p>Design of <b>suction sails</b>.</p>',
+        jobLocation: [{ address: { addressLocality: 'Barcelona', addressCountry: 'ES', addressRegion: 'Spain' } }],
+      },
+    }],
+  }, 'Acme Sails');
+  check(tt.length === 1, 'teamtailor: one offer parsed', `${tt.length}`);
+  check(tt[0].title === 'Naval Architect', 'teamtailor: title', tt[0].title);
+  check(tt[0].company === 'Acme Sails', 'teamtailor: company is the tracked name', tt[0].company);
+  check(tt[0].location === 'Barcelona, Spain', 'teamtailor: the town and country, properly separated', tt[0].location);
+  check(/suction sails/.test(tt[0]._jd) && !/<b>/.test(tt[0]._jd),
+    'teamtailor: the advert travels with the list, as text', tt[0]._jd);
+  const two = parseTeamtailor({ items: [{ title: 'T', url: 'u', _jobposting: { jobLocation: [
+    { address: { addressLocality: 'Barcelona', addressCountry: 'ES' } },
+    { address: { addressLocality: 'Santander', addressCountry: 'ES' } }] } }] }, 'X');
+  check(two[0].location === 'Barcelona, ES; Santander, ES',
+    'teamtailor: both towns of a two-location job, separated', two[0].location);
+  check(parseTeamtailor({ items: [] }, 'X').length === 0, 'teamtailor: an empty board is empty, not an error', '0');
+  check(parseTeamtailor(null, 'X').length === 0, 'teamtailor: no answer at all is empty too', '0');
+
+  const sr = parseSmartRecruiters({
+    content: [{
+      id: '744000137613800', name: 'Marine Engineer',
+      company: { identifier: 'acme' },
+      location: { city: 'Rotterdam', region: 'Zuid-Holland', country: 'nl' },
+    }],
+  }, 'Acme');
+  check(sr[0].title === 'Marine Engineer', 'smartrecruiters: title', sr[0].title);
+  check(sr[0].url === 'https://jobs.smartrecruiters.com/acme/744000137613800',
+    'smartrecruiters: the link is built from the slug and the id', sr[0].url);
+  check(sr[0].location === 'Rotterdam, Zuid-Holland, NL', 'smartrecruiters: where', sr[0].location);
+  const dup = parseSmartRecruiters({ content: [{ id: '1', name: 'T', company: { identifier: 'a' },
+    location: { city: 'Poland', region: 'Poland', country: 'pl' } }] }, 'A');
+  check(dup[0].location === 'Poland, PL', 'smartrecruiters: a repeated country is not printed twice', dup[0].location);
+  check(parseSmartRecruiters({ content: [] }, 'X').length === 0, 'smartrecruiters: empty is empty', '0');
+
+  const sfXml = `<rss><channel>
+    <item><title>Naval Architecture Designer (Rotterdam Office, NL)</title>
+      <description>&lt;p&gt;Design of &amp;amp; mooring systems&lt;/p&gt;</description>
+      <link>https://careers.acme-offshore.example/job/Rotterdam-Naval/136/</link>
+      <g:location>Rotterdam Office, NL</g:location><g:employer>Acme Offshore Group</g:employer></item>
+    <item><title>Automation Engineer (HMI)</title><description>x</description>
+      <link>https://careers.acme-offshore.example/job/Monaco-Auto/137/</link>
+      <g:location>Monaco, MC</g:location></item>
+    <item><title>No link here</title><description>x</description><g:location>Monaco, MC</g:location></item>
+  </channel></rss>`;
+  const sf = parseSuccessFactors(sfXml, 'Acme Offshore');
+  check(sf.length === 2, 'successfactors: the two complete items, not the one without a link', `${sf.length}`);
+  check(sf[0].title === 'Naval Architecture Designer', 'successfactors: the repeated location leaves the title', sf[0].title);
+  check(sf[1].title === 'Automation Engineer (HMI)', 'successfactors: a bracket that means something stays', sf[1].title);
+  check(sf[0].location === 'Rotterdam Office, NL', 'successfactors: where', sf[0].location);
+  check(/mooring systems/.test(sf[0]._jd) && !/&amp;|&lt;/.test(sf[0]._jd),
+    'successfactors: the advert comes through decoded, entities and all', sf[0]._jd);
+  check(parseSuccessFactors('', 'X').length === 0, 'successfactors: nothing is nothing, not a crash', '0');
+  check(parseSuccessFactors(null, 'X').length === 0, 'successfactors: and neither is no answer', '0');
+}
+
 done();
