@@ -45,13 +45,19 @@ export function landLinkFrom(html, pageUrl) {
 // ➤ The campaign tail a board adds for the aggregator ("utm_source=adzuna", "cid=partner_
 // ➤ adzuna") is not part of the advert's address; without it the same posting found twice
 // ➤ compares equal, and the link you keep is the one the board itself uses.
-const TRACKING_PARAM = /^(utm_.*|gclid|fbclid|msclkid|clickid|click_id|campaign_id|mc_cid|mc_eid|_hsenc|_hsmi)$/i;
+const TRACKING_PARAM = /^(utm_.*|gclid|fbclid|msclkid|clickid|click_id|campaign_id|mc_cid|mc_eid|_hsenc|_hsmi|sc_cmp|ppt)$/i;
+// ➤ "source=Adzuna" (Recruitee) names the aggregator, not the advert; a value shaped like a
+// ➤ signed token (XING's click receipt) is a receipt, not an address.
+const AGGREGATOR_NAME = /^(adzuna|jooble|indeed|linkedin|talent|careerjet|jobrapido|trovit|mitula|glassdoor|stepstone|appcast)/i;
+const SIGNED_TOKEN = /^eyJ[A-Za-z0-9_-]{10,}\./;
 export function stripTracking(url) {
   let u;
   try { u = new URL(url); } catch { return url; }
   for (const k of [...u.searchParams.keys()]) {
-    const partner = k.toLowerCase() === 'cid' && /^partner_/i.test(u.searchParams.get(k) || '');
-    if (TRACKING_PARAM.test(k) || partner) u.searchParams.delete(k);
+    const v = u.searchParams.get(k) || '';
+    const partner = k.toLowerCase() === 'cid' && /^partner_/i.test(v);
+    const named = /^(source|src|ref|referrer|origin)$/i.test(k) && AGGREGATOR_NAME.test(v);
+    if (TRACKING_PARAM.test(k) || partner || named || SIGNED_TOKEN.test(v)) u.searchParams.delete(k);
   }
   u.hash = '';
   return u.toString().replace(/\?$/, '');

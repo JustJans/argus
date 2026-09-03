@@ -32,6 +32,10 @@ eq(stripTracking('https://www.meteojob.com/jobs/56485647?utm_source=adzuna&utm_m
 eq(stripTracking('https://www.stepstone.be/offres-d-emploi----2214476-inline.html?cid=partner_adzuna___fr&utm_source=adzuna'), 'https://www.stepstone.be/offres-d-emploi----2214476-inline.html', 'StepStone\'s partner cid goes');
 eq(stripTracking('https://jobs.example.com/view?id=42&cid=7#top'), 'https://jobs.example.com/view?id=42&cid=7', 'a meaningful id and a non-partner cid stay; the fragment goes');
 eq(stripTracking('not a url'), 'not a url', 'garbage is returned untouched');
+eq(stripTracking('https://jobs.hgg.nl/o/commissioning-engineer-5?source=Adzuna'), 'https://jobs.hgg.nl/o/commissioning-engineer-5', 'a "source" that names the aggregator goes (seen on a real Recruitee page)');
+eq(stripTracking('https://shop.example.com/jobs/1?source=internal'), 'https://shop.example.com/jobs/1?source=internal', 'a "source" that names something else stays');
+eq(stripTracking('https://www.xing.com/jobs/kiel-naval-156962094?sc_cmp=par068cbd0d&ppt=eyJhbGciOiJIUzI1NiJ9.eyJjbGlja19pZCI6Inl.abc'), 'https://www.xing.com/jobs/kiel-naval-156962094', 'XING\'s campaign code and signed click receipt go');
+eq(stripTracking('https://ats.example.com/job/7?token=eyJhbGciOiJIUzI1NiJ9.payload.sig&id=7'), 'https://ats.example.com/job/7?id=7', 'any signed-token value is a receipt, whatever its name');
 
 // ── Where a page sends the reader next ──────────────────────────────────
 eq(nextHop('<meta http-equiv="refresh" content="0;url=https://www.apec.fr/candidat/offre/123.html">', 'https://www.adzuna.fr/land/ad/1'),
