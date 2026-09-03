@@ -41,6 +41,9 @@ import { buildTitleFilter, buildLocationFilter, buildCompanyFilter } from './fil
 import { titleKey } from './text.mjs';
 import { loadVetoes, titleNegativesWith, companyFilterWith, locationFilterWith } from './vetoes.mjs';
 import { experienceScreen, degreeScreen, stripHtml, extractAdzunaJd, PRIORITY_KEEP, searchProfile } from './requirements.mjs';
+// ➤ An offer listed by the page it lives on came through an aggregator whose copy holds the
+// ➤ cleanest text: the weekly recheck reads that one, as the scan did.
+import { viaFor } from './root-link.mjs';
 // ➤ To refresh the Telegram list after deleting: otherwise you keep seeing on your phone
 // ➤ offers that no longer exist.
 import { refreshList } from './live-list.mjs';
@@ -331,6 +334,7 @@ const adzunaJdClean = new Set();
 
 async function fetchDescriptionByUrl(url) {
   try {
+    url = viaFor(url) || url;
     // ➤ Is it a Workday URL? Request the detail from its data service.
     let m = url.match(/^https:\/\/([^.]+)\.(wd\d+)\.myworkdayjobs\.com\/en-US\/([^/]+)(\/.+)$/);
     if (m) {

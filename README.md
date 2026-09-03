@@ -144,6 +144,8 @@ NETHERLANDS
 
 Years and salary appear only when the posting actually gives them; the salary comes from Adzuna alone, and a `~` in front would mark a board estimate rather than a stated figure.
 
+The link is the page where the offer really lives. Adzuna re-posts other sites' adverts and bounces the reader through its own landing page, a click tracker or a cookie wall before the posting; the scanner walks that chain once and lists the final page (the board, agency or employer that published it), so you click once. When the chain cannot be followed, the Adzuna link stays: it works, it is just one click longer.
+
 ## Commands
 
 Typed into the chat. `N` is the `#number` shown on the offer.

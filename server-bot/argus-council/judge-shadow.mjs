@@ -23,6 +23,9 @@ import { dirname, join } from 'path';
 import yaml from 'js-yaml';
 import { pendingOffers } from '../list-offers.mjs';
 import { fetchOfferPage } from '../offer-body.mjs';
+// ➤ When the list shows the page an offer lives on, the aggregator link it came through
+// ➤ still holds the cleanest text of the advert: the judges read that one.
+import { viaFor } from '../root-link.mjs';
 import { JUDGES } from './judges.mjs';
 import { runJudge } from './engine.mjs';
 import { councilVote } from './vote.mjs';
@@ -183,7 +186,7 @@ export function sampleDropped(text, limit, judgedKeys = new Set()) {
 async function judgeOffer(offer, model, minBody = MIN_BODY_CHARS) {
   // ➤ Fetches the body only if there's a URL (dropped ones don't carry it → title only).
   let page = { text: '', status: 0 };
-  if (offer.url) { try { page = await fetchOfferPage(offer.url); } catch { page = { text: '', status: 0 }; } }
+  if (offer.url) { try { page = await fetchOfferPage(viaFor(offer.url) || offer.url); } catch { page = { text: '', status: 0 }; } }
   const body = page.text;
   const base = {
     ts: new Date().toISOString(),

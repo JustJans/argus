@@ -24,6 +24,9 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
 import { fetchOfferBody } from './offer-body.mjs';
+// ➤ An offer shown by the page it lives on came through an aggregator whose copy holds the
+// ➤ cleanest text of the advert: the letter is written from that one.
+import { viaFor } from './root-link.mjs';
 import { unaccent } from './text.mjs';
 // ➤ The single shared way of calling Claude on the server (see claude-cli.mjs).
 import { runAi, aiErrorMessage } from './ai-cli.mjs';
@@ -271,7 +274,7 @@ export function resolveCoverBase(company, offerId, index = {}) {
 export async function makeCoverLetter(offer) {
   // ➤ Step 1: the offer text (if the portal does not give it, Claude will write
   // ➤ with the title and company, less refined but with a warning — better than nothing).
-  const body = await fetchOfferBody(offer.url);
+  const body = await fetchOfferBody(viaFor(offer.url) || offer.url);
 
   // ➤ Step 2: Claude writes the letter.
   const res = await runClaude(buildCoverPrompt(offer, body));

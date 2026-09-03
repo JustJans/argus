@@ -61,6 +61,7 @@ offer, with the reason.
 | `filters.mjs` | The three filters an offer must pass (title, company, location) and the word rules they share | Used by scan, housekeep and the veto panel |
 | `text.mjs` | Accent folding and the title key that tells a re-post from a new vacancy | Used everywhere text is compared |
 | `offer-body.mjs` | Fetches an offer's text from whichever board holds it, with the HTTP status that decided it | Used by the letter writer and the Council |
+| `root-link.mjs` | **The root link.** Follows an Adzuna offer through its bounces (landing page, click tracker, cookie wall) to the page where it really lives, so the list links there and you click once; keeps the Adzuna link as `via` for the clean text and the anti-repeat memory | Used by scan; `via` read by the letter, the Council and housekeep |
 | `review.mjs` | The `review` mode: one card per offer, buttons, every decision undoable | On `review` |
 | `vetoes.mjs` | The veto panel a typed `no` earns, and the standing vetoes it keeps in `data/vetoes.json` | After a `no`, and by scan and housekeep |
 | `pipeline-format.mjs` | The two headings that divide `data/pipeline.md` | Used by everything that reads the list |
@@ -79,6 +80,7 @@ offer, with the reason.
 | `test-live-list.mjs` | the single-list bookkeeping |
 | `test-robustness.mjs` | the parts that can LOSE DATA or answer wrongly |
 | `test-ai-cli.mjs` | which AI CLI is chosen, and the Codex launcher against a stand-in program |
+| `test-root-link.mjs` | the walk from an aggregator's bounce to the offer's own page, against canned pages: trackers, cookie walls, dead ends |
 | `test-gmail.mjs` | the read-only inbox door |
 | `argus-council/test-council.mjs` | the judges, the vote reader and the blind state |
 | `argus-mail/test-mail.mjs` | replies → one state per application |
@@ -97,7 +99,7 @@ single file also runs on its own (`node server-bot/test-filter.mjs`). They all s
 | `../portals.yml` | **Where offers come from.** Boards queried, search terms, tracked companies, blocked locations, and the title positive/negative lists |
 | `countries.yml` | Country name aliases (cities, spellings) used to work out which country an offer is in |
 | `../data/pipeline.md` | **Your list.** One line per offer: `- [ ] link \| company \| title \| city \| #number`. Lines you decided on are kept and marked; what the bot removes is deleted from here, with its trace left in the history |
-| `../data/scan-history.tsv` | Everything ever accepted, so nothing is offered twice |
+| `../data/scan-history.tsv` | Everything ever accepted, so nothing is offered twice. Its last column, `via`, holds the Adzuna link an offer came through when the list shows the page it lives on |
 | `../data/scan-explain.txt` | One line per DISCARDED offer with its reason (written by `scan.mjs --explain`) |
 | `../data/applications.jsonl` | The applications you sent (`applied N`, `longshot N`) |
 | `../data/cover-letters.json` | Which offer owns which letter file name |

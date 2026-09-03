@@ -90,6 +90,19 @@ and the title then needs another field word to pass. `--explain` says which of t
 happened ("the title's only keyword from your field is part of its place name"). Negatives
 still read the whole title, which is the conservative direction.
 
+### An Adzuna offer that still links to Adzuna
+`server-bot/root-link.mjs`, in `resolveRoot`; `--no-rootlinks` switches the walk off.
+
+The scanner follows each Adzuna offer through its bounces to the page where the offer
+really lives, and lists that page. Four endings keep the Adzuna link on purpose, because
+the alternative is a link that is wrong or that does not open: a click tracker that
+answers a script with a captcha (Appcast, Jobroute — measured: they refuse even a real
+headless browser); an aggregator that hides its source behind a login (BuscoJobs);
+a board that bounced to its homepage, which means the advert is gone; and a page that
+never mentions the title's words, which means the bounce landed on another job. On 35
+live adverts checked on 2026-09-03, 28 reached their page and 7 fell in these four
+cases. The Adzuna link works in all of them; it is one click longer.
+
 ### The Council has no decision power
 `server-bot/argus-council/judge-shadow.mjs`. (`portals.yml` → `council.enabled` only
 decides whether the judges RUN at all; it is not a switch for their authority.)

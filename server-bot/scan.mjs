@@ -21,14 +21,17 @@
  *
  * On top of portals.yml filters it applies a per-country toggle
  * (server-bot/countries.yml), drops dead Adzuna links (liveness),
- * dedups across scans by normalised URL AND company+title, and can
- * notify new offers via Telegram (server-bot/telegram.json).
+ * dedups across scans by normalised URL AND company+title, follows
+ * each Adzuna offer to the page where it really lives (root-link.mjs)
+ * so you click once, and can notify new offers via Telegram
+ * (server-bot/telegram.json).
  *
  * Usage:
  *   node server-bot/scan.mjs
  *   node server-bot/scan.mjs --dry-run
  *   node server-bot/scan.mjs --company Fugro
  *   node server-bot/scan.mjs --explain --dry-run
+ *   node server-bot/scan.mjs --no-rootlinks   (keep the aggregator links as they come)
  */
 
 // ➤ Tools this file needs: files, the YAML configuration, and the requirements reader
@@ -50,6 +53,8 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import yaml from 'js-yaml';
 import { experienceScreen, degreeScreen, stripHtml, extractAdzunaJd, searchProfile, PRIORITY_KEEP } from './requirements.mjs';
+// ➤ The walk from an aggregator's bounce to the page where the offer really lives.
+import { landLinkFrom, resolveRoot } from './root-link.mjs';
 
 const parseYaml = yaml.load;
 
@@ -986,6 +991,20 @@ async function scanPoliteFetch(hostKey, url, opts = {}) {
   return null; // still rate-limited → inconclusive
 }
 
+// ➤ One hop of the root walk (root-link.mjs): Adzuna's own bounce goes through the polite
+// ➤ fetch, with its pacing and its 429 handling; any other site through a plain request
+// ➤ with the same browser identity. Answers {url, status, html}, or null when nothing came.
+async function rootGet(url) {
+  const adzuna = /(^|\.)adzuna\.[a-z.]+$/i.test(new URL(url).hostname);
+  const res = adzuna
+    ? await scanPoliteFetch('adzuna', url, { redirect: 'follow' })
+    : await fetch(url, { headers: { 'User-Agent': DESC_UA }, redirect: 'follow', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  if (!res) return null;
+  const type = res.headers.get('content-type') || '';
+  const html = /html|xml|text/i.test(type) ? (await res.text().catch(() => '')).slice(0, 300_000) : '';
+  return { url: res.url, status: res.status, html };
+}
+
 async function fetchOfferDescription(o, targetsByName) {
   try {
     // ➤ A body some earlier step already extracted wins outright: the sitemap parser stores
@@ -1055,6 +1074,9 @@ async function fetchOfferDescription(o, targetsByName) {
         const res = await scanPoliteFetch('adzuna', o.url, { redirect: 'follow' });
         if (res && res.ok) {
           const html = await res.text();
+          // ➤ The "apply" bounce on this page leads to where the offer really lives; kept for
+          // ➤ the root-link phase so it costs no second download of Adzuna.
+          o._land = landLinkFrom(html, res.url);
           // ➤ If the clean description region is found, that one is used (no menus or related ads)
           // ➤ and saved in the offer so the body's LANGUAGE can be checked on Adzuna too.
           const jd = extractAdzunaJd(html);
@@ -1268,8 +1290,12 @@ function loadSeenUrls() {
   const seen = new Set();
   if (existsSync(SCAN_HISTORY_PATH)) {
     for (const line of readFileSync(SCAN_HISTORY_PATH, 'utf-8').split('\n').slice(1)) {
-      const url = line.split('\t')[0];
-      if (url) seen.add(normUrl(url));
+      // ➤ Two addresses per row when the list shows the root: the root itself and, in the
+      // ➤ last column, the aggregator link it came through — the one the aggregator will
+      // ➤ send again on the next scan.
+      const cols = line.split('\t');
+      if (cols[0]) seen.add(normUrl(cols[0]));
+      if (cols[7]) seen.add(normUrl(cols[7]));
     }
   }
   if (existsSync(PIPELINE_PATH)) {
@@ -1529,12 +1555,15 @@ function saveIdHighWater(n) {
 
 // ➤ Adds each new offer to scan-history.tsv (date, portal, title...): the memory that
 // ➤ avoids repeating offers in future scans.
+// ➤ The eighth column, "via", is the aggregator link an offer came through when the list
+// ➤ shows the root instead (empty otherwise). Older rows have seven columns and every
+// ➤ reader splits by tab, so both shapes live in the same file.
 function appendToScanHistory(offers, date) {
   if (!existsSync(SCAN_HISTORY_PATH)) {
-    writeFileSync(SCAN_HISTORY_PATH, 'url\tfirst_seen\tportal\ttitle\tcompany\tstatus\tlocation\n', 'utf-8');
+    writeFileSync(SCAN_HISTORY_PATH, 'url\tfirst_seen\tportal\ttitle\tcompany\tstatus\tlocation\tvia\n', 'utf-8');
   }
   const lines = offers.map(o =>
-    `${o.url}\t${date}\t${o.source}\t${sanitizeField(o.title)}\t${sanitizeField(o.company)}\tadded\t${sanitizeField(normalizeLocation(o.location))}`
+    `${o.url}\t${date}\t${o.source}\t${sanitizeField(o.title)}\t${sanitizeField(o.company)}\tadded\t${sanitizeField(normalizeLocation(o.location))}\t${o.via || ''}`
   ).join('\n') + '\n';
   appendFileSync(SCAN_HISTORY_PATH, lines, 'utf-8');
 }
@@ -1616,6 +1645,7 @@ function writeStateSnapshot(s) {
     linkedin_calls: s.liCalls,
     linkedin_status: s.liStatus,
     dropped_dead: s.prunedDead,
+    root_links: { resolved: s.rooted, tried: s.rootTried },
     no_link: s.fNoLink,
     telegram: s.telegram,
     errors: s.errors.length,
@@ -1648,6 +1678,7 @@ function printSummary(s) {
   if (s.fDeferred) console.log(`Deferred (body unread): ${s.fDeferred} — retried on the next scan`);
   if (s.liEnabled) console.log(`LinkedIn:              ${s.liCalls} calls (${s.liStatus})`);
   console.log(`Dropped (dead):        ${s.prunedDead}`);
+  if (s.rootTried) console.log(`Root links:            ${s.rooted} of ${s.rootTried} Adzuna offers now point to the page they live on`);
   console.log(`Telegram:              ${s.telegram}`);
   console.log(`New offers added:      ${s.newOffers.length}`);
 
@@ -1872,6 +1903,7 @@ async function main() {
   const langEnabled = langCfg.enabled !== false && !args.includes('--no-langcheck');
   let fExp = 0, fDeg = 0, fDeferred = 0;
   let prunedDead = 0;
+  let rooted = 0, rootTried = 0;
   let telegram = dryRun ? 'dry-run' : 'nothing to send';
 
   // ➤ ── THE RUN, PHASE BY PHASE ──────────────────────────────────────────
@@ -1884,6 +1916,7 @@ async function main() {
   await screenTitleLanguage();
   await screenRequirements();
   await dropDeadLinks();
+  await resolveRootLinks();
   dumpExplainReport();
   await persistAndNotify();
 
@@ -1892,7 +1925,7 @@ async function main() {
     fTitle, fCompany, fLoc, fCountry, fNoLink, dupes,
     adzunaWanted, adzunaCalls, adzunaFailed, adzunaRateLimited,
     fLang, fExp, fDeg, fDeferred, liEnabled: !!liCfg.enabled, liCalls, liStatus,
-    prunedDead, telegram, newOffers, errors, skipped, countriesOff: country.off,
+    prunedDead, rooted, rootTried, telegram, newOffers, errors, skipped, countriesOff: country.off,
   };
   if (!dryRun) writeStateSnapshot(summary);
   printSummary(summary);
@@ -2149,6 +2182,42 @@ async function main() {
         newOffers.length = 0;
         newOffers.push(...alive);
       }
+    }
+  }
+
+  async function resolveRootLinks() {
+    // ── The link you get is the page where the offer lives ─────────────
+    // ➤ An Adzuna offer arrives as Adzuna's own page, a re-post that bounces the reader on
+    // ➤ to the board, agency or employer that published it. Each survivor is followed
+    // ➤ through those bounces ONCE, here, so the list carries the final page and you click
+    // ➤ once; the Adzuna link is kept as "via" (history) for the anti-repeat memory and
+    // ➤ for the clean text the letter writer and the Council read. Only the offers whose
+    // ➤ Adzuna page was read in the requirements screen can be followed: the bounce is
+    // ➤ taken from that page, so this costs no second download of Adzuna. When the walk
+    // ➤ finds no page (a tracker behind a captcha, an aggregator that hides its source),
+    // ➤ the Adzuna link stays — it works, it is just one click longer.
+    if (!newOffers.length || args.includes('--no-rootlinks')) return;
+    const candidates = newOffers.filter(o => o.source === 'adzuna' && o._land);
+    rootTried = candidates.length;
+    const rootDupes = new Set();
+    const tasks = candidates.map(o => async () => {
+      const r = await resolveRoot(o._land, { get: rootGet, title: o.title });
+      if (!r.root || !isSafeUrl(r.root)) { o._rootWhy = r.reason; return; }
+      // ➤ The root is a page another source may already have brought: then this is the same
+      // ➤ offer twice, and the copy leaves.
+      if (seenUrls.has(normUrl(r.root))) { rootDupes.add(o); o._why = `already in your list under its own link (${r.root})`; return; }
+      seenUrls.add(normUrl(r.root));
+      o.via = o.url;
+      o.url = r.root;
+      rooted++;
+    });
+    await parallel(tasks, 3);
+    for (const o of newOffers) { delete o._land; delete o._rootWhy; }
+    if (rootDupes.size) {
+      if (explain) for (const o of rootDupes) logDrop('DUPLICATE', o._why, o);
+      const kept = newOffers.filter(o => !rootDupes.has(o));
+      newOffers.length = 0;
+      newOffers.push(...kept);
     }
   }
 
